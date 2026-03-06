@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ConverterHub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Dashboard</h1>
+  <p class="page-subtitle">Choose a converter below to begin processing.</p>
+</div>
+
+<!-- ── Converter cards ───────────────────────────────────────────────── -->
+<div class="grid-2">
+  {% for name, conv in converters.items() %}
+  <a href="/run/{{ name }}" class="converter-card">
+    <span class="converter-card-arrow">↗</span>
+    <div class="converter-card-name">{{ conv.label }}</div>
+    <div class="converter-card-desc">{{ conv.description }}</div>
+  </a>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:13px;">No converters are registered yet.</p>
+  {% endfor %}
+</div>
+
+<!-- ── Recent activity ───────────────────────────────────────────────── -->
+{% if recent_jobs %}
+<div class="divider"></div>
+<div class="flex-between" style="margin-bottom:16px;">
+  <h2 style="font-family:var(--font-display); font-size:20px; font-weight:400; color:var(--text);">
+    Recent Activity
+  </h2>
+  <a href="/history" class="btn btn-ghost" style="padding:6px 14px; font-size:11px;">
+    View all
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Converter</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in recent_jobs %}
+        <tr>
+          <td class="td-mono" style="color:var(--text-dim);">#{{ job.id }}</td>
+          <td class="td-primary">{{ converters[job.converter].label if job.converter in converters else job.converter }}</td>
+          <td style="font-size:12px;">{{ job.started_at.strftime('%d %b %Y, %H:%M') }}</td>
+          <td class="td-mono">
+            {% if job.duration_seconds is not none %}
+              {{ '%.0f'|format(job.duration_seconds) }}s
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{{ job.status_class }}">{{ job.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ConverterHub{% endblock %}</title>
+
+  <!-- Luxury typography: Cormorant Garamond (headings) + DM Sans (body) + JetBrains Mono (code) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+
+  <!-- HTMX for reactive form submission without a full JS framework -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2uH9/teh/OTBG3sNBFnMQ5Xu28HzBCE2Zc" crossorigin="anonymous"></script>
+  <!-- HTMX SSE extension for real-time log streaming -->
+  <script src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"></script>
+
+  <style>
+    /* ─── Design tokens ─────────────────────────────────────────────────────── */
+    :root {
+      --bg:           #080807;
+      --surface:      #0F0E0D;
+      --surface-2:    #161512;
+      --surface-3:    #1D1B18;
+      --border:       #242220;
+      --border-light: #2E2C28;
+      --text:         #EAE4D8;
+      --text-muted:   #7A7268;
+      --text-dim:     #3D3A34;
+      --accent:       #C4A87A;
+      --accent-dim:   #7A6A4A;
+      --accent-glow:  rgba(196,168,122,0.08);
+      --danger:       #8B3A3A;
+      --danger-text:  #D4837A;
+      --success:      #3A6B4A;
+      --success-text: #7AC49A;
+      --warning-text: #C4A03A;
+
+      --font-display: 'Cormorant Garamond', Georgia, serif;
+      --font-body:    'DM Sans', system-ui, sans-serif;
+      --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+      --radius:       2px;
+      --transition:   180ms ease;
+
+      --sidebar-w:    220px;
+    }
+
+    /* ─── Reset & base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { height: 100%; }
+
+    body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.6;
+      display: flex;
+      /* Subtle grain overlay for depth — pure CSS, no images needed */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    }
+
+    /* ─── Sidebar navigation ────────────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0;
+      z-index: 100;
+      padding: 0;
+    }
+
+    .sidebar-logo {
+      padding: 32px 24px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-logo-mark {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .sidebar-logo-sub {
+      font-size: 10px;
+      font-weight: 400;
+      color: var(--text-muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 20px 0;
+    }
+
+    .nav-section-label {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 16px 24px 8px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 24px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      transition: color var(--transition), background var(--transition);
+      border-left: 2px solid transparent;
+    }
+
+    .nav-link:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+
+    .nav-link.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    .nav-icon {
+      width: 14px;
+      height: 14px;
+      opacity: 0.6;
+      flex-shrink: 0;
+    }
+
+    .nav-link.active .nav-icon,
+    .nav-link:hover .nav-icon { opacity: 1; }
+
+    /* Converter links in nav */
+    .nav-link-converter {
+      padding-left: 38px;
+      font-size: 12px;
+    }
+
+    .sidebar-footer {
+      padding: 20px 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar {
+      width: 28px; height: 28px;
+      background: var(--surface-3);
+      border: 1px solid var(--border-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-size: 13px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .user-info { flex: 1; min-width: 0; }
+
+    .user-name {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+    }
+
+    .logout-btn {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color var(--transition);
+    }
+    .logout-btn:hover { color: var(--danger-text); }
+
+    /* ─── Main content area ─────────────────────────────────────────────────── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 48px 56px;
+      max-width: 1100px;
+    }
+
+    .page-header {
+      margin-bottom: 40px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-title {
+      font-family: var(--font-display);
+      font-size: 34px;
+      font-weight: 400;
+      color: var(--text);
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+    }
+
+    .page-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* ─── Cards ─────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--text);
+    }
+
+    .card-body { padding: 24px; }
+
+    /* ─── Form elements ─────────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 20px; }
+
+    .form-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .form-label .required { color: var(--accent); margin-left: 2px; }
+
+    .form-input,
+    .form-select {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 300;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      -webkit-appearance: none;
+    }
+
+    .form-input::placeholder { color: var(--text-dim); }
+    .form-input:focus,
+    .form-select:focus {
+      border-color: var(--accent-dim);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .form-number { width: 120px; }
+
+    .form-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+
+    /* Custom checkbox */
+    .checkbox-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 0;
+    }
+
+    .checkbox-input {
+      width: 16px; height: 16px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      cursor: pointer;
+      margin-top: 2px;
+      flex-shrink: 0;
+      accent-color: var(--accent);
+    }
+
+    .checkbox-label-wrap { flex: 1; }
+
+    .checkbox-label {
+      font-size: 13px;
+      color: var(--text);
+      display: block;
+      cursor: pointer;
+    }
+
+    /* ─── Buttons ────────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .btn-primary:hover {
+      background: #D4BA8A;
+      border-color: #D4BA8A;
+    }
+    .btn-primary:active { transform: translateY(1px); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border-color: var(--border-light);
+    }
+    .btn-ghost:hover {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger-text);
+      border-color: var(--danger);
+    }
+    .btn-danger:hover {
+      background: var(--danger);
+      color: var(--text);
+    }
+
+    .btn:disabled,
+    .btn[disabled] {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* HTMX loading indicator */
+    .htmx-request .btn-primary { opacity: 0.6; pointer-events: none; }
+
+    /* ─── Status badges ──────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 1px;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .badge::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .badge-running  { color: var(--warning-text); background: rgba(196,160,58,0.1); }
+    .badge-success  { color: var(--success-text); background: rgba(58,107,74,0.15); }
+    .badge-danger   { color: var(--danger-text);  background: rgba(139,58,58,0.15); }
+    .badge-muted    { color: var(--text-muted);   background: var(--surface-2); }
+
+    /* Pulsing dot for running status */
+    .badge-running::before {
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ─── Progress bar ───────────────────────────────────────────────────────── */
+    .progress-track {
+      width: 100%;
+      height: 2px;
+      background: var(--border-light);
+      border-radius: 1px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 1px;
+      transition: width 0.6s ease;
+    }
+
+    /* Indeterminate: smooth sweep when no progress info is available */
+    .progress-fill.indeterminate {
+      width: 30% !important;
+      animation: indeterminate 1.8s ease-in-out infinite;
+    }
+
+    @keyframes indeterminate {
+      0%   { transform: translateX(-200%); }
+      100% { transform: translateX(450%); }
+    }
+
+    /* ─── Log panel ──────────────────────────────────────────────────────────── */
+    .log-panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 300;
+      color: #A89880;
+      line-height: 1.7;
+      padding: 16px 20px;
+      max-height: 440px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Custom scrollbar for the log panel */
+    .log-panel::-webkit-scrollbar        { width: 4px; }
+    .log-panel::-webkit-scrollbar-track  { background: transparent; }
+    .log-panel::-webkit-scrollbar-thumb  { background: var(--border-light); border-radius: 2px; }
+
+    .log-line {
+      display: block;
+      padding: 1px 0;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .log-line-error { color: var(--danger-text); }
+
+    /* ─── Tables ─────────────────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      text-align: left;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background var(--transition);
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface-2); }
+
+    tbody td {
+      padding: 13px 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+      vertical-align: middle;
+    }
+
+    tbody td.td-primary { color: var(--text); }
+    tbody td.td-mono    { font-family: var(--font-mono); font-size: 11px; }
+
+    /* ─── Alerts ─────────────────────────────────────────────────────────────── */
+    .alert {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      border: 1px solid transparent;
+    }
+    .alert-danger {
+      background: rgba(139,58,58,0.12);
+      border-color: var(--danger);
+      color: var(--danger-text);
+    }
+    .alert-success {
+      background: rgba(58,107,74,0.12);
+      border-color: var(--success);
+      color: var(--success-text);
+    }
+
+    /* ─── Dividers & spacing helpers ─────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 28px 0;
+    }
+
+    .mt-sm { margin-top: 12px; }
+    .mt-md { margin-top: 20px; }
+    .mt-lg { margin-top: 32px; }
+
+    .flex         { display: flex; }
+    .flex-center  { display: flex; align-items: center; }
+    .flex-between { display: flex; align-items: center; justify-content: space-between; }
+    .gap-sm       { gap: 8px; }
+    .gap-md       { gap: 16px; }
+
+    /* ─── Grid layout for converter cards ────────────────────────────────────── */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .converter-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-decoration: none;
+      display: block;
+      transition: border-color var(--transition), background var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .converter-card::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 60px; height: 100%;
+      background: linear-gradient(to left, var(--accent-glow), transparent);
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+
+    .converter-card:hover {
+      border-color: var(--accent-dim);
+      background: var(--surface-2);
+    }
+
+    .converter-card:hover::after { opacity: 1; }
+
+    .converter-card-name {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .converter-card-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .converter-card-arrow {
+      position: absolute;
+      top: 24px; right: 24px;
+      color: var(--accent-dim);
+      font-size: 20px;
+      transition: transform var(--transition);
+    }
+
+    .converter-card:hover .converter-card-arrow { transform: translate(3px, -3px); }
+
+    /* ─── Pagination ─────────────────────────────────────────────────────────── */
+    .pagination {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-top: 24px;
+    }
+
+    .page-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      text-decoration: none;
+      background: var(--surface);
+      transition: all var(--transition);
+    }
+
+    .page-btn:hover { color: var(--text); border-color: var(--border-light); }
+    .page-btn.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+  </style>
+
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
+  {% if current_user is defined and current_user %}
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">ConverterHub</div>
+      <div class="sidebar-logo-sub">Data Processing Suite</div>
+    </div>
+
+    <div class="sidebar-nav">
+      <div class="nav-section-label">Overview</div>
+      <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="1.5" y="1.5" width="5" height="5" rx="0.5"/><rect x="9.5" y="1.5" width="5" height="5" rx="0.5"/>
+          <rect x="1.5" y="9.5" width="5" height="5" rx="0.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="0.5"/>
+        </svg>
+        Dashboard
+      </a>
+      <a href="/history" class="nav-link {% if '/history' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="6"/><path d="M8 5v3.5l2 1.5"/>
+        </svg>
+        History
+      </a>
+
+      <div class="nav-section-label">Converters</div>
+      {% for name, conv in converters.items() %}
+      <a href="/run/{{ name }}" class="nav-link nav-link-converter {% if '/run/' + name in request.url.path %}active{% endif %}">
+        {{ conv.label }}
+      </a>
+      {% endfor %}
+
+      {% if current_user.is_admin %}
+      <div class="nav-section-label">Admin</div>
+      <a href="/users" class="nav-link {% if '/users' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.314 2.686-6 6-6s6 2.686 6 6"/>
+        </svg>
+        Users
+      </a>
+      {% endif %}
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="user-pill">
+        <div class="user-avatar">{{ current_user.username[0].upper() }}</div>
+        <div class="user-info">
+          <div class="user-name">{{ current_user.username }}</div>
+          <div class="user-role">{{ current_user.role }}</div>
+        </div>
+        <a href="/logout" class="logout-btn" title="Sign out">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M11 8H3M3 8l3-3M3 8l3 3M9 3h3a1 1 0 011 1v8a1 1 0 01-1 1H9"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </nav>
+  {% endif %}
+
+  <!-- ── Page content ───────────────────────────────────────────────────── -->
+  <main class="main" {% if not (current_user is defined and current_user) %}style="margin-left:0;max-width:100%;display:flex;align-items:center;justify-content:center;min-height:100vh"{% endif %}>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    (function () {
+      function normaliseDateInput(rawValue) {
+        if (!rawValue) return "";
+        const value = String(rawValue).trim();
+        if (!value) return "";
+        if (/Z$|[+-]\d{2}:?\d{2}$/.test(value)) {
+          return value;
+        }
+        return value + "Z";
+      }
+
+      function formatLocalDateTimes(root) {
+        const scope = root || document;
+        const nodes = scope.querySelectorAll("[data-local-datetime]");
+        nodes.forEach((node) => {
+          const raw = node.getAttribute("data-local-datetime");
+          const parsed = new Date(normaliseDateInput(raw));
+          if (Number.isNaN(parsed.getTime())) {
+            return;
+          }
+          node.textContent = parsed.toLocaleString(undefined, {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+        });
+      }
+
+      function initializeJobPanel(panel) {
+        if (!panel || panel.dataset.sseInit === "1") {
+          return;
+        }
+
+        const streamUrl = panel.dataset.streamUrl;
+        if (!streamUrl) {
+          return;
+        }
+
+        panel.dataset.sseInit = "1";
+
+        const statusEl = panel.querySelector("#job-status");
+        const progressLabel = panel.querySelector("#progress-label");
+        const progressFillWrap = panel.querySelector("#progress-fill-wrap");
+        const logLines = panel.querySelector("#log-lines");
+
+        const appendLog = (html) => {
+          if (!logLines) return;
+          logLines.insertAdjacentHTML("beforeend", html);
+          logLines.scrollTop = logLines.scrollHeight;
+        };
+
+        let source;
+        try {
+          source = new EventSource(streamUrl);
+        } catch (err) {
+          appendLog('<span class="log-line log-line-error">Failed to open log stream.</span>');
+          return;
+        }
+
+        source.addEventListener("log", (event) => {
+          appendLog(event.data);
+        });
+
+        source.addEventListener("progress", (event) => {
+          const pct = parseInt(event.data, 10);
+          if (!Number.isNaN(pct)) {
+            if (progressLabel) progressLabel.textContent = pct + "%";
+            if (progressFillWrap) {
+              progressFillWrap.innerHTML = '<div class="progress-fill" style="width:' + pct + '%"></div>';
+            }
+          }
+        });
+
+        source.addEventListener("error", (event) => {
+          const data = event && typeof event.data === "string" ? event.data : "Stream error";
+          if (statusEl) {
+            statusEl.innerHTML = '<span class="badge badge-danger">Error</span>';
+          }
+          appendLog('<span class="log-line log-line-error">' + data + '</span>');
+          source.close();
+        });
+
+        source.addEventListener("done", (event) => {
+          const isSuccess = typeof event.data === "string" && event.data.indexOf("badge-success") !== -1;
+
+          if (statusEl) {
+            statusEl.innerHTML = event.data;
+          }
+          if (isSuccess && progressFillWrap) {
+            progressFillWrap.innerHTML = '<div class="progress-fill" style="width:100%"></div>';
+          }
+          if (isSuccess && progressLabel) {
+            progressLabel.textContent = "100%";
+          }
+
+          const panelId = panel.id || "";
+          const jobId = panelId.replace("job-panel-", "");
+          if (jobId) {
+            const recentRow = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+            const recentStatus = recentRow ? recentRow.querySelector("[data-recent-job-status]") : null;
+            if (recentStatus) {
+              recentStatus.className = isSuccess ? "badge badge-success" : "badge badge-danger";
+              recentStatus.textContent = isSuccess ? "success" : "failed";
+            }
+          }
+
+          source.close();
+
+          if (isSuccess) {
+            const outputRoot = panel.closest("#job-output");
+            if (outputRoot) {
+              const placeholderTemplate = document.getElementById("job-output-placeholder-template");
+              if (placeholderTemplate && "content" in placeholderTemplate) {
+                outputRoot.replaceChildren(placeholderTemplate.content.cloneNode(true));
+              } else {
+                outputRoot.innerHTML = '<div class="card" style="padding:40px 24px; text-align:center;"><div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">No job running</div><p style="font-size:12px; color:var(--text-dim);">Configure the parameters on the left and press Run.</p></div>';
+              }
+            }
+          }
+
+          try {
+            const currentUrl = new URL(window.location.href);
+            if (currentUrl.searchParams.has("job_id")) {
+              currentUrl.searchParams.delete("job_id");
+              window.history.replaceState({}, "", currentUrl.toString());
+            }
+          } catch (_) {
+          }
+        });
+
+        panel.addEventListener("remove", function () {
+          try { source.close(); } catch (_) {}
+        });
+      }
+
+      function initializeAllJobPanels(root) {
+        const scope = root || document;
+        const panels = scope.querySelectorAll('[id^="job-panel-"][data-stream-url]');
+        panels.forEach(initializeJobPanel);
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        formatLocalDateTimes(document);
+        initializeAllJobPanels(document);
+      });
+
+      document.body.addEventListener("htmx:afterSwap", function (evt) {
+        formatLocalDateTimes(evt.target || document);
+        initializeAllJobPanels(evt.target || document);
+      });
+
+      window.initializeAllJobPanels = initializeAllJobPanels;
+    })();
+  </script>
+
+</body>
+</html>

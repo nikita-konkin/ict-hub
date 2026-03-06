@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+bcrypt==4.2.1
+python-multipart==0.0.12
+jinja2==3.1.4
+docker==7.1.0
+itsdangerous==2.2.0
+starlette==0.41.3
+aiofiles==24.1.0

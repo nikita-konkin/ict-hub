@@ -1,0 +1,72 @@
+version: "3.9"
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # The ConverterHub web application
+  converter-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: converter-hub
+
+    restart: unless-stopped
+
+    ports:
+      # Map host port 8080 → container port 8000.
+      # Access the UI at http://localhost:8080 (or any LAN IP:8080).
+      - "8080:8000"
+
+    environment:
+      # ── Security (CHANGE THESE before exposing to a network) ──────────────
+      SECRET_KEY: "replace-me-with-a-random-32-char-string!!"
+      ADMIN_PASSWORD: "admin"           # password for the first-boot 'admin' user
+
+      # ── Database ─────────────────────────────────────────────────────────
+      DATABASE_URL: "sqlite:////app/data/converter_hub.db"
+
+      # ── Converter images ─────────────────────────────────────────────────
+      # Must match the image name you built with "docker build -t tecsuite ."
+      TECSUITE_IMAGE: "tec-suite"
+
+    volumes:
+      # ── Docker socket (REQUIRED) ─────────────────────────────────────────
+      # Mounting the socket lets this container start/stop/inspect other
+      # containers on the same Docker host. On Windows with Docker Desktop
+      # the socket path is the same as on Linux (Docker Desktop provides a
+      # Linux VM and exposes the standard Unix socket path).
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # ── Persistent database storage ───────────────────────────────────────
+      # All job records and user accounts are stored in SQLite inside this
+      # named volume. The volume persists across `docker-compose down` and
+      # `docker-compose up` cycles. Run `docker volume rm converter-hub_db`
+      # to wipe it completely.
+      - db:/app/data
+
+    # ── Resource limits ───────────────────────────────────────────────────
+    # The web service itself is very lightweight; these are conservative
+    # defaults for a local-network tool. Adjust freely.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/login')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  db:
+    driver: local
+    # Uncomment and set a host path if you want the DB at a specific location:
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: C:\converter-hub\data  # Windows example

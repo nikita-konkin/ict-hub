@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}History — ConverterHub{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+  <div>
+    <h1 class="page-title">Job History</h1>
+    <p class="page-subtitle">
+      {% if current_user.is_admin %}
+        All users · {{ total }} total runs
+      {% else %}
+        Your runs · {{ total }} total
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{% if jobs %}
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          {% if current_user.is_admin %}<th>User</th>{% endif %}
+          <th>Converter</th>
+          <th>Input Path</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Exit</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td class="td-mono" style="color:var(--text-dim);">#{{ job.id }}</td>
+          {% if current_user.is_admin %}
+          <td style="font-size:12px; color:var(--text-muted);">{{ job.user.username }}</td>
+          {% endif %}
+          <td class="td-primary">{{ converters[job.converter].label if converters is defined and job.converter in converters else job.converter }}</td>
+          <td class="td-mono" style="max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ job.rinex_path }}">
+            {{ job.rinex_path or '—' }}
+          </td>
+          <td style="font-size:12px;">{{ job.started_at.strftime('%d %b %Y') }}<br>
+            <span style="color:var(--text-dim);">{{ job.started_at.strftime('%H:%M:%S') }}</span>
+          </td>
+          <td class="td-mono">
+            {% if job.duration_seconds is not none %}
+              {{ '%.0f'|format(job.duration_seconds) }}s
+            {% else %}
+              <span style="color:var(--text-dim);">—</span>
+            {% endif %}
+          </td>
+          <td class="td-mono">
+            {% if job.exit_code is not none %}
+              <span style="color: {% if job.exit_code == 0 %}var(--success-text){% else %}var(--danger-text){% endif %}">
+                {{ job.exit_code }}
+              </span>
+            {% else %}
+              <span style="color:var(--text-dim);">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{{ job.status_class }}">{{ job.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="/history?page={{ page - 1 }}" class="page-btn">← Prev</a>
+  {% endif %}
+
+  {% for p in range(1, total_pages + 1) %}
+  <a href="/history?page={{ p }}" class="page-btn {% if p == page %}active{% endif %}">{{ p }}</a>
+  {% endfor %}
+
+  {% if page < total_pages %}
+  <a href="/history?page={{ page + 1 }}" class="page-btn">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="card" style="padding:60px 24px; text-align:center;">
+  <div style="font-family:var(--font-display); font-size:22px; color:var(--text-dim); margin-bottom:8px;">
+    No jobs recorded yet
+  </div>
+  <p style="font-size:13px; color:var(--text-dim);">
+    Run your first conversion from the <a href="/" style="color:var(--accent); text-decoration:none;">dashboard</a>.
+  </p>
+</div>
+{% endif %}
+{% endblock %}

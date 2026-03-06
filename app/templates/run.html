@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}{{ converter.label }} — ConverterHub{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+  <div>
+    <h1 class="page-title">{{ converter.label }}</h1>
+    <p class="page-subtitle">{{ converter.description }}</p>
+  </div>
+  <a href="/" class="btn btn-ghost">← Dashboard</a>
+</div>
+
+<!-- ── Two-column layout: form left, output right ─────────────────── -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start;">
+
+  <!-- Left: Flag configuration form -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Configuration</div>
+    </div>
+    <div class="card-body">
+      <form
+        method="post"
+        action="/jobs/start"
+        hx-post="/jobs/start"
+        hx-target="#job-output"
+        hx-swap="innerHTML"
+        hx-indicator="#run-indicator"
+        id="run-form"
+      >
+        <input type="hidden" name="converter_name" value="{{ converter_name }}">
+
+        {% for flag in converter.flags %}
+          {% set key = flag.long.lstrip('-').replace('-','_') %}
+
+          {% if flag.type == 'checkbox' %}
+          <div class="form-group">
+            <div class="checkbox-group">
+              <input
+                class="checkbox-input"
+                type="checkbox"
+                id="{{ key }}"
+                name="{{ key }}"
+                {% if flag.default %}checked{% endif %}
+              >
+              <div class="checkbox-label-wrap">
+                <label class="checkbox-label" for="{{ key }}">{{ flag.label }}</label>
+                {% if flag.help %}
+                <p class="form-hint">{{ flag.help }}</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {% elif flag.type == 'number' %}
+          <div class="form-group">
+            <label class="form-label" for="{{ key }}">
+              {{ flag.label }}
+              {% if flag.required %}<span class="required">*</span>{% endif %}
+            </label>
+            <input
+              class="form-input form-number"
+              type="number"
+              id="{{ key }}"
+              name="{{ key }}"
+              value="{{ flag.default if flag.default is not none else '' }}"
+              {% if flag.min is defined %}min="{{ flag.min }}"{% endif %}
+              {% if flag.max is defined %}max="{{ flag.max }}"{% endif %}
+              {% if flag.required %}required{% endif %}
+            >
+            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+          </div>
+
+          {% elif flag.type == 'select' %}
+          <div class="form-group">
+            <label class="form-label" for="{{ key }}">{{ flag.label }}</label>
+            <select class="form-select" id="{{ key }}" name="{{ key }}">
+              {% for opt in flag.options %}
+              <option value="{{ opt.0 }}" {% if flag.default == opt.0 %}selected{% endif %}>
+                {{ opt.1 }}
+              </option>
+              {% endfor %}
+            </select>
+            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+          </div>
+
+          {% else %}{# text #}
+          <div class="form-group">
+            <label class="form-label" for="{{ key }}">
+              {{ flag.label }}
+              {% if flag.required %}<span class="required">*</span>{% endif %}
+            </label>
+            <input
+              class="form-input"
+              type="text"
+              id="{{ key }}"
+              name="{{ key }}"
+              value="{{ flag.default or '' }}"
+              placeholder="e.g. {{ flag.help.split('.')[0] if flag.help else '' }}"
+              {% if flag.required %}required{% endif %}
+            >
+            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+          </div>
+          {% endif %}
+
+        {% endfor %}
+
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input
+              class="checkbox-input"
+              type="checkbox"
+              id="auto_remove"
+              name="auto_remove"
+            >
+            <div class="checkbox-label-wrap">
+              <label class="checkbox-label" for="auto_remove">Auto-remove container (--rm)</label>
+              <p class="form-hint">Remove the Docker container automatically after it exits.</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+          <button type="submit" class="btn btn-primary" id="run-btn">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4 2l10 6-10 6V2z"/>
+            </svg>
+            Run
+          </button>
+          <!-- Loading spinner shown during the HTMX request -->
+          <span id="run-indicator" class="htmx-indicator" style="font-size:12px; color:var(--text-muted);">
+            Starting container…
+          </span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Right: Job output panel (filled by HTMX after submission) -->
+  <div>
+    <div id="job-output">
+      {% if active_job %}
+      {% set job = active_job %}
+      {% include "job_panel.html" %}
+      {% else %}
+      <!-- Placeholder before a job has been submitted -->
+      <div class="card" style="padding:40px 24px; text-align:center;">
+        <div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">
+          No job running
+        </div>
+        <p style="font-size:12px; color:var(--text-dim);">
+          Configure the parameters on the left and press Run.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    <template id="job-output-placeholder-template">
+      <div class="card" style="padding:40px 24px; text-align:center;">
+        <div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">
+          No job running
+        </div>
+        <p style="font-size:12px; color:var(--text-dim);">
+          Configure the parameters on the left and press Run.
+        </p>
+      </div>
+    </template>
+
+    <!-- Recent jobs for this converter -->
+    {% if recent_jobs %}
+    <div style="margin-top:20px;">
+      <div class="card-header" style="padding:14px 16px;">
+        <div style="font-size:11px; font-weight:500; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">
+          Recent runs
+        </div>
+      </div>
+      {% for job in recent_jobs %}
+      <div
+        data-recent-job-id="{{ job.id }}"
+        style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); font-size:12px; color:var(--text-muted);"
+      >
+        <span class="td-mono" style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">
+          #{{ job.id }}
+        </span>
+        <span
+          class="recent-started-at"
+          data-local-datetime="{{ job.started_at.isoformat() }}"
+        >{{ job.started_at.strftime('%d %b, %H:%M') }}</span>
+        <span class="badge badge-{{ job.status_class }}" data-recent-job-status>{{ job.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<style>
+  /* Reveal the loading indicator only while HTMX request is in flight */
+  .htmx-indicator { display:none; }
+  .htmx-request .htmx-indicator { display:inline; }
+</style>
+{% endblock %}
