@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from app import config as cfg
 from app.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import JobRun, User
@@ -265,6 +266,7 @@ async def stream_job_logs(
 
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
+    log_emit_interval_sec = conv.get("log_emit_interval_sec", cfg.LOG_EMIT_INTERVAL_SEC) if conv else cfg.LOG_EMIT_INTERVAL_SEC
     auto_remove = False
     if job.flags_json:
         try:
@@ -305,6 +307,7 @@ async def stream_job_logs(
             async for event_type, payload in stream_logs(
                 job.container_id,
                 progress_patterns,
+                log_emit_interval_sec=float(log_emit_interval_sec),
                 auto_remove=auto_remove,
             ):
                 if event_type == "heartbeat":

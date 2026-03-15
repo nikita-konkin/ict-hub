@@ -19,6 +19,7 @@ import logging
 import queue
 import re
 import threading
+import time
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -66,6 +67,7 @@ def start_container(
 async def stream_logs(
     container_id: str,
     progress_patterns: list[str],
+    log_emit_interval_sec: float = 0.0,
     auto_remove: bool = False,
 ) -> AsyncGenerator[tuple[str, str | int], None]:
     """
@@ -128,6 +130,8 @@ async def stream_logs(
 
     loop = asyncio.get_event_loop()
     stream_exit_code: int | None = None
+    last_log_emit_at = 0.0
+    last_progress: int | None = None
 
     while True:
         # get() is blocking — run it in the executor to avoid blocking the loop
@@ -153,11 +157,15 @@ async def stream_logs(
         else:
             line = str(payload)
             if _line_matches_progress_patterns(line, progress_patterns):
-                yield ("log", html.escape(line))
+                now = time.monotonic()
+                if log_emit_interval_sec <= 0 or (now - last_log_emit_at) >= log_emit_interval_sec:
+                    yield ("log", html.escape(line))
+                    last_log_emit_at = now
 
             progress = parse_progress(line, progress_patterns)
-            if progress is not None:
+            if progress is not None and progress != last_progress:
                 yield ("progress", progress)
+                last_progress = progress
 
     # Container has finished writing logs — resolve final exit code.
     if stream_exit_code is not None:

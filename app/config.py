@@ -16,5 +16,11 @@ ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 # Docker image name for the tecsuite container
 TECSUITE_IMAGE: str = os.getenv("TECSUITE_IMAGE", "tec-suite")
 
+# Docker image name for the dat-parquet handler container
+DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "dat-parquet-handler")
+
+# Minimum time between emitted SSE log lines (seconds)
+LOG_EMIT_INTERVAL_SEC: float = float(os.getenv("LOG_EMIT_INTERVAL_SEC", "0.5"))
+
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))

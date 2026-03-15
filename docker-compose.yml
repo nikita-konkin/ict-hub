@@ -29,6 +29,7 @@ services:
       # ── Converter images ─────────────────────────────────────────────────
       # Must match the image name you built with "docker build -t tecsuite ."
       TECSUITE_IMAGE: "tec-suite"
+      DAT_PARQUET_IMAGE: "dat-parquet-handler"
 
     volumes:
       # ── Docker socket (REQUIRED) ─────────────────────────────────────────

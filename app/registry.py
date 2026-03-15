@@ -114,6 +114,69 @@ CONVERTERS: dict[str, dict] = {
             },
         ],
     },
+    "dat-parquet-handler": {
+        "image": cfg.DAT_PARQUET_IMAGE,
+        "label": "DAT <-> Parquet",
+        "description": (
+            "Converts tec-suite DAT files to Parquet format (or back), "
+            "preserving the source directory layout."
+        ),
+        "log_emit_interval_sec": 1.0,
+        "progress_patterns": [
+            # Example: "INFO: Completed 2618 / 15221"
+            r"Completed\s+(\d+)\s*/\s*(\d+)",
+            # Example: "INFO: Progress: 17%"
+            r"Progress:\s*(\d{1,3})\s*%",
+        ],
+        "container_volumes": {
+            "src": "/data/src",
+            "dst": "/data/dst",
+        },
+        "flags": [
+            {
+                "name": "--direction",
+                "long": "--direction",
+                "label": "Direction",
+                "type": "select",
+                "default": "dat-to-parquet",
+                "required": True,
+                "options": [
+                    ("dat-to-parquet", "DAT -> Parquet"),
+                    ("parquet-to-dat", "Parquet -> DAT"),
+                ],
+                "help": "Conversion direction.",
+            },
+            {
+                "name": "-s",
+                "long": "--src",
+                "label": "Source Directory (host path)",
+                "type": "text",
+                "default": "",
+                "required": True,
+                "is_volume": "src",
+                "help": "Host path to the source root directory.",
+            },
+            {
+                "name": "-d",
+                "long": "--dst",
+                "label": "Destination Directory (host path)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "is_volume": "dst",
+                "help": "Host path for output. Defaults to the same as source if left blank.",
+            },
+            {
+                "name": "--overwrite",
+                "long": "--overwrite",
+                "label": "Overwrite Existing Files",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": "Overwrite destination files if they already exist.",
+            },
+        ],
+    },
     # ── Add future converters here ────────────────────────────────────────────
     # "my_converter": {
     #     "image": "my-converter:latest",
