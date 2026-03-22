@@ -158,6 +158,10 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `ADMIN_PASSWORD`   | `admin`                                  | First-boot admin password                     |
 | `DATABASE_URL`     | `sqlite:////app/data/converter_hub.db`   | SQLAlchemy connection string                  |
 | `TECSUITE_IMAGE`   | `tecsuite`                               | Docker image name for TEC-Suite               |
+| `DAT_PARQUET_IMAGE`| `dat-parquet-handler`                    | Docker image name for DAT <-> Parquet         |
+| `ABSTEC_SUITE_IMAGE`| `abstec-suite:latest`                   | Docker image name for AbsTEC Suite            |
+| `ANALYSIS_API_BASE_URL` | ``                                   | Base URL of TEC Analysis Backend (e.g. `http://tec-backend:8000`) |
+| `ANALYSIS_API_TIMEOUT_SEC` | `45`                              | Timeout for proxied analysis API requests     |
 
 ---
 

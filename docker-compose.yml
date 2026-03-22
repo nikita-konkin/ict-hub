@@ -31,6 +31,14 @@ services:
       TECSUITE_IMAGE: "tec-suite"
       DAT_PARQUET_IMAGE: "dat-parquet-handler"
 
+      # ── External data-analysis API (TEC backend) ───────────────────────
+      # Example when analysis service is another compose service:
+      # ANALYSIS_API_BASE_URL: "http://tec-backend:8000"
+      # If TEC backend runs on the Docker host machine, use host.docker.internal
+      # (localhost inside this container points to converter-hub itself).
+      ANALYSIS_API_BASE_URL: "http://host.docker.internal:8000"
+      ANALYSIS_API_TIMEOUT_SEC: "45"
+
     volumes:
       # ── Docker socket (REQUIRED) ─────────────────────────────────────────
       # Mounting the socket lets this container start/stop/inspect other

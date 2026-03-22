@@ -24,7 +24,7 @@
         action="/jobs/start"
         hx-post="/jobs/start"
         hx-target="#job-output"
-        hx-swap="innerHTML"
+        hx-swap="afterbegin"
         hx-indicator="#run-indicator"
         id="run-form"
       >
@@ -141,10 +141,11 @@
     <div id="job-output">
       {% if active_job %}
       {% set job = active_job %}
+      {% set stream_url = '/jobs/' ~ job.id ~ '/stream?tail=' ~ active_stream_tail %}
       {% include "job_panel.html" %}
       {% else %}
-      <!-- Placeholder before a job has been submitted -->
-      <div class="card" style="padding:40px 24px; text-align:center;">
+      <!-- Placeholder shown when no panels are active (hidden by JS when panels exist) -->
+      <div class="card job-output-placeholder" style="padding:40px 24px; text-align:center;">
         <div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">
           No job running
         </div>
@@ -156,7 +157,7 @@
     </div>
 
     <template id="job-output-placeholder-template">
-      <div class="card" style="padding:40px 24px; text-align:center;">
+      <div class="card job-output-placeholder" style="padding:40px 24px; text-align:center;">
         <div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">
           No job running
         </div>
@@ -166,31 +167,44 @@
       </div>
     </template>
 
-    <!-- Recent jobs for this converter -->
-    {% if recent_jobs %}
-    <div style="margin-top:20px;">
+    <!-- Recent jobs for this converter — always rendered so JS can prepend new rows -->
+    <div style="margin-top:20px;" id="recent-runs-section">
       <div class="card-header" style="padding:14px 16px;">
         <div style="font-size:11px; font-weight:500; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">
           Recent runs
         </div>
       </div>
-      {% for job in recent_jobs %}
-      <div
-        data-recent-job-id="{{ job.id }}"
-        style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); font-size:12px; color:var(--text-muted);"
-      >
-        <span class="td-mono" style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">
-          #{{ job.id }}
-        </span>
-        <span
-          class="recent-started-at"
-          data-local-datetime="{{ job.started_at.isoformat() }}"
-        >{{ job.started_at.strftime('%d %b, %H:%M') }}</span>
-        <span class="badge badge-{{ job.status_class }}" data-recent-job-status>{{ job.status }}</span>
+      <div id="recent-runs-body">
+        {% for job in recent_jobs %}
+        <div
+          data-recent-job-id="{{ job.id }}"
+          data-recent-job-running="{{ '1' if job.status == 'running' else '0' }}"
+          style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); font-size:12px; color:var(--text-muted);"
+        >
+          <span class="td-mono" style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">
+            #{{ job.id }}
+          </span>
+          <span
+            class="recent-started-at"
+            data-local-datetime="{{ job.started_at.isoformat() }}"
+          >{{ job.started_at.strftime('%d %b, %H:%M') }}</span>
+          <span class="badge badge-{{ job.status_class }}" data-recent-job-status>{{ job.status }}</span>
+          <span
+            data-recent-job-progress
+            style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);"
+            {% if job.status != 'running' %}hidden{% endif %}
+          >—</span>
+          <a
+            href="/run/{{ converter_name }}?job_id={{ job.id }}&resume=1"
+            class="btn btn-ghost"
+            style="padding:4px 10px; font-size:10px;"
+          >Open</a>
+        </div>
+        {% else %}
+        <div class="recent-runs-empty" style="padding:12px 16px; font-size:12px; color:var(--text-dim);">No recent runs yet.</div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
-    {% endif %}
   </div>
 
 </div>

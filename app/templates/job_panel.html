@@ -1,19 +1,18 @@
 <!--
   job_panel.html — HTMX fragment (not a full page).
 
-  This snippet is returned by POST /jobs/start and swapped into #job-output
-  by HTMX. The hx-ext="sse" attribute causes the HTMX SSE extension to
-  immediately open an event-stream connection to /jobs/{id}/stream.
-
-  Event routing (sse-swap attribute on child elements):
-    "log"      → appended to #log-lines
-    "progress" → replaces inner content of #progress-fill-wrap
-    "done"     → replaces #job-status, sse-close closes the connection
-    "error"    → replaces #job-status
+  Multiple panels can be active simultaneously; all IDs are scoped to job.id
+  so they never collide. Each panel manages its own EventSource independently.
 -->
-<div id="job-panel-{{ job.id }}" data-stream-url="/jobs/{{ job.id }}/stream">
+<div id="job-panel-{{ job.id }}"
+  data-stream-url="{{ stream_url if stream_url is defined else '/jobs/' ~ job.id ~ '/stream' }}"
+     data-job-id="{{ job.id }}"
+  data-job-running="{{ '1' if job.status == 'running' else '0' }}"
+     data-started-at="{{ job.started_at.isoformat() }}"
+     data-converter-label="{{ converter.label }}"
+     style="margin-bottom:16px;">
 
-  <!-- Header row: job metadata + stop button -->
+  <!-- Header row: job metadata + stop / dismiss buttons -->
   <div class="card" style="margin-bottom:16px;">
     <div class="card-body" style="padding:16px 20px;">
       <div class="flex-between">
@@ -27,33 +26,49 @@
         </div>
 
         <div class="flex-center gap-sm">
-          <!-- Status badge — swapped by the "done" SSE event -->
-          <div id="job-status">
+          <!-- Status badge — updated by JS on SSE "done" event -->
+          <div id="job-status-{{ job.id }}">
+            {% if job.status == "running" %}
             <span class="badge badge-running">Running</span>
+            {% elif job.status == "success" %}
+            <span class="badge badge-success">Success</span>
+            {% else %}
+            <span class="badge badge-danger">{{ job.status }}</span>
+            {% endif %}
           </div>
 
-          <!-- Stop button: POST without HTMX navigation (full redirect) -->
+          <!-- Stop button: full-page POST -->
+          {% if job.status == "running" %}
           <form method="POST" action="/jobs/{{ job.id }}/stop" style="display:inline;">
             <button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:11px;">
               Stop
             </button>
           </form>
+          {% endif %}
+
+          <!-- Dismiss button: removes this panel without navigating away -->
+          <button
+            type="button"
+            class="btn btn-ghost"
+            style="padding:6px 10px; font-size:13px; line-height:1;"
+            title="Dismiss panel"
+            onclick="if(window.dismissJobPanel){window.dismissJobPanel(this.closest('[id^=job-panel-]'))}"
+          >×</button>
         </div>
       </div>
 
-      <!-- Progress bar — swapped by "progress" events -->
+      <!-- Progress bar -->
       <div style="margin-top:14px;">
         <div class="flex-between" style="margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-dim); letter-spacing:0.1em; text-transform:uppercase;">
             Progress
           </span>
-          <span id="progress-label" style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">
+          <span id="progress-label-{{ job.id }}" style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">
             —
           </span>
         </div>
         <div class="progress-track">
-          <div id="progress-fill-wrap" style="height:100%;">
-            <!-- Indeterminate animation until real progress arrives -->
+          <div id="progress-fill-wrap-{{ job.id }}" style="height:100%;">
             <div class="progress-fill indeterminate"></div>
           </div>
         </div>
@@ -68,6 +83,7 @@
         Log output
       </span>
       <button
+        type="button"
         onclick="(function(btn){const panel=btn.closest('[id^=job-panel-]');const el=panel&&panel.querySelector('.log-panel');if(el){el.scrollTop=el.scrollHeight;}})(this)"
         class="btn btn-ghost"
         style="padding:3px 10px; font-size:10px;"
@@ -77,7 +93,7 @@
     </div>
 
     <div
-      id="log-lines"
+      id="log-lines-{{ job.id }}"
       class="log-panel"
     >
       <span class="log-line" style="color:var(--text-dim);">Connecting to container…</span>

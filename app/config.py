@@ -19,8 +19,15 @@ TECSUITE_IMAGE: str = os.getenv("TECSUITE_IMAGE", "tec-suite")
 # Docker image name for the dat-parquet handler container
 DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "dat-parquet-handler")
 
+# Docker image name for the AbsTEC Suite container
+ABSTEC_SUITE_IMAGE: str = os.getenv("ABSTEC_SUITE_IMAGE", "abstec-suite:latest")
+
 # Minimum time between emitted SSE log lines (seconds)
 LOG_EMIT_INTERVAL_SEC: float = float(os.getenv("LOG_EMIT_INTERVAL_SEC", "0.5"))
 
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
+
+# External data-analysis API integration (TEC backend)
+ANALYSIS_API_BASE_URL: str = os.getenv("ANALYSIS_API_BASE_URL", "")
+ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "45"))

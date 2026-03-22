@@ -1,0 +1,751 @@
+{% extends "base.html" %}
+{% block title %}Data Analysis — ConverterHub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Data Analysis</h1>
+  <p class="page-subtitle">Query TEC data, preview pivot summaries, and render plots from the analysis backend.</p>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Backend status</div>
+        {% if analysis_api_enabled %}
+        <div style="margin-top:6px; font-size:13px; color:var(--success-text);">Configured</div>
+        <div style="margin-top:4px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">{{ analysis_api_base_url }}</div>
+        {% else %}
+        <div style="margin-top:6px; font-size:13px; color:var(--danger-text);">Not configured</div>
+        <div style="margin-top:4px; font-size:12px; color:var(--text-muted);">Set ANALYSIS_API_BASE_URL in environment and restart ConverterHub.</div>
+        {% endif %}
+      </div>
+      <a href="/docs" class="btn btn-ghost">ConverterHub Docs</a>
+    </div>
+  </div>
+</div>
+
+<div class="grid-2" style="align-items:start;">
+  <div class="card" id="data-query-card">
+    <div class="card-header"><div class="card-title">Data Query Builder</div></div>
+    <div class="card-body">
+      <form id="analysis-data-form" style="display:grid; gap:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="data-endpoint">Endpoint</label>
+          <select id="data-endpoint" class="form-select">
+            <optgroup label="AbsolTEC">
+              <option value="absoltec/stations">GET /absoltec/stations — List Stations</option>
+              <option value="absoltec/days">GET /absoltec/days — List Days</option>
+              <option value="absoltec/raw" selected>GET /absoltec/raw — Raw Data</option>
+              <option value="absoltec/statistics">GET /absoltec/statistics — Statistics</option>
+              <option value="absoltec/statistics/per-station-day">GET /absoltec/statistics/per-station-day — Statistics Per Station Day</option>
+            </optgroup>
+            <optgroup label="TEC-suite">
+              <option value="tec/stations">GET /tec/stations — Stations With Meta</option>
+              <option value="tec/satellites">GET /tec/satellites — Satellites</option>
+              <option value="tec/data">GET /tec/data — Satellite Data</option>
+            </optgroup>
+            <optgroup label="Stations">
+              <option value="stations/available">GET /stations/available — Available Stations</option>
+              <option value="stations/map">GET /stations/map — Station Map</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-year">Year</label>
+            <input id="data-year" class="form-input" type="number" value="2026" min="2000" max="2100">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-doy">DOY</label>
+            <input id="data-doy" class="form-input" type="number" value="1" min="1" max="366">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-doy-start">DOY Start</label>
+            <input id="data-doy-start" class="form-input" type="number" value="1" min="1" max="366">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-doy-end">DOY End</label>
+            <input id="data-doy-end" class="form-input" type="number" value="10" min="1" max="366">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-station">Station</label>
+            <input id="data-station" class="form-input" type="text" value="aksu">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-satellite">Satellite</label>
+            <input id="data-satellite" class="form-input" type="text" value="E07">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-stations">Stations (CSV list)</label>
+            <input id="data-stations" class="form-input" type="text" value="aksu,arsk">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-source">Source</label>
+            <select id="data-source" class="form-select">
+              <option value="both">both</option>
+              <option value="absoltec">absoltec</option>
+              <option value="tec">tec</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-alpha">Alpha</label>
+            <input id="data-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-format">Format</label>
+            <select id="data-format" class="form-select">
+              <option value="json">json</option>
+              <option value="csv">csv</option>
+              <option value="xlsx">xlsx</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
+          <button type="submit" class="btn btn-primary">Run Data Query</button>
+          <button type="button" id="data-open-new" class="btn btn-ghost">Open In New Tab</button>
+        </div>
+      </form>
+
+      <div id="data-query-url" style="margin-top:12px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);"></div>
+      <div id="data-query-msg" style="margin-top:8px; font-size:12px; color:var(--text-muted);"></div>
+    </div>
+  </div>
+
+  <div class="card" id="plot-query-card">
+    <div class="card-header"><div class="card-title">Plot Viewer</div></div>
+    <div class="card-body">
+      <form id="analysis-plot-form" style="display:grid; gap:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="plot-endpoint">Plot Endpoint</label>
+          <select id="plot-endpoint" class="form-select">
+            <optgroup label="Plots">
+              <option value="plots/absoltec/average">GET /plots/absoltec/average — Plot Absoltec Average</option>
+              <option value="plots/absoltec/day">GET /plots/absoltec/day — Plot Absoltec Day</option>
+              <option value="plots/absoltec/multi-station">GET /plots/absoltec/multi-station — Plot Absoltec Multi Station</option>
+              <option value="plots/absoltec/per-station-averages">GET /plots/absoltec/per-station-averages/{doy} — Plot Absoltec Per Station Avg</option>
+              <option value="plots/tec/satellite">GET /plots/tec/satellite — Plot Tec Satellite</option>
+              <option value="plots/tec/sky-track">GET /plots/tec/sky-track — Plot Tec Sky</option>
+              <option value="plots/tec/all-satellites">GET /plots/tec/all-satellites — Plot Tec All Satellites</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-year">Year</label>
+            <input id="plot-year" class="form-input" type="number" value="2026" min="2000" max="2100">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-doy">DOY</label>
+            <input id="plot-doy" class="form-input" type="number" value="1" min="1" max="366">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-doy-start">DOY Start</label>
+            <input id="plot-doy-start" class="form-input" type="number" value="1" min="1" max="366">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-doy-end">DOY End</label>
+            <input id="plot-doy-end" class="form-input" type="number" value="10" min="1" max="366">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-station">Station</label>
+            <input id="plot-station" class="form-input" type="text" value="aksu">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-satellite">Satellite</label>
+            <input id="plot-satellite" class="form-input" type="text" value="E07">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="plot-stations">Stations (CSV list)</label>
+          <input id="plot-stations" class="form-input" type="text" value="aksu,arsk">
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="plot-format">Format</label>
+          <select id="plot-format" class="form-select">
+            <option value="png">png</option>
+            <option value="json">json</option>
+            <option value="script">script</option>
+          </select>
+        </div>
+
+        <div class="divider" style="margin:4px 0 0;"></div>
+        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Plot Options</div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-show-ci">show_ci</label>
+            <select id="plot-show-ci" class="form-select">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-show-var">show_var</label>
+            <select id="plot-show-var" class="form-select">
+              <option value="false" selected>false</option>
+              <option value="true">true</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-width-px">width_px</label>
+            <input id="plot-width-px" class="form-input" type="number" min="400" max="4000" value="1200">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-height-px">height_px</label>
+            <input id="plot-height-px" class="form-input" type="number" min="300" max="4000" value="600">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-dpi">dpi</label>
+            <input id="plot-dpi" class="form-input" type="number" min="72" max="300" value="100">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-smooth">smooth</label>
+            <select id="plot-smooth" class="form-select">
+              <option value="false" selected>false</option>
+              <option value="true">true</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-poly">poly</label>
+            <input id="plot-poly" class="form-input" type="number" min="2" max="6" value="3">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-size-px">size_px</label>
+            <input id="plot-size-px" class="form-input" type="number" min="300" max="4000" value="600">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-column">column</label>
+            <select id="plot-column" class="form-select">
+              <option value="tec_l1l2" selected>tec_l1l2</option>
+              <option value="tec_c1p2">tec_c1p2</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-valid-only">valid_only</label>
+            <select id="plot-valid-only" class="form-select">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-color-by-tec">color_by_tec</label>
+            <select id="plot-color-by-tec" class="form-select">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
+          <button type="submit" class="btn btn-primary">Render Plot</button>
+          <button type="button" id="plot-open-new" class="btn btn-ghost">Open In New Tab</button>
+        </div>
+      </form>
+
+      <div id="plot-query-url" style="margin-top:12px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <div class="card-header"><div class="card-title">Data Preview</div></div>
+  <div class="card-body">
+    <div id="data-preview-empty" style="font-size:12px; color:var(--text-muted);">Run a JSON query to preview rows and pivot summary.</div>
+
+    <div id="data-preview-wrap" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; flex-wrap:wrap;">
+        <div style="font-size:12px; color:var(--text-muted);">Rows: <span id="preview-row-count" style="color:var(--text);">0</span></div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <select id="pivot-group" class="form-select" style="width:auto; min-width:120px;"></select>
+          <select id="pivot-value" class="form-select" style="width:auto; min-width:120px;"></select>
+          <select id="pivot-agg" class="form-select" style="width:auto; min-width:100px;">
+            <option value="sum">sum</option>
+            <option value="avg">avg</option>
+            <option value="count">count</option>
+          </select>
+          <button type="button" id="pivot-run" class="btn btn-ghost" style="padding:6px 10px; font-size:10px;">Pivot</button>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="max-height:280px; border:1px solid var(--border); border-radius:var(--radius);">
+        <table id="data-preview-table"></table>
+      </div>
+
+      <div style="margin-top:14px; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Pivot Preview</div>
+      <div class="table-wrap" style="max-height:220px; border:1px solid var(--border); border-radius:var(--radius); margin-top:8px;">
+        <table id="pivot-preview-table"></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <div class="card-header"><div class="card-title">Plot Output</div></div>
+  <div class="card-body">
+    <div id="plot-empty" style="font-size:12px; color:var(--text-muted);">Run a plot query to render PNG or inspect JSON series.</div>
+    <div id="plot-viewer" style="display:none;">
+      <img id="plot-image" alt="Plot preview" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:none;">
+      <canvas id="plot-canvas" width="1000" height="300" style="width:100%; height:300px; border:1px solid var(--border); border-radius:var(--radius); display:none; background:var(--surface-2);"></canvas>
+      <pre id="plot-json" style="display:none; margin-top:10px; max-height:220px; overflow:auto; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; color:var(--text-muted); font-size:11px;"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const analysisEnabled = "{{ 'true' if analysis_api_enabled else 'false' }}" === "true";
+    if (!analysisEnabled) {
+      return;
+    }
+
+    const state = {
+      rows: [],
+      lastDataUrl: "",
+      lastPlotUrl: "",
+    };
+
+    function clean(value) {
+      return String(value || "").trim();
+    }
+
+    function qpAppend(params, key, value) {
+      const v = clean(value);
+      if (v !== "") params.append(key, v);
+    }
+
+    function qpAppendCsvArray(params, key, value) {
+      const items = clean(value)
+        .split(",")
+        .map((v) => v.trim())
+        .filter((v) => v !== "");
+      for (const item of items) {
+        params.append(key, item);
+      }
+    }
+
+    function buildDataUrl() {
+      const endpoint = document.getElementById("data-endpoint").value;
+      const params = new URLSearchParams();
+      const year = document.getElementById("data-year").value;
+      const doy = document.getElementById("data-doy").value;
+      const doyStart = document.getElementById("data-doy-start").value;
+      const doyEnd = document.getElementById("data-doy-end").value;
+      const station = document.getElementById("data-station").value;
+      const satellite = document.getElementById("data-satellite").value;
+      const source = document.getElementById("data-source").value;
+      const alpha = document.getElementById("data-alpha").value;
+
+      qpAppend(params, "year", year);
+
+      if (endpoint === "absoltec/stations" || endpoint === "tec/stations" || endpoint === "stations/available" || endpoint === "stations/map" || endpoint === "absoltec/raw" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+        qpAppend(params, "doy", doy);
+      }
+      if (endpoint === "absoltec/days" || endpoint === "absoltec/raw" || endpoint === "absoltec/statistics" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+        qpAppend(params, "station", station);
+      }
+      if (endpoint === "absoltec/statistics" || endpoint === "absoltec/statistics/per-station-day") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "alpha", alpha);
+      }
+      if (endpoint === "absoltec/statistics/per-station-day") {
+        qpAppendCsvArray(params, "stations", document.getElementById("data-stations").value);
+      }
+      if (endpoint === "tec/data") {
+        qpAppend(params, "satellite", satellite);
+      }
+      if (endpoint === "stations/available") {
+        qpAppend(params, "source", source);
+      }
+
+      qpAppend(params, "format", document.getElementById("data-format").value);
+      return "/analysis/api/" + endpoint + "?" + params.toString();
+    }
+
+    function buildPlotUrl() {
+      const endpointName = document.getElementById("plot-endpoint").value;
+      const doyPath = clean(document.getElementById("plot-doy").value) || "1";
+      const endpoint = endpointName === "plots/absoltec/per-station-averages"
+        ? endpointName + "/" + encodeURIComponent(doyPath)
+        : endpointName;
+      const params = new URLSearchParams();
+      qpAppend(params, "year", document.getElementById("plot-year").value);
+      const doy = document.getElementById("plot-doy").value;
+      const doyStart = document.getElementById("plot-doy-start").value;
+      const doyEnd = document.getElementById("plot-doy-end").value;
+      const station = document.getElementById("plot-station").value;
+      const satellite = document.getElementById("plot-satellite").value;
+      const stations = document.getElementById("plot-stations").value;
+
+      if (endpointName === "plots/absoltec/average") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+        qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+      } else if (endpointName === "plots/absoltec/day") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+        qpAppend(params, "poly", document.getElementById("plot-poly").value);
+      } else if (endpointName === "plots/absoltec/multi-station") {
+        qpAppend(params, "doy", doy);
+        qpAppendCsvArray(params, "stations", stations);
+        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+        qpAppend(params, "poly", document.getElementById("plot-poly").value);
+      } else if (endpointName === "plots/absoltec/per-station-averages") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppendCsvArray(params, "stations", stations);
+        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+        qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+      } else if (endpointName === "plots/tec/satellite") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+        qpAppend(params, "satellite", satellite);
+        qpAppend(params, "column", document.getElementById("plot-column").value);
+        qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+      } else if (endpointName === "plots/tec/sky-track") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+        qpAppend(params, "satellite", satellite);
+        qpAppend(params, "color_by_tec", document.getElementById("plot-color-by-tec").value);
+        qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+        qpAppend(params, "size_px", document.getElementById("plot-size-px").value);
+      } else if (endpointName === "plots/tec/all-satellites") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+        qpAppend(params, "column", document.getElementById("plot-column").value);
+        qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+      }
+
+      qpAppend(params, "width_px", document.getElementById("plot-width-px").value);
+      qpAppend(params, "height_px", document.getElementById("plot-height-px").value);
+      qpAppend(params, "dpi", document.getElementById("plot-dpi").value);
+      qpAppend(params, "format", document.getElementById("plot-format").value);
+      return "/analysis/api/" + endpoint + "?" + params.toString();
+    }
+
+    function flattenAny(input) {
+      if (Array.isArray(input)) return input;
+      if (!input || typeof input !== "object") return [{ value: input }];
+
+      if (input.series && typeof input.series === "object") {
+        const keys = Object.keys(input.series);
+        const maxLen = keys.reduce((m, k) => Math.max(m, Array.isArray(input.series[k]) ? input.series[k].length : 0), 0);
+        const rows = [];
+        for (let i = 0; i < maxLen; i += 1) {
+          const row = {};
+          for (const k of keys) {
+            const arr = Array.isArray(input.series[k]) ? input.series[k] : [];
+            row[k] = arr[i];
+          }
+          rows.push(row);
+        }
+        return rows;
+      }
+
+      const listKeys = Object.keys(input).filter((k) => Array.isArray(input[k]));
+      if (listKeys.length > 0) {
+        const rows = [];
+        for (const key of listKeys) {
+          for (const item of input[key]) {
+            if (item && typeof item === "object" && !Array.isArray(item)) {
+              rows.push({ collection: key, ...item });
+            } else {
+              rows.push({ collection: key, value: item });
+            }
+          }
+        }
+        return rows;
+      }
+
+      return [input];
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderTable(tableEl, rows, maxRows) {
+      if (!tableEl) return;
+      const limited = rows.slice(0, maxRows);
+      const cols = Array.from(new Set(limited.flatMap((r) => Object.keys(r))));
+      if (cols.length === 0) {
+        tableEl.innerHTML = "";
+        return;
+      }
+      let html = "<thead><tr>";
+      for (const col of cols) html += "<th>" + escapeHtml(col) + "</th>";
+      html += "</tr></thead><tbody>";
+      for (const row of limited) {
+        html += "<tr>";
+        for (const col of cols) {
+          const value = row[col] == null ? "" : row[col];
+          html += "<td>" + escapeHtml(value) + "</td>";
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      tableEl.innerHTML = html;
+    }
+
+    function setupPivotSelectors(rows) {
+      const cols = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
+      const groupSelect = document.getElementById("pivot-group");
+      const valueSelect = document.getElementById("pivot-value");
+      const numericCols = cols.filter((c) => rows.some((r) => typeof r[c] === "number" || (!isNaN(Number(r[c])) && r[c] !== null && r[c] !== "")));
+
+      groupSelect.innerHTML = cols.map((c) => "<option value=\"" + escapeHtml(c) + "\">group: " + escapeHtml(c) + "</option>").join("");
+      valueSelect.innerHTML = numericCols.map((c) => "<option value=\"" + escapeHtml(c) + "\">value: " + escapeHtml(c) + "</option>").join("");
+    }
+
+    function runPivot() {
+      const rows = state.rows;
+      if (!rows.length) return;
+      const groupBy = document.getElementById("pivot-group").value;
+      const valueCol = document.getElementById("pivot-value").value;
+      const agg = document.getElementById("pivot-agg").value;
+
+      const acc = new Map();
+      for (const row of rows) {
+        const key = row[groupBy] == null ? "(null)" : String(row[groupBy]);
+        const val = Number(row[valueCol]);
+        const item = acc.get(key) || { group: key, sum: 0, count: 0 };
+        if (!isNaN(val)) item.sum += val;
+        item.count += 1;
+        acc.set(key, item);
+      }
+
+      const out = Array.from(acc.values()).map((it) => {
+        if (agg === "count") return { [groupBy]: it.group, count: it.count };
+        if (agg === "avg") return { [groupBy]: it.group, avg: it.count ? it.sum / it.count : 0 };
+        return { [groupBy]: it.group, sum: it.sum };
+      });
+      renderTable(document.getElementById("pivot-preview-table"), out, 200);
+    }
+
+    async function runDataQuery() {
+      const msg = document.getElementById("data-query-msg");
+      const format = document.getElementById("data-format").value;
+      const url = buildDataUrl();
+      state.lastDataUrl = url;
+      document.getElementById("data-query-url").textContent = url;
+
+      if (format !== "json") {
+        window.open(url, "_blank");
+        msg.textContent = "Download opened in new tab.";
+        return;
+      }
+
+      msg.textContent = "Loading...";
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) {
+          msg.textContent = "Request failed: " + res.status;
+          return;
+        }
+        const payload = await res.json();
+        const rows = flattenAny(payload);
+        state.rows = rows;
+
+        document.getElementById("data-preview-empty").style.display = "none";
+        document.getElementById("data-preview-wrap").style.display = "block";
+        document.getElementById("preview-row-count").textContent = String(rows.length);
+        renderTable(document.getElementById("data-preview-table"), rows, 200);
+        setupPivotSelectors(rows);
+        runPivot();
+        msg.textContent = "Loaded " + rows.length + " rows.";
+      } catch (err) {
+        msg.textContent = "Error: " + err;
+      }
+    }
+
+    function drawSeriesOnCanvas(series, canvas) {
+      if (!canvas || !series) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const x = Array.isArray(series.ut) ? series.ut : null;
+      const yKey = Object.keys(series).find((k) => k !== "ut" && Array.isArray(series[k]));
+      const y = yKey ? series[yKey] : null;
+      if (!x || !y || x.length === 0 || y.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      const yNums = y.map((v) => Number(v)).filter((v) => !isNaN(v));
+      if (!yNums.length) return;
+      const yMin = Math.min.apply(null, yNums);
+      const yMax = Math.max.apply(null, yNums);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#C4A87A";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const pad = 30;
+      for (let i = 0; i < x.length; i += 1) {
+        const xv = Number(x[i]);
+        const yv = Number(y[i]);
+        if (isNaN(xv) || isNaN(yv)) continue;
+        const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2);
+        const py = pad + (1 - ((yv - yMin) / Math.max(1e-9, yMax - yMin))) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    async function runPlotQuery() {
+      const format = document.getElementById("plot-format").value;
+      const url = buildPlotUrl();
+      state.lastPlotUrl = url;
+      document.getElementById("plot-query-url").textContent = url;
+
+      const viewer = document.getElementById("plot-viewer");
+      const empty = document.getElementById("plot-empty");
+      const img = document.getElementById("plot-image");
+      const pre = document.getElementById("plot-json");
+      const canvas = document.getElementById("plot-canvas");
+
+      if (format === "script") {
+        window.open(url, "_blank");
+        return;
+      }
+
+      viewer.style.display = "block";
+      empty.style.display = "none";
+      img.style.display = "none";
+      pre.style.display = "none";
+      canvas.style.display = "none";
+
+      if (format === "png") {
+        img.src = url + "&_t=" + Date.now();
+        img.style.display = "block";
+        return;
+      }
+
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) {
+          pre.textContent = "Request failed: " + res.status;
+          pre.style.display = "block";
+          return;
+        }
+        const payload = await res.json();
+        pre.textContent = JSON.stringify(payload, null, 2);
+        pre.style.display = "block";
+        if (payload.series && typeof payload.series === "object") {
+          canvas.style.display = "block";
+          drawSeriesOnCanvas(payload.series, canvas);
+        }
+      } catch (err) {
+        pre.textContent = "Error: " + err;
+        pre.style.display = "block";
+      }
+    }
+
+    document.getElementById("analysis-data-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      runDataQuery();
+    });
+    document.getElementById("analysis-plot-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      runPlotQuery();
+    });
+    document.getElementById("data-open-new").addEventListener("click", function () {
+      const url = state.lastDataUrl || buildDataUrl();
+      window.open(url, "_blank");
+    });
+    document.getElementById("plot-open-new").addEventListener("click", function () {
+      const url = state.lastPlotUrl || buildPlotUrl();
+      window.open(url, "_blank");
+    });
+    document.getElementById("pivot-run").addEventListener("click", runPivot);
+  })();
+</script>
+
+<div class="card" style="margin-top:20px;">
+  <div class="card-header"><div class="card-title">Frontend Integration Notes</div></div>
+  <div class="card-body" style="font-size:12px; color:var(--text-muted); line-height:1.7;">
+    <div>1. Use proxy paths: <span style="font-family:var(--font-mono); color:var(--text);">/analysis/api/&lt;endpoint&gt;</span></div>
+    <div>2. For pivot-ready downloads use <span style="font-family:var(--font-mono);">format=csv</span> or <span style="font-family:var(--font-mono);">format=xlsx</span>.</div>
+    <div>3. For plots use <span style="font-family:var(--font-mono);">format=png</span> (image), <span style="font-family:var(--font-mono);">format=json</span> (custom charts), or <span style="font-family:var(--font-mono);">format=script</span> (reproducible python).</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <div class="card-header"><div class="card-title">Endpoint Groups (OpenAPI)</div></div>
+  <div class="card-body" style="font-size:12px; color:var(--text-muted); line-height:1.8;">
+    <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">AbsolTEC</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/stations</span> — List Stations</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/days</span> — List Days</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/raw</span> — Raw Data</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/statistics</span> — Statistics</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/statistics/per-station-day</span> — Statistics Per Station Day</div>
+
+    <div class="divider" style="margin:12px 0;"></div>
+    <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">TEC-suite</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/stations</span> — Stations With Meta</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/satellites</span> — Satellites</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/data</span> — Satellite Data</div>
+
+    <div class="divider" style="margin:12px 0;"></div>
+    <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Plots</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/average</span> — Plot Absoltec Average</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/day</span> — Plot Absoltec Day</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/multi-station</span> — Plot Absoltec Multi Station</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/per-station-averages/{doy}</span> — Plot Absoltec Per Station Avg</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/satellite</span> — Plot Tec Satellite</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/sky-track</span> — Plot Tec Sky</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/all-satellites</span> — Plot Tec All Satellites</div>
+
+    <div class="divider" style="margin:12px 0;"></div>
+    <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Stations</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/stations/available</span> — Available Stations</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/stations/map</span> — Station Map</div>
+  </div>
+</div>
+{% endblock %}

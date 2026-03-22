@@ -69,6 +69,7 @@ async def stream_logs(
     progress_patterns: list[str],
     log_emit_interval_sec: float = 0.0,
     auto_remove: bool = False,
+    tail: str | int = "all",
 ) -> AsyncGenerator[tuple[str, str | int], None]:
     """
     Async generator that yields (event_type, payload) tuples by reading a
@@ -96,7 +97,7 @@ async def stream_logs(
                 follow=True,
                 stdout=True,
                 stderr=True,
-                tail="all",
+                tail=tail,
                 timestamps=False,
             ):
                 line = chunk.decode("utf-8", errors="replace").rstrip("\n\r")
@@ -163,9 +164,12 @@ async def stream_logs(
                     last_log_emit_at = now
 
             progress = parse_progress(line, progress_patterns)
-            if progress is not None and progress != last_progress:
-                yield ("progress", progress)
-                last_progress = progress
+            if progress is not None:
+                # Keep progress monotonic for UI stability when multiple
+                # patterns match different scales in the same log stream.
+                if last_progress is None or progress > last_progress:
+                    yield ("progress", progress)
+                    last_progress = progress
 
     # Container has finished writing logs — resolve final exit code.
     if stream_exit_code is not None:

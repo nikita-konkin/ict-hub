@@ -100,6 +100,8 @@ async def run_page(
         .all()
     )
     active_job = None
+    active_stream_tail = "all"
+    resume_mode = request.query_params.get("resume", "0") == "1"
     if job_id is not None:
         candidate = (
             db.query(JobRun)
@@ -108,10 +110,13 @@ async def run_page(
         )
         if (
             candidate
-            and candidate.status == "running"
             and (current_user.is_admin or candidate.user_id == current_user.id)
         ):
             active_job = candidate
+            if resume_mode and candidate.status == "running":
+                # When reopening a running job from Recent runs, don't replay
+                # the entire log from the beginning.
+                active_stream_tail = "0"
 
     return templates.TemplateResponse(
         "run.html",
@@ -122,6 +127,7 @@ async def run_page(
             "converter": conv,
             "recent_jobs": recent,
             "active_job": active_job,
+            "active_stream_tail": active_stream_tail,
             "converters": CONVERTERS,
         },
     )
@@ -264,6 +270,16 @@ async def stream_job_logs(
     if not job.container_id:
         raise HTTPException(status_code=400, detail="No container associated with this job")
 
+    tail_param = request.query_params.get("tail", "all")
+    if tail_param == "all":
+        stream_tail: str | int = "all"
+    else:
+        try:
+            parsed_tail = int(tail_param)
+            stream_tail = max(0, parsed_tail)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid tail parameter")
+
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
     log_emit_interval_sec = conv.get("log_emit_interval_sec", cfg.LOG_EMIT_INTERVAL_SEC) if conv else cfg.LOG_EMIT_INTERVAL_SEC
@@ -309,6 +325,7 @@ async def stream_job_logs(
                 progress_patterns,
                 log_emit_interval_sec=float(log_emit_interval_sec),
                 auto_remove=auto_remove,
+                tail=stream_tail,
             ):
                 if event_type == "heartbeat":
                     # SSE comment — not dispatched as an event, just keeps the

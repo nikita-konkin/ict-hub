@@ -667,6 +667,13 @@
         </svg>
         History
       </a>
+      <a href="/analysis" class="nav-link {% if '/analysis' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 13.5h12"/>
+          <path d="M4 11V7"/><path d="M8 11V3"/><path d="M12 11V6"/>
+        </svg>
+        Data Analysis
+      </a>
 
       <div class="nav-section-label">Converters</div>
       {% for name, conv in converters.items() %}
@@ -710,159 +717,301 @@
 
   <script>
     (function () {
+      // ── Date formatting ────────────────────────────────────────────────────
       function normaliseDateInput(rawValue) {
         if (!rawValue) return "";
         const value = String(rawValue).trim();
         if (!value) return "";
-        if (/Z$|[+-]\d{2}:?\d{2}$/.test(value)) {
-          return value;
-        }
+        if (/Z$|[+-]\d{2}:?\d{2}$/.test(value)) return value;
         return value + "Z";
       }
 
       function formatLocalDateTimes(root) {
         const scope = root || document;
-        const nodes = scope.querySelectorAll("[data-local-datetime]");
-        nodes.forEach((node) => {
+        scope.querySelectorAll("[data-local-datetime]").forEach(function (node) {
           const raw = node.getAttribute("data-local-datetime");
           const parsed = new Date(normaliseDateInput(raw));
-          if (Number.isNaN(parsed.getTime())) {
-            return;
-          }
+          if (Number.isNaN(parsed.getTime())) return;
           node.textContent = parsed.toLocaleString(undefined, {
-            day: "2-digit",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
+            day: "2-digit", month: "short",
+            hour: "2-digit", minute: "2-digit", hour12: false,
           });
         });
       }
 
-      function initializeJobPanel(panel) {
-        if (!panel || panel.dataset.sseInit === "1") {
-          return;
+      // ── Panel lifecycle ────────────────────────────────────────────────────
+
+      /**
+       * Close this panel's EventSource and remove it from the DOM.
+       * If #job-output has no remaining panels, restore the placeholder.
+       */
+      function removePanel(panel) {
+        if (!panel) return;
+        const jobId = panel.dataset && panel.dataset.jobId ? panel.dataset.jobId : "";
+        try { if (panel._sseSource) panel._sseSource.close(); } catch (_) {}
+        const outputRoot = panel.closest("#job-output");
+        panel.remove();
+        if (jobId) {
+          const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+          const isRunning = row && row.getAttribute("data-recent-job-running") === "1";
+          if (isRunning) {
+            startRecentRunTracker(jobId);
+          }
+        }
+        if (outputRoot && !outputRoot.querySelector('[id^="job-panel-"]')) {
+          // Restore placeholder — unhide existing one or clone from template
+          const existing = outputRoot.querySelector(".job-output-placeholder");
+          if (existing) {
+            existing.style.display = "";
+          } else {
+            const tpl = document.getElementById("job-output-placeholder-template");
+            if (tpl && "content" in tpl) {
+              outputRoot.appendChild(tpl.content.cloneNode(true));
+            }
+          }
+        }
+      }
+
+      // ── Recent-runs helpers ────────────────────────────────────────────────
+
+      function updateRecentRunStatus(jobId, isSuccess) {
+        const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+        if (!row) return;
+        row.setAttribute("data-recent-job-running", "0");
+        const badge = row.querySelector("[data-recent-job-status]");
+        if (badge) {
+          badge.className = isSuccess ? "badge badge-success" : "badge badge-danger";
+          badge.textContent = isSuccess ? "success" : "failed";
+        }
+        const pct = row.querySelector("[data-recent-job-progress]");
+        if (pct) pct.setAttribute("hidden", "");
+      }
+
+      function updateRecentRunProgress(jobId, pct) {
+        const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+        if (!row) return;
+        row.setAttribute("data-recent-job-running", "1");
+        const span = row.querySelector("[data-recent-job-progress]");
+        if (span) {
+          span.removeAttribute("hidden");
+          span.textContent = pct + "%";
+        }
+      }
+
+      /**
+       * Add a live row to #recent-runs-body for a job that was just started
+       * (it won't be in the server-rendered list yet).
+       */
+      function ensureRecentRunRow(jobId, startedAtIso) {
+        const body = document.getElementById("recent-runs-body");
+        if (!body) return;
+        if (document.querySelector('[data-recent-job-id="' + jobId + '"]')) return;
+
+        // Remove "no recent runs" empty message
+        const empty = body.querySelector(".recent-runs-empty");
+        if (empty) empty.remove();
+
+        let timeText = "just now";
+        const normalised = startedAtIso
+          ? (/Z$|[+-]\d{2}:?\d{2}$/.test(startedAtIso) ? startedAtIso : startedAtIso + "Z")
+          : "";
+        if (normalised) {
+          const d = new Date(normalised);
+          if (!isNaN(d.getTime())) {
+            timeText = d.toLocaleString(undefined, {
+              day: "2-digit", month: "short",
+              hour: "2-digit", minute: "2-digit", hour12: false,
+            });
+          }
         }
 
-        const streamUrl = panel.dataset.streamUrl;
-        if (!streamUrl) {
+        const row = document.createElement("div");
+        row.setAttribute("data-recent-job-id", jobId);
+        row.setAttribute("data-recent-job-running", "1");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted);";
+        row.innerHTML =
+          '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">#' + jobId + '</span>' +
+          '<span data-local-datetime="' + (startedAtIso || "") + '">' + timeText + '</span>' +
+          '<span class="badge badge-running" data-recent-job-status>running</span>' +
+          '<span data-recent-job-progress style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">—</span>' +
+          '<a href="' + window.location.pathname + '?job_id=' + jobId + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Open</a>';
+        body.insertAdjacentElement("afterbegin", row);
+      }
+
+      const recentRunTrackers = new Map();
+
+      function stopRecentRunTracker(jobId) {
+        const existing = recentRunTrackers.get(jobId);
+        if (!existing) return;
+        try { existing.close(); } catch (_) {}
+        recentRunTrackers.delete(jobId);
+      }
+
+      function startRecentRunTracker(jobId) {
+        if (!jobId || recentRunTrackers.has(jobId)) return;
+        if (document.querySelector('#job-panel-' + jobId)) return;
+
+        let source;
+        try {
+          source = new EventSource('/jobs/' + jobId + '/stream');
+        } catch (_) {
           return;
         }
+        recentRunTrackers.set(jobId, source);
+
+        source.addEventListener('progress', function (event) {
+          const pct = parseInt(event.data, 10);
+          if (!Number.isNaN(pct)) {
+            updateRecentRunProgress(jobId, pct);
+          }
+        });
+
+        source.addEventListener('done', function (event) {
+          const isSuccess = typeof event.data === 'string' && event.data.indexOf('badge-success') !== -1;
+          updateRecentRunStatus(jobId, isSuccess);
+          stopRecentRunTracker(jobId);
+        });
+
+        source.addEventListener('error', function () {
+          // Reconnect tracker for running jobs after transient SSE errors.
+          const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+          const isRunning = row && row.getAttribute('data-recent-job-running') === '1';
+          stopRecentRunTracker(jobId);
+          if (isRunning && !document.querySelector('#job-panel-' + jobId)) {
+            setTimeout(function () { startRecentRunTracker(jobId); }, 800);
+          }
+        });
+      }
+
+      function initializeRecentRunTrackers(root) {
+        const scope = root || document;
+        scope.querySelectorAll('[data-recent-job-id]').forEach(function (row) {
+          const jobId = row.getAttribute('data-recent-job-id');
+          const runningAttr = row.getAttribute('data-recent-job-running') === '1';
+          const statusEl = row.querySelector('[data-recent-job-status]');
+          const statusText = statusEl ? statusEl.textContent.trim().toLowerCase() : '';
+          if (runningAttr || statusText === 'running') {
+            startRecentRunTracker(jobId);
+          }
+        });
+      }
+
+      // ── Core panel initialiser ─────────────────────────────────────────────
+
+      function initializeJobPanel(panel) {
+        if (!panel || panel.dataset.sseInit === "1") return;
+        const isRunning = panel.dataset.jobRunning === "1";
+        if (!isRunning) {
+          panel.dataset.sseInit = "1";
+          return;
+        }
+        const streamUrl = panel.dataset.streamUrl;
+        if (!streamUrl) return;
 
         panel.dataset.sseInit = "1";
 
-        const statusEl = panel.querySelector("#job-status");
-        const progressLabel = panel.querySelector("#progress-label");
-        const progressFillWrap = panel.querySelector("#progress-fill-wrap");
-        const logLines = panel.querySelector("#log-lines");
+        // Each panel uses IDs scoped to its job so multiple panels never clash
+        const jobId = panel.dataset.jobId || panel.id.replace("job-panel-", "");
+        const statusEl      = panel.querySelector("#job-status-"        + jobId);
+        const progressLabel = panel.querySelector("#progress-label-"    + jobId);
+        const progressFill  = panel.querySelector("#progress-fill-wrap-"+ jobId);
+        const logLines      = panel.querySelector("#log-lines-"         + jobId);
 
-        const appendLog = (html) => {
+        // Hide the placeholder while this panel is active
+        const outputRoot = panel.parentElement;
+        if (outputRoot && outputRoot.id === "job-output") {
+          outputRoot.querySelectorAll(".job-output-placeholder").forEach(function (el) {
+            el.style.display = "none";
+          });
+        }
+
+        // Register this job in the Recent runs list (for freshly submitted jobs)
+        ensureRecentRunRow(jobId, panel.dataset.startedAt);
+        // Panel stream is the source of truth while open.
+        stopRecentRunTracker(jobId);
+
+        function appendLog(html) {
           if (!logLines) return;
           logLines.insertAdjacentHTML("beforeend", html);
           logLines.scrollTop = logLines.scrollHeight;
-        };
+        }
 
         let source;
         try {
           source = new EventSource(streamUrl);
+          panel._sseSource = source;
         } catch (err) {
           appendLog('<span class="log-line log-line-error">Failed to open log stream.</span>');
           return;
         }
 
-        source.addEventListener("log", (event) => {
+        source.addEventListener("log", function (event) {
           appendLog(event.data);
         });
 
-        source.addEventListener("progress", (event) => {
+        source.addEventListener("progress", function (event) {
           const pct = parseInt(event.data, 10);
-          if (!Number.isNaN(pct)) {
-            if (progressLabel) progressLabel.textContent = pct + "%";
-            if (progressFillWrap) {
-              progressFillWrap.innerHTML = '<div class="progress-fill" style="width:' + pct + '%"></div>';
-            }
+          if (Number.isNaN(pct)) return;
+          if (progressLabel) progressLabel.textContent = pct + "%";
+          if (progressFill) {
+            progressFill.innerHTML = '<div class="progress-fill" style="width:' + pct + '%"></div>';
           }
+          // Mirror progress into the Recent runs row
+          updateRecentRunProgress(jobId, pct);
         });
 
-        source.addEventListener("error", (event) => {
-          const data = event && typeof event.data === "string" ? event.data : "Stream error";
-          if (statusEl) {
-            statusEl.innerHTML = '<span class="badge badge-danger">Error</span>';
-          }
-          appendLog('<span class="log-line log-line-error">' + data + '</span>');
+        source.addEventListener("error", function (event) {
+          const msg = event && typeof event.data === "string" ? event.data : "Stream error";
+          if (statusEl) statusEl.innerHTML = '<span class="badge badge-danger">Error</span>';
+          appendLog('<span class="log-line log-line-error">' + msg + '</span>');
+          updateRecentRunStatus(jobId, false);
           source.close();
         });
 
-        source.addEventListener("done", (event) => {
+        source.addEventListener("done", function (event) {
           const isSuccess = typeof event.data === "string" && event.data.indexOf("badge-success") !== -1;
 
-          if (statusEl) {
-            statusEl.innerHTML = event.data;
+          if (statusEl) statusEl.innerHTML = event.data;
+          if (isSuccess && progressFill) {
+            progressFill.innerHTML = '<div class="progress-fill" style="width:100%"></div>';
           }
-          if (isSuccess && progressFillWrap) {
-            progressFillWrap.innerHTML = '<div class="progress-fill" style="width:100%"></div>';
-          }
-          if (isSuccess && progressLabel) {
-            progressLabel.textContent = "100%";
-          }
+          if (isSuccess && progressLabel) progressLabel.textContent = "100%";
 
-          const panelId = panel.id || "";
-          const jobId = panelId.replace("job-panel-", "");
-          if (jobId) {
-            const recentRow = document.querySelector('[data-recent-job-id="' + jobId + '"]');
-            const recentStatus = recentRow ? recentRow.querySelector("[data-recent-job-status]") : null;
-            if (recentStatus) {
-              recentStatus.className = isSuccess ? "badge badge-success" : "badge badge-danger";
-              recentStatus.textContent = isSuccess ? "success" : "failed";
-            }
-          }
-
+          updateRecentRunStatus(jobId, isSuccess);
           source.close();
 
-          if (isSuccess) {
-            const outputRoot = panel.closest("#job-output");
-            if (outputRoot) {
-              const placeholderTemplate = document.getElementById("job-output-placeholder-template");
-              if (placeholderTemplate && "content" in placeholderTemplate) {
-                outputRoot.replaceChildren(placeholderTemplate.content.cloneNode(true));
-              } else {
-                outputRoot.innerHTML = '<div class="card" style="padding:40px 24px; text-align:center;"><div style="font-family:var(--font-display); font-size:18px; color:var(--text-dim); margin-bottom:8px;">No job running</div><p style="font-size:12px; color:var(--text-dim);">Configure the parameters on the left and press Run.</p></div>';
-              }
-            }
-          }
-
+          // Strip ?job_id= from the URL if present
           try {
-            const currentUrl = new URL(window.location.href);
-            if (currentUrl.searchParams.has("job_id")) {
-              currentUrl.searchParams.delete("job_id");
-              window.history.replaceState({}, "", currentUrl.toString());
+            const url = new URL(window.location.href);
+            if (url.searchParams.has("job_id")) {
+              url.searchParams.delete("job_id");
+              window.history.replaceState({}, "", url.toString());
             }
-          } catch (_) {
-          }
-        });
-
-        panel.addEventListener("remove", function () {
-          try { source.close(); } catch (_) {}
+          } catch (_) {}
         });
       }
 
       function initializeAllJobPanels(root) {
         const scope = root || document;
-        const panels = scope.querySelectorAll('[id^="job-panel-"][data-stream-url]');
-        panels.forEach(initializeJobPanel);
+        scope.querySelectorAll('[id^="job-panel-"][data-stream-url]').forEach(initializeJobPanel);
       }
 
+      // ── Public API ─────────────────────────────────────────────────────────
+      window.dismissJobPanel      = function (panel) { removePanel(panel); };
+      window.initializeAllJobPanels = initializeAllJobPanels;
+
+      // ── Hooks ──────────────────────────────────────────────────────────────
       document.addEventListener("DOMContentLoaded", function () {
         formatLocalDateTimes(document);
         initializeAllJobPanels(document);
+        initializeRecentRunTrackers(document);
       });
 
       document.body.addEventListener("htmx:afterSwap", function (evt) {
         formatLocalDateTimes(evt.target || document);
         initializeAllJobPanels(evt.target || document);
+        initializeRecentRunTrackers(evt.target || document);
       });
-
-      window.initializeAllJobPanels = initializeAllJobPanels;
     })();
   </script>
 

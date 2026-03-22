@@ -177,6 +177,161 @@ CONVERTERS: dict[str, dict] = {
             },
         ],
     },
+    "abstec-suite": {
+        "image": cfg.ABSTEC_SUITE_IMAGE,
+        "label": "AbsTEC Suite",
+        "description": (
+            "Runs TayAbsTEC from tec-suite DAT inputs, updates absolTEC.dia, and "
+            "supports both single-run and multi-day batch execution."
+        ),
+        "log_emit_interval_sec": 1.0,
+        "progress_patterns": [
+            # Example: "Processing year=2026 day=001 site=cher001s08 (23/870)"
+            r"Processing\s+year=\d{4}\s+day=\d{1,3}\s+site=[^\s]+\s*\((\d+)\s*/\s*(\d+)\)",
+            # Example: "INFO: Completed 2618 / 15221"
+            r"Organized station output under day folder:"
+            r"Completed\s+(\d+)\s*/\s*(\d+)",
+            # Example: "INFO: Progress: 17%"
+            r"Progress:\s*(\d{1,3})\s*%",
+        ],
+        "container_volumes": {
+            "dat_path": "/data/in",
+            "output_dir": "/data/out",
+        },
+        "flags": [
+            {
+                "name": "--dat-path",
+                "long": "--dat-path",
+                "label": "Input DAT Root (host path)",
+                "type": "text",
+                "default": "",
+                "required": True,
+                "is_volume": "dat_path",
+                "help": "Host path mounted to /data/in containing in/YYYY/DDD/SITE/*.dat.",
+            },
+            {
+                "name": "--output-dir",
+                "long": "--output-dir",
+                "label": "Output Root (host path)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "is_volume": "output_dir",
+                "help": "Optional host output path mounted to /data/out.",
+            },
+            {
+                "name": "--workdir",
+                "long": "--workdir",
+                "label": "Workdir (container path)",
+                "type": "text",
+                "default": "/data/workdir",
+                "required": False,
+                "help": "Path to TayAbsTEC binaries inside the container.",
+            },
+            {
+                "name": "--year",
+                "long": "--year",
+                "label": "Year",
+                "type": "number",
+                "default": "",
+                "required": True,
+                "help": "4-digit year.",
+                "min": 2000,
+                "max": 2100,
+            },
+            {
+                "name": "--day-of-year",
+                "long": "--day-of-year",
+                "label": "Day Of Year (single run)",
+                "type": "number",
+                "default": "",
+                "required": False,
+                "help": "Single day number (1-366). Mutually exclusive with --days.",
+                "min": 1,
+                "max": 366,
+            },
+            {
+                "name": "--days",
+                "long": "--days",
+                "label": "Days (batch mode)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Comma list or ranges, e.g. 001,002,003 or 001-365.",
+            },
+            {
+                "name": "--site",
+                "long": "--site",
+                "label": "Site",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Station/site name for single-run mode (e.g. aksu0010).",
+            },
+            {
+                "name": "--elevation-cutoff",
+                "long": "--elevation-cutoff",
+                "label": "Elevation Cutoff",
+                "type": "number",
+                "default": 10,
+                "required": False,
+                "help": "Elevation cutoff in degrees.",
+                "min": 0,
+                "max": 90,
+            },
+            {
+                "name": "--time-step-hours",
+                "long": "--time-step-hours",
+                "label": "Time Step Hours",
+                "type": "text",
+                "default": "0.5",
+                "required": False,
+                "help": "DIA time step in hours (supports decimals, e.g. 0.5).",
+            },
+            {
+                "name": "--correction-coefficient",
+                "long": "--correction-coefficient",
+                "label": "Correction Coefficient",
+                "type": "text",
+                "default": "0.97",
+                "required": False,
+                "help": "Bias/correction coefficient used for processing.",
+            },
+            {
+                "name": "--runner",
+                "long": "--runner",
+                "label": "Runner",
+                "type": "select",
+                "default": "auto",
+                "required": False,
+                "options": [
+                    ("auto", "auto"),
+                    ("wine", "wine"),
+                    ("direct", "direct"),
+                ],
+                "help": "Execution backend for absolTEC.exe.",
+            },
+            {
+                "name": "--execution-timeout-seconds",
+                "long": "--execution-timeout-seconds",
+                "label": "Execution Timeout (seconds)",
+                "type": "number",
+                "default": "",
+                "required": False,
+                "help": "Optional timeout to avoid hung runs.",
+                "min": 1,
+            },
+            {
+                "name": "--dry-run",
+                "long": "--dry-run",
+                "label": "Dry Run",
+                "type": "checkbox",
+                "default": True,
+                "required": False,
+                "help": "Validate and update absolTEC.dia without launching absolTEC.exe.",
+            },
+        ],
+    },
     # ── Add future converters here ────────────────────────────────────────────
     # "my_converter": {
     #     "image": "my-converter:latest",
@@ -231,10 +386,10 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
                 cmd.append(flag["name"])
 
         elif flag["type"] == "number":
-            if value not in (None, "", flag.get("default")):
-                cmd.extend([flag["name"], str(int(value))])
-            elif flag.get("default") is not None:
-                cmd.extend([flag["name"], str(int(flag["default"]))])
+            # Prefer user input; otherwise fall back to default. Skip empty values.
+            number_value = value if value not in (None, "") else flag.get("default")
+            if number_value not in (None, ""):
+                cmd.extend([flag["name"], str(int(number_value))])
 
         elif flag["type"] in ("text", "select"):
             if value:
