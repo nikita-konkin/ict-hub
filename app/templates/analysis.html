@@ -25,6 +25,29 @@
   </div>
 </div>
 
+<style>
+  .param-required .form-label {
+    color: var(--accent);
+  }
+  .param-required .form-input,
+  .param-required .form-select {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 0 1px var(--accent-glow);
+  }
+  .param-irrelevant {
+    opacity: 0.45;
+  }
+  .param-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .param-hint b {
+    color: var(--text);
+    font-weight: 500;
+  }
+</style>
+
 <div class="grid-2" style="align-items:start;">
   <div class="card" id="data-query-card">
     <div class="card-header"><div class="card-title">Data Query Builder</div></div>
@@ -37,6 +60,7 @@
               <option value="absoltec/stations">GET /absoltec/stations — List Stations</option>
               <option value="absoltec/days">GET /absoltec/days — List Days</option>
               <option value="absoltec/raw" selected>GET /absoltec/raw — Raw Data</option>
+              <option value="absoltec/raw/range">GET /absoltec/raw/range — Raw Data Range</option>
               <option value="absoltec/statistics">GET /absoltec/statistics — Statistics</option>
               <option value="absoltec/statistics/per-station-day">GET /absoltec/statistics/per-station-day — Statistics Per Station Day</option>
             </optgroup>
@@ -44,6 +68,7 @@
               <option value="tec/stations">GET /tec/stations — Stations With Meta</option>
               <option value="tec/satellites">GET /tec/satellites — Satellites</option>
               <option value="tec/data">GET /tec/data — Satellite Data</option>
+              <option value="tec/raw/range">GET /tec/raw/range — Satellite Data Range</option>
             </optgroup>
             <optgroup label="Stations">
               <option value="stations/available">GET /stations/available — Available Stations</option>
@@ -121,6 +146,8 @@
         </div>
       </form>
 
+      <div id="data-requirements-msg" class="param-hint"></div>
+
       <div id="data-query-url" style="margin-top:12px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);"></div>
       <div id="data-query-msg" style="margin-top:8px; font-size:12px; color:var(--text-muted);"></div>
     </div>
@@ -138,6 +165,7 @@
               <option value="plots/absoltec/day">GET /plots/absoltec/day — Plot Absoltec Day</option>
               <option value="plots/absoltec/multi-station">GET /plots/absoltec/multi-station — Plot Absoltec Multi Station</option>
               <option value="plots/absoltec/per-station-averages">GET /plots/absoltec/per-station-averages/{doy} — Plot Absoltec Per Station Avg</option>
+              <option value="plots/absoltec/raw/day-by-day">GET /plots/absoltec/raw/day-by-day — Plot Absoltec Raw Day By Day</option>
               <option value="plots/tec/satellite">GET /plots/tec/satellite — Plot Tec Satellite</option>
               <option value="plots/tec/sky-track">GET /plots/tec/sky-track — Plot Tec Sky</option>
               <option value="plots/tec/all-satellites">GET /plots/tec/all-satellites — Plot Tec All Satellites</option>
@@ -181,6 +209,11 @@
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" for="plot-stations">Stations (CSV list)</label>
           <input id="plot-stations" class="form-input" type="text" value="aksu,arsk">
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="plot-columns">columns (CSV list)</label>
+          <input id="plot-columns" class="form-input" type="text" value="tec,g_lon">
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
@@ -275,6 +308,8 @@
         </div>
       </form>
 
+      <div id="plot-requirements-msg" class="param-hint"></div>
+
       <div id="plot-query-url" style="margin-top:12px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);"></div>
     </div>
   </div>
@@ -337,6 +372,128 @@
       lastPlotUrl: "",
     };
 
+    const dataEndpointRules = {
+      "absoltec/stations": {
+        required: ["data-year", "data-doy"],
+        relevant: ["data-year", "data-doy", "data-format"],
+      },
+      "absoltec/days": {
+        required: ["data-year", "data-station"],
+        relevant: ["data-year", "data-station", "data-format"],
+      },
+      "absoltec/raw": {
+        required: ["data-year", "data-doy", "data-station"],
+        relevant: ["data-year", "data-doy", "data-station", "data-format"],
+      },
+      "absoltec/raw/range": {
+        required: ["data-year", "data-doy-start", "data-doy-end"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+      },
+      "absoltec/statistics": {
+        required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-alpha", "data-format"],
+      },
+      "absoltec/statistics/per-station-day": {
+        required: ["data-year", "data-doy-start", "data-doy-end", "data-stations"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-stations", "data-alpha", "data-format"],
+      },
+      "tec/stations": {
+        required: ["data-year", "data-doy"],
+        relevant: ["data-year", "data-doy", "data-format"],
+      },
+      "tec/satellites": {
+        required: ["data-year", "data-doy", "data-station"],
+        relevant: ["data-year", "data-doy", "data-station", "data-format"],
+      },
+      "tec/data": {
+        required: ["data-year", "data-doy", "data-station", "data-satellite"],
+        relevant: ["data-year", "data-doy", "data-station", "data-satellite", "data-format"],
+      },
+      "tec/raw/range": {
+        required: ["data-year", "data-doy-start", "data-doy-end"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+      },
+      "stations/available": {
+        required: ["data-year", "data-doy"],
+        relevant: ["data-year", "data-doy", "data-source", "data-format"],
+      },
+      "stations/map": {
+        required: ["data-year", "data-doy"],
+        relevant: ["data-year", "data-doy", "data-format"],
+      },
+    };
+
+    const plotEndpointRules = {
+      "plots/absoltec/average": {
+        required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/absoltec/day": {
+        required: ["plot-year", "plot-doy", "plot-station"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/absoltec/multi-station": {
+        required: ["plot-year", "plot-doy", "plot-stations"],
+        relevant: ["plot-year", "plot-doy", "plot-stations", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/absoltec/per-station-averages": {
+        required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
+        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/tec/satellite": {
+        required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-satellite", "plot-column", "plot-valid-only", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/absoltec/raw/day-by-day": {
+        required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-columns", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/tec/sky-track": {
+        required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-satellite", "plot-color-by-tec", "plot-valid-only", "plot-size-px", "plot-dpi", "plot-format"],
+      },
+      "plots/tec/all-satellites": {
+        required: ["plot-year", "plot-doy", "plot-station"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-column", "plot-valid-only", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+    };
+
+    const dataFieldLabels = {
+      "data-year": "year",
+      "data-doy": "doy",
+      "data-doy-start": "doy_start",
+      "data-doy-end": "doy_end",
+      "data-station": "station",
+      "data-stations": "stations",
+      "data-satellite": "satellite",
+      "data-source": "source",
+      "data-alpha": "alpha",
+      "data-format": "format",
+    };
+
+    const plotFieldLabels = {
+      "plot-year": "year",
+      "plot-doy": "doy",
+      "plot-doy-start": "doy_start",
+      "plot-doy-end": "doy_end",
+      "plot-station": "station",
+      "plot-stations": "stations",
+      "plot-columns": "columns",
+      "plot-satellite": "satellite",
+      "plot-format": "format",
+      "plot-show-ci": "show_ci",
+      "plot-show-var": "show_var",
+      "plot-width-px": "width_px",
+      "plot-height-px": "height_px",
+      "plot-dpi": "dpi",
+      "plot-smooth": "smooth",
+      "plot-poly": "poly",
+      "plot-size-px": "size_px",
+      "plot-column": "column",
+      "plot-valid-only": "valid_only",
+      "plot-color-by-tec": "color_by_tec",
+    };
+
     function clean(value) {
       return String(value || "").trim();
     }
@@ -354,6 +511,68 @@
       for (const item of items) {
         params.append(key, item);
       }
+    }
+
+    function getFieldGroupById(fieldId) {
+      const el = document.getElementById(fieldId);
+      if (!el) return null;
+      return el.closest(".form-group");
+    }
+
+    function setFieldClasses(fieldId, stateName) {
+      const group = getFieldGroupById(fieldId);
+      if (!group) return;
+      group.classList.remove("param-required", "param-irrelevant");
+      if (stateName === "required") {
+        group.classList.add("param-required");
+      } else if (stateName === "irrelevant") {
+        group.classList.add("param-irrelevant");
+      }
+    }
+
+    function updateDataFieldHighlights() {
+      const endpoint = document.getElementById("data-endpoint").value;
+      const rule = dataEndpointRules[endpoint] || { required: [], relevant: [] };
+      const requiredSet = new Set(rule.required);
+      const relevantSet = new Set(rule.relevant);
+
+      for (const fieldId of Object.keys(dataFieldLabels)) {
+        if (requiredSet.has(fieldId)) {
+          setFieldClasses(fieldId, "required");
+        } else if (relevantSet.has(fieldId)) {
+          setFieldClasses(fieldId, "relevant");
+        } else {
+          setFieldClasses(fieldId, "irrelevant");
+        }
+      }
+
+      const msg = document.getElementById("data-requirements-msg");
+      const requiredNames = rule.required.map((id) => dataFieldLabels[id]).join(", ");
+      msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>";
+    }
+
+    function updatePlotFieldHighlights() {
+      const endpoint = document.getElementById("plot-endpoint").value;
+      const rule = plotEndpointRules[endpoint] || { required: [], relevant: [] };
+      const requiredSet = new Set(rule.required);
+      const relevantSet = new Set(rule.relevant);
+
+      for (const fieldId of Object.keys(plotFieldLabels)) {
+        if (requiredSet.has(fieldId)) {
+          setFieldClasses(fieldId, "required");
+        } else if (relevantSet.has(fieldId)) {
+          setFieldClasses(fieldId, "relevant");
+        } else {
+          setFieldClasses(fieldId, "irrelevant");
+        }
+      }
+
+      const msg = document.getElementById("plot-requirements-msg");
+      const requiredNames = rule.required.map((id) => plotFieldLabels[id]).join(", ");
+      const note = endpoint === "plots/absoltec/per-station-averages"
+        ? " (path doy uses DOY field)"
+        : "";
+      msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>" + note;
     }
 
     function buildDataUrl() {
@@ -375,6 +594,12 @@
       }
       if (endpoint === "absoltec/days" || endpoint === "absoltec/raw" || endpoint === "absoltec/statistics" || endpoint === "tec/satellites" || endpoint === "tec/data") {
         qpAppend(params, "station", station);
+      }
+      if (endpoint === "absoltec/raw/range" || endpoint === "tec/raw/range") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", document.getElementById("data-stations").value);
       }
       if (endpoint === "absoltec/statistics" || endpoint === "absoltec/statistics/per-station-day") {
         qpAppend(params, "doy_start", doyStart);
@@ -434,6 +659,12 @@
         qpAppend(params, "alpha", document.getElementById("data-alpha").value);
         qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
         qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+      } else if (endpointName === "plots/absoltec/raw/day-by-day") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", stations);
+        qpAppendCsvArray(params, "columns", document.getElementById("plot-columns").value);
       } else if (endpointName === "plots/tec/satellite") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
@@ -691,10 +922,13 @@
       e.preventDefault();
       runDataQuery();
     });
+    document.getElementById("data-endpoint").addEventListener("change", updateDataFieldHighlights);
+
     document.getElementById("analysis-plot-form").addEventListener("submit", function (e) {
       e.preventDefault();
       runPlotQuery();
     });
+    document.getElementById("plot-endpoint").addEventListener("change", updatePlotFieldHighlights);
     document.getElementById("data-open-new").addEventListener("click", function () {
       const url = state.lastDataUrl || buildDataUrl();
       window.open(url, "_blank");
@@ -704,6 +938,9 @@
       window.open(url, "_blank");
     });
     document.getElementById("pivot-run").addEventListener("click", runPivot);
+
+    updateDataFieldHighlights();
+    updatePlotFieldHighlights();
   })();
 </script>
 
@@ -723,6 +960,7 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/stations</span> — List Stations</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/days</span> — List Days</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/raw</span> — Raw Data</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/raw/range</span> — Raw Data Range</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/statistics</span> — Statistics</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/statistics/per-station-day</span> — Statistics Per Station Day</div>
 
@@ -731,6 +969,7 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/stations</span> — Stations With Meta</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/satellites</span> — Satellites</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/data</span> — Satellite Data</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/raw/range</span> — Satellite Data Range</div>
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Plots</div>
@@ -738,6 +977,7 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/day</span> — Plot Absoltec Day</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/multi-station</span> — Plot Absoltec Multi Station</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/per-station-averages/{doy}</span> — Plot Absoltec Per Station Avg</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/raw/day-by-day</span> — Plot Absoltec Raw Day By Day</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/satellite</span> — Plot Tec Satellite</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/sky-track</span> — Plot Tec Sky</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/all-satellites</span> — Plot Tec All Satellites</div>
