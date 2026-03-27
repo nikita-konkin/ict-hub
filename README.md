@@ -41,9 +41,15 @@ On first boot a default `admin` account is created with the password from the `A
 
 1. Log in as `admin` (or any active user).
 2. Click **TEC-Suite** on the dashboard.
-3. Fill in the host-side RINEX directory path and output directory path.
+3. Choose a `YYYY_original` year folder (and optional day folder).
 4. Adjust parallel jobs, verbose, cleanup, and optional auto-remove (`--rm`) flag.
 5. Click **Run** — the log panel appears in real time on the right side of the screen.
+
+TEC-Suite now reads folder options from `RINEX_DATA_PATH_HOST` and passes:
+- `--root /data/rinex/<YYYY_original>` when only year is selected
+- `--root /data/rinex/<YYYY_original>/<DDD>` when both year and day are selected
+
+The `--out` option is temporarily disabled and handled inside the TEC-Suite container.
 
 ---
 
@@ -158,6 +164,7 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `ADMIN_PASSWORD`   | `admin`                                  | First-boot admin password                     |
 | `DATABASE_URL`     | `sqlite:////app/data/converter_hub.db`   | SQLAlchemy connection string                  |
 | `TECSUITE_IMAGE`   | `tecsuite`                               | Docker image name for TEC-Suite               |
+| `RINEX_DATA_PATH_HOST` | ``                                    | Host folder root for TEC-suite data (`YYYY_original/DDD/*.zip`) |
 | `DAT_PARQUET_IMAGE`| `dat-parquet-handler`                    | Docker image name for DAT <-> Parquet         |
 | `ABSTEC_SUITE_IMAGE`| `abstec-suite:latest`                   | Docker image name for AbsTEC Suite            |
 | `ANALYSIS_API_BASE_URL` | ``                                   | Base URL of TEC Analysis Backend (e.g. `http://tec-backend:8000`) |

@@ -33,6 +33,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _join_container_path(base_path: str, suffix: str) -> str:
+    """Join a container path and an optional suffix like '/2026_original/001'."""
+    clean_suffix = str(suffix or "").strip().replace("\\", "/")
+    if not clean_suffix:
+        return base_path
+    clean_suffix = clean_suffix.strip("/")
+    if not clean_suffix:
+        return base_path
+    return f"{base_path.rstrip('/')}/{clean_suffix}"
+
+
 CONVERTERS: dict[str, dict] = {
     "tec-suite": {
         "image": cfg.TECSUITE_IMAGE,
@@ -69,19 +80,6 @@ CONVERTERS: dict[str, dict] = {
                     "with .zip RINEX archives. E.g. N:\\RINEX or /mnt/data/rinex"
                 ),
                 "is_volume": "rinex",  # special marker: this flag maps to a volume
-            },
-            {
-                "name": "-o",
-                "long": "--out",
-                "label": "Output Directory (host path)",
-                "type": "text",
-                "default": "",
-                "required": True,
-                "help": (
-                    "Host path for output files. E.g. N:\\tec-suite\\out "
-                    "or /mnt/data/out"
-                ),
-                "is_volume": "output",  # maps to the output volume
             },
             {
                 "name": "-j",
@@ -378,7 +376,11 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             mode = "rw"
             volumes[host_path] = {"bind": container_path, "mode": mode}
             # Also emit the CLI flag pointing at the container-side path
-            cmd.extend([flag["name"], container_path])
+            if converter_name == "tec-suite" and key == "root":
+                root_subpath = str(form_data.get("root_subpath", "")).strip()
+                cmd.extend([flag["long"], _join_container_path(container_path, root_subpath)])
+            else:
+                cmd.extend([flag["name"], container_path])
 
         elif flag["type"] == "checkbox":
             # Checkbox: emit the flag only when checked
@@ -400,6 +402,14 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
         cmd.extend(["-c", conv["cfg_path"]])
     if "tecs_path" in conv:
         cmd.extend(["-t", conv["tecs_path"]])
+
+    # Persist tec-suite output using env-configured host path (no --out flag).
+    if converter_name == "tec-suite" and cfg.DAT_DATA_PATH_HOST:
+        output_container_path = cfg.DAT_DATA_PATH or conv["container_volumes"].get("output", "/app/out")
+        volumes[str(cfg.DAT_DATA_PATH_HOST)] = {
+            "bind": output_container_path,
+            "mode": "rw",
+        }
 
     logger.debug(f"Built command for converter '{converter_name}': {cmd} with volumes {volumes}")
 

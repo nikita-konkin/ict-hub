@@ -16,6 +16,18 @@ ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 # Docker image name for the tecsuite container
 TECSUITE_IMAGE: str = os.getenv("TECSUITE_IMAGE", "tec-suite")
 
+# Host path where TEC-suite RINEX data is stored as YYYY_original/DDD/*.zip
+RINEX_DATA_PATH_HOST: str = os.getenv("RINEX_DATA_PATH_HOST", "")
+
+# Path inside converter-hub container where RINEX host folder is mounted for browsing.
+RINEX_DATA_PATH_CONTAINER: str = os.getenv("RINEX_DATA_PATH_CONTAINER", "")
+
+# Host path where TEC-suite output should be persisted.
+DAT_DATA_PATH_HOST: str = os.getenv("DAT_DATA_PATH_HOST", "")
+
+# Container output path used by TEC-suite image.
+DAT_DATA_PATH: str = os.getenv("DAT_DATA_PATH", "/app/out")
+
 # Docker image name for the dat-parquet handler container
 DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "dat-parquet-handler")
 

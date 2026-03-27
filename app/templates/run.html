@@ -30,8 +30,62 @@
       >
         <input type="hidden" name="converter_name" value="{{ converter_name }}">
 
+        {% if converter_name == 'tec-suite' %}
+          <input type="hidden" name="root" id="tec-root-host-path" value="{{ tec_rinex_host_path or '' }}">
+          <input type="hidden" name="root_subpath" id="tec-root-subpath" value="">
+
+          <div class="form-group">
+            <label class="form-label" for="tec-server-root">Server Folder (host path)</label>
+            <input
+              class="form-input"
+              type="text"
+              id="tec-server-root"
+              value="{{ tec_rinex_host_path or '' }}"
+              readonly
+            >
+            <p class="form-hint">Configured from environment variable RINEX_DATA_PATH_HOST.</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tec-year-select">Year Folder</label>
+            <select class="form-select" id="tec-year-select" {% if not tec_rinex_tree %}disabled{% endif %}>
+              {% if tec_rinex_tree %}
+              <option value="">All days in selected year</option>
+              {% for year_item in tec_rinex_tree %}
+              <option value="{{ year_item.year }}">{{ year_item.year }}</option>
+              {% endfor %}
+              {% else %}
+              <option value="">No year folders available</option>
+              {% endif %}
+            </select>
+            <p class="form-hint">Only folders in format YYYY_original are shown.</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tec-day-select">Day Folder</label>
+            <select class="form-select" id="tec-day-select" disabled>
+              <option value="">All days in selected year</option>
+            </select>
+            <p class="form-hint">Day options include the number of station ZIP files in each day folder.</p>
+          </div>
+
+          {% if not tec_rinex_host_path %}
+          <div class="alert alert-danger" style="margin-bottom:20px;">
+            RINEX_DATA_PATH_HOST is empty. Set it in .env to enable year/day selection.
+          </div>
+          {% elif not tec_rinex_tree %}
+          <div class="alert alert-danger" style="margin-bottom:20px;">
+            No year folders found. Expected pattern: YYYY_original/DDD/*.zip.<br>
+            Scan path: {{ tec_rinex_scan_path or 'not set' }}
+          </div>
+          {% endif %}
+        {% endif %}
+
         {% for flag in converter.flags %}
           {% set key = flag.long.lstrip('-').replace('-','_') %}
+          {% set skip_default_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
+
+          {% if not skip_default_flag %}
 
           {% if flag.type == 'checkbox' %}
           <div class="form-group">
@@ -101,6 +155,8 @@
             >
             {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
           </div>
+          {% endif %}
+
           {% endif %}
 
         {% endfor %}
@@ -214,4 +270,88 @@
   .htmx-indicator { display:none; }
   .htmx-request .htmx-indicator { display:inline; }
 </style>
+
+{% if converter_name == 'tec-suite' %}
+<script id="tec-rinex-tree-data" type="application/json">{{ tec_rinex_tree | tojson }}</script>
+<script>
+  (function () {
+    let tree = [];
+    const treeDataNode = document.getElementById("tec-rinex-tree-data");
+    if (treeDataNode && treeDataNode.textContent) {
+      try {
+        tree = JSON.parse(treeDataNode.textContent);
+      } catch (_) {
+        tree = [];
+      }
+    }
+    const yearSelect = document.getElementById("tec-year-select");
+    const daySelect = document.getElementById("tec-day-select");
+    const rootSubpathInput = document.getElementById("tec-root-subpath");
+
+    if (!yearSelect || !daySelect || !rootSubpathInput) {
+      return;
+    }
+
+    function findYear(yearName) {
+      for (const item of tree) {
+        if (item.year === yearName) return item;
+      }
+      return null;
+    }
+
+    function updateRootSubpath() {
+      const year = yearSelect.value;
+      const day = daySelect.value;
+      if (!year) {
+        rootSubpathInput.value = "";
+        return;
+      }
+      rootSubpathInput.value = day ? "/" + year + "/" + day : "/" + year;
+    }
+
+    function repopulateDays() {
+      const year = yearSelect.value;
+      daySelect.innerHTML = "";
+
+      const allOption = document.createElement("option");
+      allOption.value = "";
+      allOption.textContent = "All days in selected year";
+      daySelect.appendChild(allOption);
+
+      if (!year) {
+        daySelect.disabled = true;
+        updateRootSubpath();
+        return;
+      }
+
+      const yearItem = findYear(year);
+      if (!yearItem || !Array.isArray(yearItem.days) || yearItem.days.length === 0) {
+        daySelect.disabled = true;
+        updateRootSubpath();
+        return;
+      }
+
+      for (const dayItem of yearItem.days) {
+        const option = document.createElement("option");
+        option.value = dayItem.day;
+        option.textContent = dayItem.day + " (" + dayItem.stations + " stations)";
+        daySelect.appendChild(option);
+      }
+      daySelect.disabled = false;
+      daySelect.value = "";
+      updateRootSubpath();
+    }
+
+    yearSelect.addEventListener("change", repopulateDays);
+    daySelect.addEventListener("change", updateRootSubpath);
+
+    if (tree.length > 0) {
+      yearSelect.value = tree[0].year;
+      repopulateDays();
+    } else {
+      updateRootSubpath();
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}

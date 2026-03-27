@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 import docker.errors
@@ -25,12 +26,15 @@ from app.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
+from app.rinex_server import list_rinex_server_structure
 from app.runner import parse_progress, start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
+
+_TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3})?$")
 
 
 def _is_truthy_checkbox(value: object) -> bool:
@@ -101,6 +105,8 @@ async def run_page(
     )
     active_job = None
     active_stream_tail = "all"
+    tec_rinex_tree: list[dict[str, object]] = []
+    tec_rinex_host_path = ""
     resume_mode = request.query_params.get("resume", "0") == "1"
     if job_id is not None:
         candidate = (
@@ -118,6 +124,11 @@ async def run_page(
                 # the entire log from the beginning.
                 active_stream_tail = "0"
 
+    if converter_name == "tec-suite":
+        tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
+        scan_path = cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path
+        tec_rinex_tree = list_rinex_server_structure(scan_path)
+
     return templates.TemplateResponse(
         "run.html",
         {
@@ -128,6 +139,9 @@ async def run_page(
             "recent_jobs": recent,
             "active_job": active_job,
             "active_stream_tail": active_stream_tail,
+            "tec_rinex_host_path": tec_rinex_host_path,
+            "tec_rinex_tree": tec_rinex_tree,
+            "tec_rinex_scan_path": cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path,
             "converters": CONVERTERS,
         },
     )
@@ -171,6 +185,20 @@ async def start_job(
 
     # Convert form data to a regular dict for processing
     form_dict = {k: v for k, v in form.items() if k != "converter_name"}
+
+    if converter_name == "tec-suite":
+        root_host = str(form_dict.get("root", "")).strip()
+        root_subpath = str(form_dict.get("root_subpath", "")).strip()
+        if not root_host:
+            return HTMLResponse(
+                '<div class="alert alert-danger">RINEX_DATA_PATH_HOST is not configured.</div>',
+                status_code=400,
+            )
+        if not _TECSUITE_ROOT_SUBPATH_RE.fullmatch(root_subpath):
+            return HTMLResponse(
+                '<div class="alert alert-danger">Select a valid year/day folder before running TEC-Suite.</div>',
+                status_code=400,
+            )
 
     # Global execution option (not part of converter CLI flags): docker --rm
     auto_remove = _is_truthy_checkbox(form.get("auto_remove", False))

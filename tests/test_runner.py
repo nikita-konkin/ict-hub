@@ -114,7 +114,7 @@ class TestBuildCommand:
         """Minimal valid form data for tecsuite."""
         base = {
             "root": "N:\\RINEX",
-            "out": "N:\\tec-suite\\out",
+            "root_subpath": "/2026_original/001",
             "jobs": "10",
             "verbose": True,
             "cleanup": True,
@@ -125,30 +125,40 @@ class TestBuildCommand:
     def test_volume_flags_produce_volumes_dict(self):
         from app.registry import build_command
         _, volumes = build_command("tec-suite", self._form())
-        # Both host paths should appear as volume keys
+        # Root host path should appear as a volume key
         assert "N:\\RINEX" in volumes
-        assert "N:\\tec-suite\\out" in volumes
 
     def test_rinex_volume_is_readwrite(self):
         from app.registry import build_command
         _, volumes = build_command("tec-suite", self._form())
         assert volumes["N:\\RINEX"]["mode"] == "rw"
 
-    def test_output_volume_is_readwrite(self):
-        from app.registry import build_command
-        _, volumes = build_command("tec-suite", self._form())
-        assert volumes["N:\\tec-suite\\out"]["mode"] == "rw"
-
     def test_rinex_container_path_in_command(self):
         from app.registry import build_command
         cmd, _ = build_command("tec-suite", self._form())
-        # The command should reference the container-side RINEX path, not the host path
-        assert "/data/rinex" in cmd
+        # The command should reference selected container-side subpath, not host path
+        assert "--root" in cmd
+        assert "/data/rinex/2026_original/001" in cmd
 
-    def test_output_container_path_in_command(self):
+    def test_root_subpath_year_only_in_command(self):
+        from app.registry import build_command
+        cmd, _ = build_command("tec-suite", self._form(root_subpath="/2026_original"))
+        assert "/data/rinex/2026_original" in cmd
+
+    def test_out_flag_not_present_for_tecsuite(self):
         from app.registry import build_command
         cmd, _ = build_command("tec-suite", self._form())
-        assert "/app/out" in cmd
+        assert "-o" not in cmd
+
+    def test_output_volume_added_from_env_when_configured(self, monkeypatch):
+        import app.registry as registry_module
+
+        monkeypatch.setattr(registry_module.cfg, "DAT_DATA_PATH_HOST", "N:\\RINEX\\out")
+        monkeypatch.setattr(registry_module.cfg, "DAT_DATA_PATH", "/app/out")
+
+        _, volumes = registry_module.build_command("tec-suite", self._form())
+        assert "N:\\RINEX\\out" in volumes
+        assert volumes["N:\\RINEX\\out"]["bind"] == "/app/out"
 
     def test_jobs_flag_appears_in_command(self):
         from app.registry import build_command
@@ -192,10 +202,41 @@ class TestBuildCommand:
     def test_empty_host_path_skipped(self):
         """If the user leaves the path blank, no volume should be added for it."""
         from app.registry import build_command
-        cmd, volumes = build_command("tec-suite", self._form(root="", out="N:\\out"))
+        cmd, volumes = build_command("tec-suite", self._form(root=""))
         assert "N:\\RINEX" not in volumes
-        # out path should still be present
-        assert "N:\\out" in volumes
+
+
+class TestRinexServerStructure:
+    """Tests for rinex_server.list_rinex_server_structure."""
+
+    def test_discovers_year_day_and_station_counts(self, tmp_path):
+        from app.rinex_server import list_rinex_server_structure
+
+        (tmp_path / "2026_original" / "001").mkdir(parents=True)
+        (tmp_path / "2026_original" / "01").mkdir(parents=True)
+        (tmp_path / "2026_original" / "002").mkdir(parents=True)
+        (tmp_path / "2025_original" / "010").mkdir(parents=True)
+        (tmp_path / "misc").mkdir(parents=True)
+
+        (tmp_path / "2026_original" / "001" / "aksu0740.zip").write_text("x", encoding="utf-8")
+        (tmp_path / "2026_original" / "001" / "alek0740.zip").write_text("x", encoding="utf-8")
+        (tmp_path / "2026_original" / "001" / "note.txt").write_text("x", encoding="utf-8")
+        (tmp_path / "2026_original" / "01" / "mini.zip").write_text("x", encoding="utf-8")
+        (tmp_path / "2026_original" / "002" / "aksu006s05.zip").write_text("x", encoding="utf-8")
+        (tmp_path / "2025_original" / "010" / "bldr006q19.zip").write_text("x", encoding="utf-8")
+
+        tree = list_rinex_server_structure(str(tmp_path))
+
+        assert [item["year"] for item in tree] == ["2026_original", "2025_original"]
+        assert tree[0]["days"][0] == {"day": "01", "stations": 1}
+        assert tree[0]["days"][1] == {"day": "001", "stations": 2}
+        assert tree[0]["days"][2] == {"day": "002", "stations": 1}
+        assert tree[1]["days"][0] == {"day": "010", "stations": 1}
+
+    def test_returns_empty_for_missing_root(self):
+        from app.rinex_server import list_rinex_server_structure
+        tree = list_rinex_server_structure("Z:/this/path/does/not/exist")
+        assert tree == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

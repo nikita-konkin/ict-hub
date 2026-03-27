@@ -47,13 +47,35 @@ class TestStartJob:
         data = {
             "converter_name": "tec-suite",
             "root": "/data/rinex",
-            "out": "/app/out",
+            "root_subpath": "/2026_original/001",
             "jobs": "4",
             "verbose": "on",
             "cleanup": "on",
         }
         data.update(overrides)
         return data
+
+    @patch("app.jobs.start_container", return_value="container_root_path")
+    def test_start_job_passes_year_day_root_subpath(self, mock_start, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(root_subpath="/2026_original"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_root_path_2d")
+    def test_start_job_accepts_two_digit_day_root_subpath(self, mock_start, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(root_subpath="/2026_original/01"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
 
     @patch("app.jobs.start_container", return_value="container123abc")
     def test_successful_job_start_returns_panel(self, mock_start, operator_client, db):
@@ -176,6 +198,15 @@ class TestStartJob:
         response = operator_client.post(
             "/jobs/start",
             data={"converter_name": "nonexistent"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+    def test_tecsuite_missing_root_subpath_returns_400(self, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(root_subpath=""),
+            headers={"HX-Request": "true"},
             follow_redirects=False,
         )
         assert response.status_code == 400

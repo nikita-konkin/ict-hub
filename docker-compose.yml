@@ -18,28 +18,44 @@ services:
       # Access the UI at http://localhost:8080 (or any LAN IP:8080).
       - "8080:8000"
 
+    # Load environment variables from local .env file.
+    env_file:
+      - .env
+
     environment:
       # ── Security (CHANGE THESE before exposing to a network) ──────────────
-      SECRET_KEY: "replace-me-with-a-random-32-char-string!!"
-      ADMIN_PASSWORD: "admin"           # password for the first-boot 'admin' user
+      SECRET_KEY: ${SECRET_KEY:-replace-me-with-a-random-32-char-string!!}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # password for the first-boot 'admin' user
 
       # ── Database ─────────────────────────────────────────────────────────
-      DATABASE_URL: "sqlite:////app/data/converter_hub.db"
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/converter_hub.db}
 
       # ── Converter images ─────────────────────────────────────────────────
       # Must match the image name you built with "docker build -t tecsuite ."
-      TECSUITE_IMAGE: "tec-suite"
-      DAT_PARQUET_IMAGE: "dat-parquet-handler"
+      TECSUITE_IMAGE: ${TECSUITE_IMAGE:-tec-suite}
+      # Host path containing YYYY_original/DDD/*.zip data for TEC-suite.
+      # Example (Windows): F:\\MyData\\ND\\Server
+      RINEX_DATA_PATH_HOST: ${RINEX_DATA_PATH_HOST:-}
+      # Container path used by converter-hub to browse server folder structure.
+      RINEX_DATA_PATH_CONTAINER: ${RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}
+      # Host folder to persist TEC-suite output and its container mount path.
+      DAT_DATA_PATH_HOST: ${DAT_DATA_PATH_HOST:-}
+      DAT_DATA_PATH: ${DAT_DATA_PATH:-/app/out}
+      DAT_PARQUET_IMAGE: ${DAT_PARQUET_IMAGE:-dat-parquet-handler}
+      ABSTEC_SUITE_IMAGE: ${ABSTEC_SUITE_IMAGE:-abstec-suite:latest}
 
       # ── External data-analysis API (TEC backend) ───────────────────────
       # Example when analysis service is another compose service:
       # ANALYSIS_API_BASE_URL: "http://tec-backend:8000"
       # If TEC backend runs on the Docker host machine, use host.docker.internal
       # (localhost inside this container points to converter-hub itself).
-      ANALYSIS_API_BASE_URL: "http://host.docker.internal:8000"
-      ANALYSIS_API_TIMEOUT_SEC: "45"
+      ANALYSIS_API_BASE_URL: ${ANALYSIS_API_BASE_URL:-http://host.docker.internal:8000}
+      ANALYSIS_API_TIMEOUT_SEC: ${ANALYSIS_API_TIMEOUT_SEC:-45}
 
     volumes:
+      # Mount RINEX host data into converter-hub so UI can discover years/days.
+      - ${RINEX_DATA_PATH_HOST}:${RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
+
       # ── Docker socket (REQUIRED) ─────────────────────────────────────────
       # Mounting the socket lets this container start/stop/inspect other
       # containers on the same Docker host. On Windows with Docker Desktop
