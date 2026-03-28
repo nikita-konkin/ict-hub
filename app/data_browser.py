@@ -12,12 +12,22 @@ Provides two filesystem scanners used by the run-page dropdowns:
       Expected layouts:
         <root>/YYYY/DDD/SITE/*.dat
         <root>/in/YYYY/DDD/SITE/*.dat
+
+Caching:
+  Both functions cache their last result keyed by the root path.  The cache
+  entry is invalidated when the scanned directory's mtime changes (i.e. a
+  folder is added or removed directly under that directory).  Switching
+  between converters without any filesystem changes is therefore instant.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 from typing import TypedDict
+
+# (path → (mtime, result)) — module-level, lives for the process lifetime
+_rinex_cache: dict[str, tuple[float, list]] = {}
+_tecsuite_cache: dict[str, tuple[float, list]] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -64,6 +74,9 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     """
     Return discovered RINEX server structure under host_root.
 
+    Results are cached and reused as long as the root directory mtime is
+    unchanged (i.e. no year folders have been added or removed).
+
     Output shape:
       [
         {
@@ -78,11 +91,26 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     """
     if not host_root:
         return []
-
     root = Path(host_root)
     if not root.exists() or not root.is_dir():
         return []
 
+    try:
+        mtime = root.stat().st_mtime
+    except OSError:
+        return []
+
+    cached_mtime, cached_result = _rinex_cache.get(host_root, (None, None))
+    if mtime == cached_mtime:
+        return cached_result  # type: ignore[return-value]
+
+    result = _scan_rinex(root)
+    _rinex_cache[host_root] = (mtime, result)
+    return result
+
+
+def _scan_rinex(root: Path) -> list[YearInfo]:
+    """Full filesystem scan — called only when cache is cold or stale."""
     years: list[YearInfo] = []
     for year_dir in root.iterdir():
         if not year_dir.is_dir():
@@ -115,18 +143,36 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     """
     Return TEC-suite DAT output structure for AbsTEC selection UI.
 
+    Results are cached and reused as long as the scanned directory mtime is
+    unchanged (i.e. no year folders have been added or removed).
+
     Expected layouts:
       <root>/YYYY/DDD/SITE/*.dat
       <root>/in/YYYY/DDD/SITE/*.dat
     """
     if not host_root:
         return []
-
     root = Path(host_root)
     if not root.exists() or not root.is_dir():
         return []
 
     scan_root = root / "in" if (root / "in").is_dir() else root
+    try:
+        mtime = scan_root.stat().st_mtime
+    except OSError:
+        return []
+
+    cached_mtime, cached_result = _tecsuite_cache.get(host_root, (None, None))
+    if mtime == cached_mtime:
+        return cached_result  # type: ignore[return-value]
+
+    result = _scan_tecsuite(scan_root)
+    _tecsuite_cache[host_root] = (mtime, result)
+    return result
+
+
+def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
+    """Full filesystem scan — called only when cache is cold or stale."""
     years: list[AbsTecYearInfo] = []
 
     for year_dir in scan_root.iterdir():
