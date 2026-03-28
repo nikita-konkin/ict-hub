@@ -31,20 +31,9 @@
         <input type="hidden" name="converter_name" value="{{ converter_name }}">
 
         {% if converter_name == 'tec-suite' %}
-          <input type="hidden" name="root" id="tec-root-host-path" value="{{ tec_rinex_host_path or '' }}">
           <input type="hidden" name="root_subpath" id="tec-root-subpath" value="">
 
-          <div class="form-group">
-            <label class="form-label" for="tec-server-root">Server Folder (host path)</label>
-            <input
-              class="form-input"
-              type="text"
-              id="tec-server-root"
-              value="{{ tec_rinex_host_path or '' }}"
-              readonly
-            >
-            <p class="form-hint">Configured from environment variable RINEX_DATA_PATH_HOST.</p>
-          </div>
+          <p class="form-hint" style="margin-bottom:20px;">Server Folder (host path) is configured from environment variable RINEX_DATA_PATH_HOST.</p>
 
           <div class="form-group">
             <label class="form-label" for="tec-year-select">Year Folder</label>
@@ -81,9 +70,66 @@
           {% endif %}
         {% endif %}
 
+        {% if converter_name == 'abstec-suite' %}
+          <input type="hidden" name="dat_path" id="abstec-dat-path" value="{{ abstec_dat_host_path or '' }}">
+          <input type="hidden" name="output_dir" id="abstec-output-dir" value="{{ abstec_output_host_path or '' }}">
+          <input type="hidden" name="year" id="abstec-year-hidden" value="">
+          <input type="hidden" name="day_of_year" id="abstec-day-of-year-hidden" value="">
+          <input type="hidden" name="days" id="abstec-days-hidden" value="">
+          <input type="hidden" name="site" id="abstec-site-hidden" value="">
+
+          <p class="form-hint" style="margin-bottom:10px;">Input DAT Root (host path) is configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST.</p>
+          <p class="form-hint" style="margin-bottom:20px;">Output Root (host path) is configured from environment variable ABSTEC_OUTPUT_DATA_PATH_HOST.</p>
+
+          <div class="form-group">
+            <label class="form-label" for="abstec-year-select">Year</label>
+            <select class="form-select" id="abstec-year-select" multiple size="4" {% if not abstec_dat_tree %}disabled{% endif %}>
+              {% for year_item in abstec_dat_tree %}
+              <option value="{{ year_item.year }}">{{ year_item.year }}</option>
+              {% endfor %}
+            </select>
+            <p class="form-hint">Choose one or more years. First selected year drives dependent day/site options.</p>
+            <div id="abstec-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="abstec-day-of-year-select">Day Of Year (single run)</label>
+            <select class="form-select" id="abstec-day-of-year-select" multiple size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
+            <p class="form-hint">Choose one or more days for single-run mode. Selecting this clears batch days.</p>
+            <div id="abstec-day-of-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="abstec-days-select">Days (batch mode)</label>
+            <select class="form-select" id="abstec-days-select" multiple size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
+            <p class="form-hint">Choose one or more days for batch mode. Selecting this clears single-run days.</p>
+            <div id="abstec-days-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="abstec-site-select">Site</label>
+            <select class="form-select" id="abstec-site-select" multiple size="10" {% if not abstec_dat_tree %}disabled{% endif %}></select>
+            <p class="form-hint">Choose one or more sites. Options depend on selected year/day values.</p>
+            <div id="abstec-site-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+          </div>
+
+          {% if not abstec_dat_host_path %}
+          <div class="alert alert-danger" style="margin-bottom:20px;">
+            TECSUITE_OUT_DAT_DATA_PATH_HOST is empty. Set it in .env to enable AbsTEC selectors.
+          </div>
+          {% elif not abstec_dat_tree %}
+          <div class="alert alert-danger" style="margin-bottom:20px;">
+            No TEC-suite DAT folders found. Expected pattern: YYYY/DDD/SITE/*.dat.<br>
+            Scan path: {{ abstec_dat_scan_path or 'not set' }}
+          </div>
+          {% endif %}
+        {% endif %}
+
         {% for flag in converter.flags %}
           {% set key = flag.long.lstrip('-').replace('-','_') %}
-          {% set skip_default_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
+          {% set skip_tecsuite_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
+          {% set skip_abstec_flag = converter_name == 'abstec-suite' and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
+          {% set skip_default_flag = skip_tecsuite_flag or skip_abstec_flag %}
 
           {% if not skip_default_flag %}
 
@@ -351,6 +397,191 @@
     } else {
       updateRootSubpath();
     }
+  })();
+</script>
+{% endif %}
+
+{% if converter_name == 'abstec-suite' %}
+<script id="abstec-dat-tree-data" type="application/json">{{ abstec_dat_tree | tojson }}</script>
+<script>
+  (function () {
+    const treeDataNode = document.getElementById("abstec-dat-tree-data");
+    const yearSelect = document.getElementById("abstec-year-select");
+    const dayOfYearSelect = document.getElementById("abstec-day-of-year-select");
+    const daysSelect = document.getElementById("abstec-days-select");
+    const siteSelect = document.getElementById("abstec-site-select");
+    const yearHidden = document.getElementById("abstec-year-hidden");
+    const dayOfYearHidden = document.getElementById("abstec-day-of-year-hidden");
+    const daysHidden = document.getElementById("abstec-days-hidden");
+    const siteHidden = document.getElementById("abstec-site-hidden");
+    const yearChips = document.getElementById("abstec-year-chips");
+    const dayOfYearChips = document.getElementById("abstec-day-of-year-chips");
+    const daysChips = document.getElementById("abstec-days-chips");
+    const siteChips = document.getElementById("abstec-site-chips");
+
+    if (
+      !treeDataNode || !yearSelect || !dayOfYearSelect || !daysSelect || !siteSelect ||
+      !yearHidden || !dayOfYearHidden || !daysHidden || !siteHidden ||
+      !yearChips || !dayOfYearChips || !daysChips || !siteChips
+    ) {
+      return;
+    }
+
+    let tree = [];
+    try {
+      tree = JSON.parse(treeDataNode.textContent || "[]");
+    } catch (_) {
+      tree = [];
+    }
+
+    function selectedValues(selectNode) {
+      return Array.from(selectNode.selectedOptions).map(function (opt) {
+        return opt.value;
+      });
+    }
+
+    function setHiddenFromSelect(selectNode, hiddenNode) {
+      hiddenNode.value = selectedValues(selectNode).join(",");
+    }
+
+    function renderChips(containerNode, values) {
+      containerNode.innerHTML = "";
+      if (!values || values.length === 0) {
+        const emptyChip = document.createElement("span");
+        emptyChip.className = "badge badge-muted";
+        emptyChip.textContent = "None selected";
+        containerNode.appendChild(emptyChip);
+        return;
+      }
+      values.forEach(function (value) {
+        const chip = document.createElement("span");
+        chip.className = "badge badge-info";
+        chip.textContent = value;
+        containerNode.appendChild(chip);
+      });
+    }
+
+    function syncSelect(selectNode, hiddenNode, chipNode) {
+      const values = selectedValues(selectNode);
+      hiddenNode.value = values.join(",");
+      renderChips(chipNode, values);
+    }
+
+    function clearSelect(selectNode) {
+      Array.from(selectNode.options).forEach(function (opt) {
+        opt.selected = false;
+      });
+    }
+
+    function firstSelectedYear() {
+      const years = selectedValues(yearSelect);
+      return years.length > 0 ? years[0] : "";
+    }
+
+    function findYear(year) {
+      return tree.find(function (item) {
+        return item.year === year;
+      }) || null;
+    }
+
+    function repopulateDayOptions() {
+      const year = firstSelectedYear();
+      const yearItem = year ? findYear(year) : null;
+
+      dayOfYearSelect.innerHTML = "";
+      daysSelect.innerHTML = "";
+
+      if (!yearItem || !Array.isArray(yearItem.days)) {
+        syncSelect(dayOfYearSelect, dayOfYearHidden, dayOfYearChips);
+        syncSelect(daysSelect, daysHidden, daysChips);
+        repopulateSites();
+        return;
+      }
+
+      yearItem.days.forEach(function (dayItem) {
+        const label = dayItem.day + " (" + (Array.isArray(dayItem.sites) ? dayItem.sites.length : 0) + " sites)";
+
+        const daySingle = document.createElement("option");
+        daySingle.value = dayItem.day;
+        daySingle.textContent = label;
+        dayOfYearSelect.appendChild(daySingle);
+
+        const dayBatch = document.createElement("option");
+        dayBatch.value = dayItem.day;
+        dayBatch.textContent = label;
+        daysSelect.appendChild(dayBatch);
+      });
+
+      syncSelect(dayOfYearSelect, dayOfYearHidden, dayOfYearChips);
+      syncSelect(daysSelect, daysHidden, daysChips);
+      repopulateSites();
+    }
+
+    function repopulateSites() {
+      const year = firstSelectedYear();
+      const yearItem = year ? findYear(year) : null;
+      const selectedSingleDays = selectedValues(dayOfYearSelect);
+      const selectedBatchDays = selectedValues(daysSelect);
+      const selectedDaySet = new Set(selectedSingleDays.concat(selectedBatchDays));
+
+      siteSelect.innerHTML = "";
+      if (!yearItem || !Array.isArray(yearItem.days)) {
+        syncSelect(siteSelect, siteHidden, siteChips);
+        return;
+      }
+
+      const siteSet = new Set();
+      yearItem.days.forEach(function (dayItem) {
+        if (selectedDaySet.size > 0 && !selectedDaySet.has(dayItem.day)) {
+          return;
+        }
+        (dayItem.sites || []).forEach(function (siteName) {
+          siteSet.add(siteName);
+        });
+      });
+
+      Array.from(siteSet).sort().forEach(function (siteName) {
+        const option = document.createElement("option");
+        option.value = siteName;
+        option.textContent = siteName;
+        siteSelect.appendChild(option);
+      });
+
+      syncSelect(siteSelect, siteHidden, siteChips);
+    }
+
+    yearSelect.addEventListener("change", function () {
+      syncSelect(yearSelect, yearHidden, yearChips);
+      repopulateDayOptions();
+    });
+
+    dayOfYearSelect.addEventListener("change", function () {
+      if (selectedValues(dayOfYearSelect).length > 0) {
+        clearSelect(daysSelect);
+      }
+      syncSelect(dayOfYearSelect, dayOfYearHidden, dayOfYearChips);
+      syncSelect(daysSelect, daysHidden, daysChips);
+      repopulateSites();
+    });
+
+    daysSelect.addEventListener("change", function () {
+      if (selectedValues(daysSelect).length > 0) {
+        clearSelect(dayOfYearSelect);
+      }
+      syncSelect(daysSelect, daysHidden, daysChips);
+      syncSelect(dayOfYearSelect, dayOfYearHidden, dayOfYearChips);
+      repopulateSites();
+    });
+
+    siteSelect.addEventListener("change", function () {
+      syncSelect(siteSelect, siteHidden, siteChips);
+    });
+
+    if (tree.length > 0 && yearSelect.options.length > 0) {
+      yearSelect.options[0].selected = true;
+    }
+    syncSelect(yearSelect, yearHidden, yearChips);
+    repopulateDayOptions();
   })();
 </script>
 {% endif %}

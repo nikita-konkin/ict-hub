@@ -163,10 +163,16 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `SECRET_KEY`       | `change-me-in-production-please-32chars!!` | Session cookie signing key — **must change** |
 | `ADMIN_PASSWORD`   | `admin`                                  | First-boot admin password                     |
 | `DATABASE_URL`     | `sqlite:////app/data/converter_hub.db`   | SQLAlchemy connection string                  |
-| `TECSUITE_IMAGE`   | `tecsuite`                               | Docker image name for TEC-Suite               |
+| `TECSUITE_IMAGE`   | `tec-suite`                              | Docker image name for TEC-Suite               |
 | `RINEX_DATA_PATH_HOST` | ``                                    | Host folder root for TEC-suite data (`YYYY_original/DDD/*.zip`) |
+| `RINEX_DATA_PATH_CONTAINER` | `/mnt/rinex-server`               | Path inside converter-hub used to browse TEC input folders |
+| `TECSUITE_OUT_DAT_DATA_PATH_HOST` | ``                           | Host folder root for TEC DAT output used as AbsTEC input (`YYYY/DDD/SITE/*.dat`) |
+| `TECSUITE_OUT_DAT_DATA_PATH_CONTAINER` | `/mnt/tecsuite-out`      | Path inside converter-hub used to browse TEC DAT output folders |
+| `TECSUITE_OUT_DAT_DATA_PATH` | `/app/out`                        | Container path for persisted TEC output        |
 | `DAT_PARQUET_IMAGE`| `dat-parquet-handler`                    | Docker image name for DAT <-> Parquet         |
 | `ABSTEC_SUITE_IMAGE`| `abstec-suite:latest`                   | Docker image name for AbsTEC Suite            |
+| `ABSTEC_OUTPUT_DATA_PATH_HOST` | ``                               | Host folder where AbsTEC output is persisted   |
+| `ABSTEC_OUTPUT_DATA_PATH` | `/app/abstec_out`                    | Container path for AbsTEC output               |
 | `ANALYSIS_API_BASE_URL` | ``                                   | Base URL of TEC Analysis Backend (e.g. `http://tec-backend:8000`) |
 | `ANALYSIS_API_TIMEOUT_SEC` | `45`                              | Timeout for proxied analysis API requests     |
 

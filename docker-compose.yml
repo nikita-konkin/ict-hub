@@ -39,10 +39,14 @@ services:
       # Container path used by converter-hub to browse server folder structure.
       RINEX_DATA_PATH_CONTAINER: ${RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}
       # Host folder to persist TEC-suite output and its container mount path.
-      DAT_DATA_PATH_HOST: ${DAT_DATA_PATH_HOST:-}
-      DAT_DATA_PATH: ${DAT_DATA_PATH:-/app/out}
+      TECSUITE_OUT_DAT_DATA_PATH_HOST: ${TECSUITE_OUT_DAT_DATA_PATH_HOST:-}
+      TECSUITE_OUT_DAT_DATA_PATH: ${TECSUITE_OUT_DAT_DATA_PATH:-/app/out}
+      # Container path used by converter-hub to browse TEC DAT output folders.
+      TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: ${TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}
       DAT_PARQUET_IMAGE: ${DAT_PARQUET_IMAGE:-dat-parquet-handler}
       ABSTEC_SUITE_IMAGE: ${ABSTEC_SUITE_IMAGE:-abstec-suite:latest}
+      ABSTEC_OUTPUT_DATA_PATH_HOST: ${ABSTEC_OUTPUT_DATA_PATH_HOST:-}
+      ABSTEC_OUTPUT_DATA_PATH: ${ABSTEC_OUTPUT_DATA_PATH:-/app/abstec_out}
 
       # ── External data-analysis API (TEC backend) ───────────────────────
       # Example when analysis service is another compose service:
@@ -55,6 +59,8 @@ services:
     volumes:
       # Mount RINEX host data into converter-hub so UI can discover years/days.
       - ${RINEX_DATA_PATH_HOST}:${RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
+      # Mount TEC DAT output into converter-hub so AbsTEC selectors can discover year/day/site.
+      - ${TECSUITE_OUT_DAT_DATA_PATH_HOST}:${TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}:ro
 
       # ── Docker socket (REQUIRED) ─────────────────────────────────────────
       # Mounting the socket lets this container start/stop/inspect other

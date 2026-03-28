@@ -51,6 +51,31 @@
 
     html { height: 100%; }
 
+    /* Global scrollbar theme (Firefox + Chromium/WebKit) */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-light) transparent;
+    }
+
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: var(--border-light);
+      border-radius: 6px;
+      border: 1px solid transparent;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-dim);
+    }
+
     body {
       min-height: 100%;
       background: var(--bg);
@@ -285,7 +310,22 @@
       padding: 10px 14px;
       outline: none;
       transition: border-color var(--transition), box-shadow var(--transition);
+      appearance: none;
       -webkit-appearance: none;
+    }
+
+    .form-select[multiple] {
+      padding: 8px;
+      background: var(--surface-2);
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent-dim) var(--surface-2);
+    }
+
+    .form-select[multiple] option {
+      padding: 6px 8px;
+      border-radius: 2px;
+      margin: 1px 0;
     }
 
     .form-input::placeholder { color: var(--text-dim); }
@@ -487,6 +527,29 @@
 
     /* ─── Tables ─────────────────────────────────────────────────────────────── */
     .table-wrap { overflow-x: auto; }
+
+    .table-wrap::-webkit-scrollbar,
+    pre::-webkit-scrollbar,
+    textarea::-webkit-scrollbar,
+    select[multiple]::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    .table-wrap::-webkit-scrollbar-thumb,
+    pre::-webkit-scrollbar-thumb,
+    textarea::-webkit-scrollbar-thumb,
+    select[multiple]::-webkit-scrollbar-thumb {
+      background: var(--border-light);
+      border-radius: 6px;
+    }
+
+    .table-wrap::-webkit-scrollbar-thumb:hover,
+    pre::-webkit-scrollbar-thumb:hover,
+    textarea::-webkit-scrollbar-thumb:hover,
+    select[multiple]::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-dim);
+    }
 
     table {
       width: 100%;

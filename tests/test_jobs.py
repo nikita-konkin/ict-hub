@@ -11,6 +11,13 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
+@pytest.fixture(autouse=True)
+def converter_env_roots(monkeypatch):
+    monkeypatch.setattr("app.jobs.cfg.RINEX_DATA_PATH_HOST", "/data/rinex")
+    monkeypatch.setattr("app.jobs.cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST", "/data/tecs-out")
+    monkeypatch.setattr("app.jobs.cfg.ABSTEC_OUTPUT_DATA_PATH_HOST", "/data/abstec-out")
+
+
 class TestRunPage:
     """Tests for GET /run/{converter} — the converter form page."""
 
@@ -20,10 +27,21 @@ class TestRunPage:
         # The page should contain the converter label
         assert b"TEC-Suite" in response.content or b"tec-suite" in response.content.lower()
         assert b"Auto-remove container (--rm)" in response.content
+        assert b"Server Folder (host path) is configured from environment variable RINEX_DATA_PATH_HOST." in response.content
+        assert b"for=\"tec-server-root\"" not in response.content
 
     def test_run_page_404_for_unknown_converter(self, operator_client):
         response = operator_client.get("/run/does-not-exist", follow_redirects=True)
         assert response.status_code == 404
+
+    def test_abstec_run_page_renders_dependent_selectors(self, operator_client):
+        response = operator_client.get("/run/abstec-suite", follow_redirects=True)
+        assert response.status_code == 200
+        assert b"Input DAT Root (host path) is configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST." in response.content
+        assert b"for=\"abstec-year-select\"" in response.content
+        assert b"for=\"abstec-day-of-year-select\"" in response.content
+        assert b"for=\"abstec-days-select\"" in response.content
+        assert b"for=\"abstec-site-select\"" in response.content
 
     def test_unauthenticated_run_page_redirects(self, client):
         response = client.get("/run/tec-suite", follow_redirects=False)
@@ -46,11 +64,23 @@ class TestStartJob:
         """Return a minimal valid form payload for the tec-suite converter."""
         data = {
             "converter_name": "tec-suite",
-            "root": "/data/rinex",
             "root_subpath": "/2026_original/001",
             "jobs": "4",
             "verbose": "on",
             "cleanup": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def _start_abstec_job_data(self, **overrides):
+        """Return a minimal valid form payload for the abstec-suite converter."""
+        data = {
+            "converter_name": "abstec-suite",
+            "year": "2026",
+            "day_of_year": "001",
+            "days": "",
+            "site": "aksu0010",
+            "dry_run": "on",
         }
         data.update(overrides)
         return data
@@ -179,6 +209,60 @@ class TestStartJob:
         assert job is not None
         flags = json.loads(job.flags_json)
         assert flags.get("jobs") in ("8", 8)
+        assert flags.get("root")
+
+    @patch("app.jobs.start_container", return_value="container_env_root")
+    def test_tecsuite_uses_env_root_and_stores_note(self, mock_start, operator_client, db):
+        operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/rinex" in volumes
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job is not None
+        assert job.rinex_path == "Configured from environment variable RINEX_DATA_PATH_HOST"
+
+    @patch("app.jobs.start_container", return_value="container_abstec_env")
+    def test_abstec_uses_env_paths_and_stores_note(self, mock_start, operator_client, db):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/tecs-out" in volumes
+        assert "/data/abstec-out" in volumes
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job is not None
+        assert job.converter == "abstec-suite"
+        assert job.rinex_path == "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
+
+        flags = json.loads(job.flags_json)
+        assert flags.get("dat_path") == "/data/tecs-out"
+        assert flags.get("output_dir") == "/data/abstec-out"
+
+    def test_abstec_missing_env_dat_root_returns_400(self, operator_client, monkeypatch):
+        monkeypatch.setattr("app.jobs.cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST", "")
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
 
     @patch("app.jobs.start_container", side_effect=Exception("Docker not available"))
     def test_docker_error_returns_error_response(self, mock_start, operator_client, db):

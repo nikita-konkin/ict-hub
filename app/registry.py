@@ -194,7 +194,7 @@ CONVERTERS: dict[str, dict] = {
         ],
         "container_volumes": {
             "dat_path": "/data/in",
-            "output_dir": "/data/out",
+            "output_dir": cfg.ABSTEC_OUTPUT_DATA_PATH or "/data/out",
         },
         "flags": [
             {
@@ -230,23 +230,19 @@ CONVERTERS: dict[str, dict] = {
                 "name": "--year",
                 "long": "--year",
                 "label": "Year",
-                "type": "number",
+                "type": "text",
                 "default": "",
                 "required": True,
-                "help": "4-digit year.",
-                "min": 2000,
-                "max": 2100,
+                "help": "Year value(s). Supports one year or a comma list (e.g. 2026,2025).",
             },
             {
                 "name": "--day-of-year",
                 "long": "--day-of-year",
                 "label": "Day Of Year (single run)",
-                "type": "number",
+                "type": "text",
                 "default": "",
                 "required": False,
-                "help": "Single day number (1-366). Mutually exclusive with --days.",
-                "min": 1,
-                "max": 366,
+                "help": "Day value(s) for single mode. Supports one value or comma list.",
             },
             {
                 "name": "--days",
@@ -404,9 +400,9 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
         cmd.extend(["-t", conv["tecs_path"]])
 
     # Persist tec-suite output using env-configured host path (no --out flag).
-    if converter_name == "tec-suite" and cfg.DAT_DATA_PATH_HOST:
-        output_container_path = cfg.DAT_DATA_PATH or conv["container_volumes"].get("output", "/app/out")
-        volumes[str(cfg.DAT_DATA_PATH_HOST)] = {
+    if converter_name == "tec-suite" and cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST:
+        output_container_path = cfg.TECSUITE_OUT_DAT_DATA_PATH or conv["container_volumes"].get("output", "/app/out")
+        volumes[str(cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)] = {
             "bind": output_container_path,
             "mode": "rw",
         }

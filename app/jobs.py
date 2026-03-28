@@ -26,7 +26,7 @@ from app.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
-from app.rinex_server import list_rinex_server_structure
+from app.data_browser import list_rinex_server_structure, list_tecsuite_output_structure
 from app.runner import parse_progress, start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
 
@@ -35,6 +35,8 @@ router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
 
 _TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3})?$")
+_TECSUITE_ENV_ROOT_NOTE = "Configured from environment variable RINEX_DATA_PATH_HOST"
+_ABSTEC_ENV_INPUT_NOTE = "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
 
 
 def _is_truthy_checkbox(value: object) -> bool:
@@ -107,6 +109,7 @@ async def run_page(
     active_stream_tail = "all"
     tec_rinex_tree: list[dict[str, object]] = []
     tec_rinex_host_path = ""
+    abstec_dat_tree: list[dict[str, object]] = []
     resume_mode = request.query_params.get("resume", "0") == "1"
     if job_id is not None:
         candidate = (
@@ -128,6 +131,16 @@ async def run_page(
         tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
         scan_path = cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path
         tec_rinex_tree = list_rinex_server_structure(scan_path)
+    elif converter_name == "abstec-suite":
+        abstec_scan_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER.strip()
+        host_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
+        if not abstec_scan_path:
+            abstec_scan_path = host_path
+        abstec_dat_tree = list_tecsuite_output_structure(abstec_scan_path)
+        if not abstec_dat_tree and host_path and abstec_scan_path != host_path:
+            abstec_dat_tree = list_tecsuite_output_structure(host_path)
+            if abstec_dat_tree:
+                abstec_scan_path = host_path
 
     return templates.TemplateResponse(
         "run.html",
@@ -142,6 +155,13 @@ async def run_page(
             "tec_rinex_host_path": tec_rinex_host_path,
             "tec_rinex_tree": tec_rinex_tree,
             "tec_rinex_scan_path": cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path,
+            "abstec_dat_tree": abstec_dat_tree,
+            "abstec_dat_host_path": cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST,
+            "abstec_dat_scan_path": (
+                cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER
+                or cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST
+            ),
+            "abstec_output_host_path": cfg.ABSTEC_OUTPUT_DATA_PATH_HOST,
             "converters": CONVERTERS,
         },
     )
@@ -187,7 +207,7 @@ async def start_job(
     form_dict = {k: v for k, v in form.items() if k != "converter_name"}
 
     if converter_name == "tec-suite":
-        root_host = str(form_dict.get("root", "")).strip()
+        root_host = cfg.RINEX_DATA_PATH_HOST.strip()
         root_subpath = str(form_dict.get("root_subpath", "")).strip()
         if not root_host:
             return HTMLResponse(
@@ -199,6 +219,16 @@ async def start_job(
                 '<div class="alert alert-danger">Select a valid year/day folder before running TEC-Suite.</div>',
                 status_code=400,
             )
+        form_dict["root"] = root_host
+    elif converter_name == "abstec-suite":
+        dat_root_host = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
+        if not dat_root_host:
+            return HTMLResponse(
+                '<div class="alert alert-danger">TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.</div>',
+                status_code=400,
+            )
+        form_dict["dat_path"] = dat_root_host
+        form_dict["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
 
     # Global execution option (not part of converter CLI flags): docker --rm
     auto_remove = _is_truthy_checkbox(form.get("auto_remove", False))
@@ -227,7 +257,15 @@ async def start_job(
         user_id=current_user.id,
         converter=converter_name,
         flags_json=json.dumps(form_dict),
-        rinex_path=form_dict.get("root", ""),
+        rinex_path=(
+            _TECSUITE_ENV_ROOT_NOTE
+            if converter_name == "tec-suite"
+            else (
+                _ABSTEC_ENV_INPUT_NOTE
+                if converter_name == "abstec-suite"
+                else form_dict.get("root", "")
+            )
+        ),
         output_path=form_dict.get("out", ""),
         status="running",
     )

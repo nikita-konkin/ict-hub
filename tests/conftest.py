@@ -171,7 +171,7 @@ def completed_job(db, operator_user) -> JobRun:
         user_id=operator_user.id,
         converter="tec-suite",
         flags_json=json.dumps({"jobs": 4, "verbose": True, "cleanup": True}),
-        rinex_path="/data/rinex",
+        rinex_path="Configured from environment variable RINEX_DATA_PATH_HOST",
         output_path="/app/out",
         container_id="abc123def456",
         status="success",

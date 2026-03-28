@@ -153,8 +153,8 @@ class TestBuildCommand:
     def test_output_volume_added_from_env_when_configured(self, monkeypatch):
         import app.registry as registry_module
 
-        monkeypatch.setattr(registry_module.cfg, "DAT_DATA_PATH_HOST", "N:\\RINEX\\out")
-        monkeypatch.setattr(registry_module.cfg, "DAT_DATA_PATH", "/app/out")
+        monkeypatch.setattr(registry_module.cfg, "TECSUITE_OUT_DAT_DATA_PATH_HOST", "N:\\RINEX\\out")
+        monkeypatch.setattr(registry_module.cfg, "TECSUITE_OUT_DAT_DATA_PATH", "/app/out")
 
         _, volumes = registry_module.build_command("tec-suite", self._form())
         assert "N:\\RINEX\\out" in volumes
@@ -207,10 +207,10 @@ class TestBuildCommand:
 
 
 class TestRinexServerStructure:
-    """Tests for rinex_server.list_rinex_server_structure."""
+    """Tests for data_browser.list_rinex_server_structure."""
 
     def test_discovers_year_day_and_station_counts(self, tmp_path):
-        from app.rinex_server import list_rinex_server_structure
+        from app.data_browser import list_rinex_server_structure
 
         (tmp_path / "2026_original" / "001").mkdir(parents=True)
         (tmp_path / "2026_original" / "01").mkdir(parents=True)
@@ -234,8 +234,38 @@ class TestRinexServerStructure:
         assert tree[1]["days"][0] == {"day": "010", "stations": 1}
 
     def test_returns_empty_for_missing_root(self):
-        from app.rinex_server import list_rinex_server_structure
+        from app.data_browser import list_rinex_server_structure
         tree = list_rinex_server_structure("Z:/this/path/does/not/exist")
+        assert tree == []
+
+
+class TestTecsuiteOutputStructure:
+    """Tests for data_browser.list_tecsuite_output_structure."""
+
+    def test_discovers_year_day_and_sites(self, tmp_path):
+        from app.data_browser import list_tecsuite_output_structure
+
+        (tmp_path / "in" / "2026" / "1" / "aksu").mkdir(parents=True)
+        (tmp_path / "in" / "2026" / "002" / "cher").mkdir(parents=True)
+        (tmp_path / "in" / "2025" / "010" / "bldr").mkdir(parents=True)
+        (tmp_path / "in" / "2026" / "002" / "nodat").mkdir(parents=True)
+
+        (tmp_path / "in" / "2026" / "1" / "aksu" / "a.dat").write_text("x", encoding="utf-8")
+        (tmp_path / "in" / "2026" / "002" / "cher" / "b.dat").write_text("x", encoding="utf-8")
+        (tmp_path / "in" / "2025" / "010" / "bldr" / "c.dat").write_text("x", encoding="utf-8")
+        (tmp_path / "in" / "2026" / "002" / "nodat" / "skip.txt").write_text("x", encoding="utf-8")
+
+        tree = list_tecsuite_output_structure(str(tmp_path))
+
+        assert [item["year"] for item in tree] == ["2026", "2025"]
+        assert tree[0]["days"][0] == {"day": "001", "sites": ["aksu"]}
+        assert tree[0]["days"][1] == {"day": "002", "sites": ["cher"]}
+        assert tree[1]["days"][0] == {"day": "010", "sites": ["bldr"]}
+
+    def test_returns_empty_for_missing_root(self):
+        from app.data_browser import list_tecsuite_output_structure
+
+        tree = list_tecsuite_output_structure("Z:/this/path/does/not/exist")
         assert tree == []
 
 
