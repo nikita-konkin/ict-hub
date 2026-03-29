@@ -173,6 +173,13 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `ABSTEC_SUITE_IMAGE`| `abstec-suite:latest`                   | Docker image name for AbsTEC Suite            |
 | `ABSTEC_OUTPUT_DATA_PATH_HOST` | ``                               | Host folder where AbsTEC output is persisted   |
 | `ABSTEC_OUTPUT_DATA_PATH` | `/app/abstec_out`                    | Container path for AbsTEC output               |
+| `ABSTEC_OUTPUT_DATA_PATH_CONTAINER` | `/mnt/abstec-out`           | Path inside converter-hub used to browse AbsTEC output folders |
+| `PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST` | ``                    | Host folder for TEC-Suite Parquet output       |
+| `PARQUET_OUTPUT_TECSUITE_DATA_PATH` | `/app/tecsuite_parquet_out` | Container path for TEC-Suite Parquet output    |
+| `PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER` | `/mnt/tecsuite-parquet-out` | Path inside converter-hub for browsing TEC-Suite Parquet output |
+| `PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST` | ``                       | Host folder for AbsTEC Parquet output          |
+| `PARQUET_OUTPUT_ABSTEC_DATA_PATH` | `/app/abstec_parquet_out`    | Container path for AbsTEC Parquet output       |
+| `PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER` | `/mnt/abstec-parquet-out` | Path inside converter-hub for browsing AbsTEC Parquet output |
 | `ANALYSIS_API_BASE_URL` | ``                                   | Base URL of TEC Analysis Backend (e.g. `http://tec-backend:8000`) |
 | `ANALYSIS_API_TIMEOUT_SEC` | `45`                              | Timeout for proxied analysis API requests     |
 

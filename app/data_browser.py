@@ -28,6 +28,7 @@ from typing import TypedDict
 # (path → (mtime, result)) — module-level, lives for the process lifetime
 _rinex_cache: dict[str, tuple[float, list]] = {}
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
+_parquet_cache: dict[str, tuple[float, list]] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -171,6 +172,61 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     return result
 
 
+def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
+    """
+    Return parquet output structure under host_root for the year/day UI.
+
+    Results are cached and reused as long as the scanned directory mtime is
+    unchanged.
+
+    Expected layout (mirrors the DAT source root):
+      <root>/YYYY/DDD/…   (any files/subdirs below DDD are ignored)
+
+    Output shape:
+      [{"year": "2026", "days": ["001", "007", ...]}, ...]
+    """
+    if not host_root:
+        return []
+    root = Path(host_root)
+    if not root.exists() or not root.is_dir():
+        return []
+
+    try:
+        mtime = root.stat().st_mtime
+    except OSError:
+        return []
+
+    cached_mtime, cached_result = _parquet_cache.get(host_root, (None, None))
+    if mtime == cached_mtime:
+        return cached_result  # type: ignore[return-value]
+
+    result = _scan_parquet(root)
+    _parquet_cache[host_root] = (mtime, result)
+    return result
+
+
+def _scan_parquet(root: Path) -> list[dict[str, object]]:
+    """Full filesystem scan for parquet output roots."""
+    years: list[dict[str, object]] = []
+
+    for year_dir in root.iterdir():
+        if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
+            continue
+
+        days: list[str] = []
+        for day_dir in year_dir.iterdir():
+            if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
+                continue
+            days.append(day_dir.name.zfill(3))
+
+        if days:
+            days.sort(key=lambda d: _abstec_day_sort_key(d))
+            years.append({"year": year_dir.name, "days": days})
+
+    years.sort(key=lambda item: int(str(item["year"])), reverse=True)
+    return years
+
+
 def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
     """Full filesystem scan — called only when cache is cold or stale."""
     years: list[AbsTecYearInfo] = []
@@ -185,6 +241,7 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
                 continue
 
             sites: list[str] = []
+            # Layout A: YYYY/DDD/SITE_DIR/*.dat  (site as subdirectory)
             for site_dir in day_dir.iterdir():
                 if not site_dir.is_dir():
                     continue
@@ -194,6 +251,14 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
                 )
                 if has_dat:
                     sites.append(site_dir.name)
+
+            # Layout B: YYYY/DDD/SITE.dat  (flat – site name = file stem)
+            if not sites:
+                sites = [
+                    entry.stem
+                    for entry in day_dir.iterdir()
+                    if entry.is_file() and entry.suffix.lower() == ".dat"
+                ]
 
             if sites:
                 sites.sort()

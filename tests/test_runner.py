@@ -205,6 +205,26 @@ class TestBuildCommand:
         cmd, volumes = build_command("tec-suite", self._form(root=""))
         assert "N:\\RINEX" not in volumes
 
+    def test_dat_parquet_uses_input_output_container_paths(self):
+        from app.registry import build_command
+
+        cmd, volumes = build_command(
+            "dat-parquet-handler",
+            {
+                "direction": "dat-to-parquet",
+                "src": "N:\\RINEX\\out",
+                "dst": "N:\\RINEX\\parquet",
+                "overwrite": False,
+            },
+        )
+
+        assert "N:\\RINEX\\out" in volumes
+        assert "N:\\RINEX\\parquet" in volumes
+        assert volumes["N:\\RINEX\\out"]["bind"] == "/input"
+        assert volumes["N:\\RINEX\\parquet"]["bind"] == "/output"
+        assert "/input" in cmd
+        assert "/output" in cmd
+
 
 class TestRinexServerStructure:
     """Tests for data_browser.list_rinex_server_structure."""

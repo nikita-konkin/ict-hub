@@ -127,8 +127,8 @@ CONVERTERS: dict[str, dict] = {
             r"Progress:\s*(\d{1,3})\s*%",
         ],
         "container_volumes": {
-            "src": "/data/src",
-            "dst": "/data/dst",
+            "src": "/input",
+            "dst": "/output",
         },
         "flags": [
             {
@@ -152,7 +152,7 @@ CONVERTERS: dict[str, dict] = {
                 "default": "",
                 "required": True,
                 "is_volume": "src",
-                "help": "Host path to the source root directory.",
+                "help": "Host path to the source root directory. Resolved from the selected env-backed dataset profile.",
             },
             {
                 "name": "-d",
@@ -162,7 +162,7 @@ CONVERTERS: dict[str, dict] = {
                 "default": "",
                 "required": False,
                 "is_volume": "dst",
-                "help": "Host path for output. Defaults to the same as source if left blank.",
+                "help": "Host path for output. Uses the source path when overwrite is enabled, otherwise the configured parquet output root.",
             },
             {
                 "name": "--overwrite",

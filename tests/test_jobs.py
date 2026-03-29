@@ -16,6 +16,8 @@ def converter_env_roots(monkeypatch):
     monkeypatch.setattr("app.jobs.cfg.RINEX_DATA_PATH_HOST", "/data/rinex")
     monkeypatch.setattr("app.jobs.cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST", "/data/tecs-out")
     monkeypatch.setattr("app.jobs.cfg.ABSTEC_OUTPUT_DATA_PATH_HOST", "/data/abstec-out")
+    monkeypatch.setattr("app.jobs.cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "/data/tecsuite-parquet")
+    monkeypatch.setattr("app.jobs.cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST", "/data/abstec-parquet")
 
 
 class TestRunPage:
@@ -42,6 +44,17 @@ class TestRunPage:
         assert b"for=\"abstec-day-of-year-select\"" in response.content
         assert b"for=\"abstec-days-select\"" in response.content
         assert b"for=\"abstec-site-select\"" in response.content
+
+    def test_dat_parquet_run_page_renders_env_backed_path_controls(self, operator_client):
+        response = operator_client.get("/run/dat-parquet-handler", follow_redirects=True)
+        assert response.status_code == 200
+        assert b"Source Dataset" in response.content
+        assert b"for=\"dat-parquet-year-select\"" in response.content
+        assert b"for=\"dat-parquet-day-select\"" in response.content
+        assert b"id=\"dat-parquet-src-preview\"" in response.content
+        assert b"id=\"dat-parquet-dst-preview\"" in response.content
+        assert b"TEC-Suite DAT output" in response.content
+        assert b"AbsTEC output" in response.content
 
     def test_unauthenticated_run_page_redirects(self, client):
         response = client.get("/run/tec-suite", follow_redirects=False)
@@ -81,6 +94,17 @@ class TestStartJob:
             "days": "",
             "site": "aksu0010",
             "dry_run": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def _start_dat_parquet_job_data(self, **overrides):
+        """Return a minimal valid form payload for the dat-parquet-handler converter."""
+        data = {
+            "converter_name": "dat-parquet-handler",
+            "direction": "dat-to-parquet",
+            "dataset_profile": "tecsuite",
+            "root_subpath": "",
         }
         data.update(overrides)
         return data
@@ -263,6 +287,118 @@ class TestStartJob:
             follow_redirects=False,
         )
         assert response.status_code == 400
+
+    @patch("app.jobs.start_container", return_value="container_dat_parquet")
+    def test_dat_parquet_uses_tecsuite_env_paths(self, mock_start, operator_client, db):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/tecs-out" in volumes
+        assert "/data/tecsuite-parquet" in volumes
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job is not None
+        assert job.converter == "dat-parquet-handler"
+        assert job.rinex_path == "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
+
+        flags = json.loads(job.flags_json)
+        assert flags.get("src") == "/data/tecs-out"
+        assert flags.get("dst") == "/data/tecsuite-parquet"
+        assert flags.get("dataset_profile") == "tecsuite"
+
+    @patch("app.jobs.start_container", return_value="container_dat_parquet_overwrite")
+    def test_dat_parquet_overwrite_reuses_source_as_destination(self, mock_start, operator_client, db):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(dataset_profile="abstec", overwrite="on"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/abstec-out" in volumes
+        assert volumes["/data/abstec-out"]["bind"] == "/output"
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        flags = json.loads(job.flags_json)
+        assert flags.get("src") == "/data/abstec-out"
+        assert flags.get("dst") == "/data/abstec-out"
+
+    def test_dat_parquet_missing_profile_env_returns_400(self, operator_client, monkeypatch):
+        monkeypatch.setattr("app.jobs.cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(dataset_profile="tecsuite"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST is not configured" in response.content
+
+    @patch("app.jobs.start_container", return_value="container_dat_parquet_subpath")
+    def test_dat_parquet_applies_root_subpath_to_src_and_dst(self, mock_start, operator_client, db):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(root_subpath="/2026/007"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/tecs-out/2026/007" in volumes
+        assert "/data/tecsuite-parquet/2026/007" in volumes
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        flags = json.loads(job.flags_json)
+        assert flags.get("root_subpath") == "/2026/007"
+        assert flags.get("src") == "/data/tecs-out/2026/007"
+        assert flags.get("dst") == "/data/tecsuite-parquet/2026/007"
+
+    @patch("app.jobs.start_container", return_value="container_dat_parquet_parquet_src_subpath")
+    def test_dat_parquet_parquet_to_dat_applies_root_subpath(self, mock_start, operator_client, db):
+        """parquet-to-dat direction: subpath is applied to both src (parquet root) and dst (DAT root)."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(direction="parquet-to-dat", root_subpath="/2026/007"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+
+        _, _, volumes = mock_start.call_args.args
+        assert "/data/tecsuite-parquet/2026/007" in volumes
+        assert "/data/tecs-out/2026/007" in volumes
+
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        flags = json.loads(job.flags_json)
+        assert flags.get("src") == "/data/tecsuite-parquet/2026/007"
+        assert flags.get("dst") == "/data/tecs-out/2026/007"
+
+    def test_dat_parquet_invalid_root_subpath_returns_400(self, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(root_subpath="/2026_original/007"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"Select a valid year/day folder" in response.content
 
     @patch("app.jobs.start_container", side_effect=Exception("Docker not available"))
     def test_docker_error_returns_error_response(self, mock_start, operator_client, db):
