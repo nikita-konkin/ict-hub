@@ -5,7 +5,8 @@ Provides two filesystem scanners used by the run-page dropdowns:
 
   list_rinex_server_structure()
       Scans a RINEX server root for year/day/zip archives.
-      Expected layout: <root>/YYYY_original/DD|DDD/<station>.zip
+      Expected layout before 2019: <root>/YYYY_original/DOY/<station>.zip
+      Expected layout from 2019: <root>/YYYY_original/MM/DD/<station>.zip
 
   list_tecsuite_output_structure()
       Scans a TEC-suite output root for year/day/site DAT files.
@@ -32,6 +33,8 @@ _parquet_cache: dict[str, tuple[float, list]] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
+MONTH_DIR_RE = re.compile(r"^\d{2}$")
+DAY_IN_MONTH_RE = re.compile(r"^\d{2}$")
 ABSTEC_YEAR_DIR_RE = re.compile(r"^\d{4}$")
 ABSTEC_DAY_DIR_RE = re.compile(r"^\d{1,3}$")
 
@@ -57,8 +60,12 @@ class AbsTecYearInfo(TypedDict):
 
 
 def _day_sort_key(name: str) -> tuple[int, int, str]:
-    """Sort days numerically while keeping deterministic order for equal values."""
-    return (int(name), len(name), name)
+    """Sort days numerically. For MM/DD format, sort by month then day. For DOY, sort numerically."""
+    if '/' in name:
+        month, day = name.split('/')
+        return (int(month), int(day), name)
+    else:
+        return (int(name), len(name), name)
 
 
 def _year_sort_key(name: str) -> int:
@@ -78,12 +85,16 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     Results are cached and reused as long as the root directory mtime is
     unchanged (i.e. no year folders have been added or removed).
 
+    Layout before 2019: <root>/YYYY_original/DOY/<station>.zip
+    Layout from 2019: <root>/YYYY_original/MM/DD/<station>.zip
+
     Output shape:
       [
         {
           "year": "2026_original",
           "days": [
             {"day": "001", "stations": 15},
+            {"day": "01/01", "stations": 10},
             ...
           ],
         },
@@ -119,19 +130,49 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         if not YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
+        year_num = int(year_dir.name[:4])
         days: list[DayInfo] = []
-        for day_dir in year_dir.iterdir():
-            if not day_dir.is_dir():
-                continue
-            if not DAY_DIR_RE.fullmatch(day_dir.name):
-                continue
 
-            stations = sum(
-                1
-                for entry in day_dir.iterdir()
-                if entry.is_file() and entry.suffix.lower() == ".zip"
-            )
-            days.append({"day": day_dir.name, "stations": stations})
+        if year_num >= 2019:
+            # New structure: YYYY_original/MM/DD/<station>.zip
+            for month_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
+                if not month_dir.is_dir():
+                    continue
+                if not MONTH_DIR_RE.fullmatch(month_dir.name):
+                    continue
+                month_num = int(month_dir.name)
+                if not 1 <= month_num <= 12:
+                    continue
+
+                for day_dir in sorted(month_dir.iterdir(), key=lambda d: d.name):
+                    if not day_dir.is_dir():
+                        continue
+                    if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
+                        continue
+                    day_num = int(day_dir.name)
+                    if not 1 <= day_num <= 31:
+                        continue
+
+                    stations = sum(
+                        1
+                        for entry in day_dir.iterdir()
+                        if entry.is_file() and entry.suffix.lower() == ".zip"
+                    )
+                    days.append({"day": f"{month_dir.name}/{day_dir.name}", "stations": stations})
+        else:
+            # Old structure: YYYY_original/DOY/<station>.zip
+            for day_dir in year_dir.iterdir():
+                if not day_dir.is_dir():
+                    continue
+                if not DAY_DIR_RE.fullmatch(day_dir.name):
+                    continue
+
+                stations = sum(
+                    1
+                    for entry in day_dir.iterdir()
+                    if entry.is_file() and entry.suffix.lower() == ".zip"
+                )
+                days.append({"day": day_dir.name, "stations": stations})
 
         days.sort(key=lambda item: _day_sort_key(item["day"]))
         years.append({"year": year_dir.name, "days": days})
