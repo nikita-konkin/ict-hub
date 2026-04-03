@@ -85,8 +85,9 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     Results are cached and reused as long as the root directory mtime is
     unchanged (i.e. no year folders have been added or removed).
 
-    Layout before 2019: <root>/YYYY_original/DOY/<station>.zip
-    Layout from 2019: <root>/YYYY_original/MM/DD/<station>.zip
+        Supported layouts:
+            <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
+            <root>/YYYY_original/MM/DD/<station>.zip
 
     Output shape:
       [
@@ -130,41 +131,36 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         if not YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
-        year_num = int(year_dir.name[:4])
         days: list[DayInfo] = []
 
-        if year_num >= 2019:
-            # New structure: YYYY_original/MM/DD/<station>.zip
-            for month_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
-                if not month_dir.is_dir():
-                    continue
-                if not MONTH_DIR_RE.fullmatch(month_dir.name):
-                    continue
-                month_num = int(month_dir.name)
-                if not 1 <= month_num <= 12:
-                    continue
+        for top_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
+            if not top_dir.is_dir():
+                continue
+            if not DAY_DIR_RE.fullmatch(top_dir.name):
+                continue
 
-                for day_dir in sorted(month_dir.iterdir(), key=lambda d: d.name):
-                    if not day_dir.is_dir():
-                        continue
-                    if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
-                        continue
-                    day_num = int(day_dir.name)
-                    if not 1 <= day_num <= 31:
-                        continue
+            # Layout A: YYYY_original/DOY/<station>.zip (DOY can be 2 or 3 digits)
+            direct_zips = sum(
+                1
+                for entry in top_dir.iterdir()
+                if entry.is_file() and entry.suffix.lower() == ".zip"
+            )
+            if direct_zips:
+                days.append({"day": top_dir.name, "stations": direct_zips})
+                continue
 
-                    stations = sum(
-                        1
-                        for entry in day_dir.iterdir()
-                        if entry.is_file() and entry.suffix.lower() == ".zip"
-                    )
-                    days.append({"day": f"{month_dir.name}/{day_dir.name}", "stations": stations})
-        else:
-            # Old structure: YYYY_original/DOY/<station>.zip
-            for day_dir in year_dir.iterdir():
+            # Layout B: YYYY_original/MM/DD/<station>.zip
+            month_num = int(top_dir.name)
+            if not 1 <= month_num <= 12:
+                continue
+
+            for day_dir in sorted(top_dir.iterdir(), key=lambda d: d.name):
                 if not day_dir.is_dir():
                     continue
-                if not DAY_DIR_RE.fullmatch(day_dir.name):
+                if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
+                    continue
+                day_num = int(day_dir.name)
+                if not 1 <= day_num <= 31:
                     continue
 
                 stations = sum(
@@ -172,7 +168,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                     for entry in day_dir.iterdir()
                     if entry.is_file() and entry.suffix.lower() == ".zip"
                 )
-                days.append({"day": day_dir.name, "stations": stations})
+                days.append({"day": f"{top_dir.name}/{day_dir.name}", "stations": stations})
 
         days.sort(key=lambda item: _day_sort_key(item["day"]))
         years.append({"year": year_dir.name, "days": days})
