@@ -1,0 +1,3 @@
+Flask==2.3.3
+dicttoxml==1.7.16
+pathlib2==2.3.7

@@ -56,6 +56,9 @@ services:
       PARQUET_OUTPUT_ABSTEC_DATA_PATH: ${PARQUET_OUTPUT_ABSTEC_DATA_PATH:-/app/abstec_parquet_out}
       PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
 
+      # ── Data Indexer Service ─────────────────────────────────────────────
+      DATA_INDEXER_URL: ${DATA_INDEXER_URL:-http://data-indexer:5001}
+
       # ── External data-analysis API (TEC backend) ───────────────────────
       # Example when analysis service is another compose service:
       # ANALYSIS_API_BASE_URL: "http://tec-backend:8000"
@@ -104,6 +107,53 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # Data Indexer Service - provides XML indexing for all data types
+  data-indexer:
+    build:
+      context: ./data-indexer
+      dockerfile: Dockerfile
+
+    container_name: data-indexer
+
+    restart: unless-stopped
+
+    ports:
+      # Map host port 5001 → container port 5001
+      - "5001:5001"
+
+    # Load environment variables from local .env file.
+    env_file:
+      - .env
+
+    environment:
+      # ── Data Indexer Paths ───────────────────────────────────────────────
+      # Host paths for data indexing
+      INDEXER_RINEX_DATA_PATH_HOST: ${INDEXER_RINEX_DATA_PATH_HOST:-}
+      INDEXER_RINEX_DATA_PATH_CONTAINER: ${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}
+      INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST: ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST:-}
+      INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}
+      INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST: ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST:-}
+      INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
+      INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST: ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST:-}
+      INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}
+      INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST: ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST:-}
+      INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
+
+    volumes:
+      # Mount data volumes for indexing - using indexer-specific environment variables
+      - ${INDEXER_RINEX_DATA_PATH_HOST}:${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
+      - ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST}:${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}:ro
+      - ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST}:${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}:ro
+      - ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
+      - ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
