@@ -73,3 +73,7 @@ SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
 # External data-analysis API integration (TEC backend)
 ANALYSIS_API_BASE_URL: str = os.getenv("ANALYSIS_API_BASE_URL", "")
 ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "45"))
+
+# External data-indexer FastAPI integration
+DATA_INDEXER_URL: str = os.getenv("DATA_INDEXER_URL", "")
+DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "30"))

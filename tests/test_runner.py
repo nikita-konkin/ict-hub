@@ -227,65 +227,78 @@ class TestBuildCommand:
 
 
 class TestRinexServerStructure:
-    """Tests for data_browser.list_rinex_server_structure."""
+    """Tests for data_indexer_client.list_rinex_server_structure."""
 
-    def test_discovers_year_day_and_station_counts(self, tmp_path):
-        from app.data_browser import list_rinex_server_structure
+    def test_parses_xml_payload(self, monkeypatch):
+        from app import data_indexer_client as client
 
-        (tmp_path / "2026_original" / "001").mkdir(parents=True)
-        (tmp_path / "2026_original" / "01").mkdir(parents=True)
-        (tmp_path / "2026_original" / "002").mkdir(parents=True)
-        (tmp_path / "2025_original" / "010").mkdir(parents=True)
-        (tmp_path / "misc").mkdir(parents=True)
+        client._cache.clear()
+        monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
-        (tmp_path / "2026_original" / "001" / "aksu0740.zip").write_text("x", encoding="utf-8")
-        (tmp_path / "2026_original" / "001" / "alek0740.zip").write_text("x", encoding="utf-8")
-        (tmp_path / "2026_original" / "001" / "note.txt").write_text("x", encoding="utf-8")
-        (tmp_path / "2026_original" / "01" / "mini.zip").write_text("x", encoding="utf-8")
-        (tmp_path / "2026_original" / "002" / "aksu006s05.zip").write_text("x", encoding="utf-8")
-        (tmp_path / "2025_original" / "010" / "bldr006q19.zip").write_text("x", encoding="utf-8")
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8" ?>'
+            '<rinex_structure><item><year>2026_original</year><days>'
+            '<item><day>01</day><stations>1</stations></item>'
+            '<item><day>365</day><stations>2</stations></item>'
+            '</days></item></rinex_structure>'
+        )
 
-        tree = list_rinex_server_structure(str(tmp_path))
+        class _Resp:
+            text = xml
 
-        assert [item["year"] for item in tree] == ["2026_original", "2025_original"]
-        assert tree[0]["days"][0] == {"day": "01", "stations": 1}
-        assert tree[0]["days"][1] == {"day": "001", "stations": 2}
-        assert tree[0]["days"][2] == {"day": "002", "stations": 1}
-        assert tree[1]["days"][0] == {"day": "010", "stations": 1}
+            @staticmethod
+            def raise_for_status():
+                return None
 
-    def test_returns_empty_for_missing_root(self):
-        from app.data_browser import list_rinex_server_structure
-        tree = list_rinex_server_structure("Z:/this/path/does/not/exist")
+        monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _Resp())
+
+        tree = client.list_rinex_server_structure("/mnt/rinex-server")
+        assert tree == [{"year": "2026_original", "days": [{"day": "01", "stations": 1}, {"day": "365", "stations": 2}]}]
+
+    def test_returns_empty_when_service_not_configured(self, monkeypatch):
+        from app import data_indexer_client as client
+
+        client._cache.clear()
+        monkeypatch.setattr(client, "DATA_INDEXER_URL", "")
+        tree = client.list_rinex_server_structure("/mnt/rinex-server")
         assert tree == []
 
 
 class TestTecsuiteOutputStructure:
-    """Tests for data_browser.list_tecsuite_output_structure."""
+    """Tests for data_indexer_client.list_tecsuite_output_structure."""
 
-    def test_discovers_year_day_and_sites(self, tmp_path):
-        from app.data_browser import list_tecsuite_output_structure
+    def test_parses_xml_payload(self, monkeypatch):
+        from app import data_indexer_client as client
 
-        (tmp_path / "in" / "2026" / "1" / "aksu").mkdir(parents=True)
-        (tmp_path / "in" / "2026" / "002" / "cher").mkdir(parents=True)
-        (tmp_path / "in" / "2025" / "010" / "bldr").mkdir(parents=True)
-        (tmp_path / "in" / "2026" / "002" / "nodat").mkdir(parents=True)
+        client._cache.clear()
+        monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
-        (tmp_path / "in" / "2026" / "1" / "aksu" / "a.dat").write_text("x", encoding="utf-8")
-        (tmp_path / "in" / "2026" / "002" / "cher" / "b.dat").write_text("x", encoding="utf-8")
-        (tmp_path / "in" / "2025" / "010" / "bldr" / "c.dat").write_text("x", encoding="utf-8")
-        (tmp_path / "in" / "2026" / "002" / "nodat" / "skip.txt").write_text("x", encoding="utf-8")
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8" ?>'
+            '<tecsuite_structure><item><year>2026</year><days>'
+            '<item><day>001</day><sites><item>aksu</item></sites></item>'
+            '<item><day>002</day><sites><item>cher</item></sites></item>'
+            '</days></item></tecsuite_structure>'
+        )
 
-        tree = list_tecsuite_output_structure(str(tmp_path))
+        class _Resp:
+            text = xml
 
-        assert [item["year"] for item in tree] == ["2026", "2025"]
-        assert tree[0]["days"][0] == {"day": "001", "sites": ["aksu"]}
-        assert tree[0]["days"][1] == {"day": "002", "sites": ["cher"]}
-        assert tree[1]["days"][0] == {"day": "010", "sites": ["bldr"]}
+            @staticmethod
+            def raise_for_status():
+                return None
 
-    def test_returns_empty_for_missing_root(self):
-        from app.data_browser import list_tecsuite_output_structure
+        monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _Resp())
 
-        tree = list_tecsuite_output_structure("Z:/this/path/does/not/exist")
+        tree = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
+        assert tree == [{"year": "2026", "days": [{"day": "001", "sites": ["aksu"]}, {"day": "002", "sites": ["cher"]}]}]
+
+    def test_returns_empty_when_service_not_configured(self, monkeypatch):
+        from app import data_indexer_client as client
+
+        client._cache.clear()
+        monkeypatch.setattr(client, "DATA_INDEXER_URL", "")
+        tree = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
         assert tree == []
 
 

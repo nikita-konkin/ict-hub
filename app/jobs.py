@@ -26,7 +26,11 @@ from app.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
-from app.data_browser import list_parquet_output_structure, list_rinex_server_structure, list_tecsuite_output_structure
+from app.data_indexer_client import (
+    list_parquet_output_structure,
+    list_rinex_server_structure,
+    list_tecsuite_output_structure,
+)
 from app.runner import parse_progress, start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
 

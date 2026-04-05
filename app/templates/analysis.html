@@ -80,40 +80,52 @@
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-year">Year</label>
-            <input id="data-year" class="form-input" type="number" value="2026" min="2000" max="2100">
+            <select id="data-year" class="form-select">
+              <option value="">Loading...</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-doy">DOY</label>
-            <input id="data-doy" class="form-input" type="number" value="1" min="1" max="366">
+            <select id="data-doy" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-doy-start">DOY Start</label>
-            <input id="data-doy-start" class="form-input" type="number" value="1" min="1" max="366">
+            <select id="data-doy-start" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-doy-end">DOY End</label>
-            <input id="data-doy-end" class="form-input" type="number" value="10" min="1" max="366">
+            <select id="data-doy-end" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-station">Station</label>
-            <input id="data-station" class="form-input" type="text" value="aksu">
+            <select id="data-station" class="form-select">
+              <option value="">Select DOY first</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-satellite">Satellite</label>
-            <input id="data-satellite" class="form-input" type="text" value="E07">
+            <select id="data-satellite" class="form-select">
+              <option value="">Select DOY first</option>
+            </select>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-stations">Stations (CSV list)</label>
-            <input id="data-stations" class="form-input" type="text" value="aksu,arsk">
+            <label class="form-label" for="data-stations">Stations (multi-select)</label>
+            <select id="data-stations" class="form-select" multiple size="4"></select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-source">Source</label>
@@ -176,39 +188,51 @@
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-year">Year</label>
-            <input id="plot-year" class="form-input" type="number" value="2026" min="2000" max="2100">
+            <select id="plot-year" class="form-select">
+              <option value="">Loading...</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-doy">DOY</label>
-            <input id="plot-doy" class="form-input" type="number" value="1" min="1" max="366">
+            <select id="plot-doy" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-doy-start">DOY Start</label>
-            <input id="plot-doy-start" class="form-input" type="number" value="1" min="1" max="366">
+            <select id="plot-doy-start" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-doy-end">DOY End</label>
-            <input id="plot-doy-end" class="form-input" type="number" value="10" min="1" max="366">
+            <select id="plot-doy-end" class="form-select">
+              <option value="">Select year first</option>
+            </select>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-station">Station</label>
-            <input id="plot-station" class="form-input" type="text" value="aksu">
+            <select id="plot-station" class="form-select">
+              <option value="">Select DOY first</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-satellite">Satellite</label>
-            <input id="plot-satellite" class="form-input" type="text" value="E07">
+            <select id="plot-satellite" class="form-select">
+              <option value="">Select DOY first</option>
+            </select>
           </div>
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="plot-stations">Stations (CSV list)</label>
-          <input id="plot-stations" class="form-input" type="text" value="aksu,arsk">
+          <label class="form-label" for="plot-stations">Stations (multi-select)</label>
+          <select id="plot-stations" class="form-select" multiple size="4"></select>
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
@@ -353,11 +377,14 @@
     <div id="plot-empty" style="font-size:12px; color:var(--text-muted);">Run a plot query to render PNG or inspect JSON series.</div>
     <div id="plot-viewer" style="display:none;">
       <img id="plot-image" alt="Plot preview" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:none;">
+      <div id="plotly-chart" style="width:100%; height:420px; border:1px solid var(--border); border-radius:var(--radius); display:none; background:var(--surface-2);"></div>
       <canvas id="plot-canvas" width="1000" height="300" style="width:100%; height:300px; border:1px solid var(--border); border-radius:var(--radius); display:none; background:var(--surface-2);"></canvas>
       <pre id="plot-json" style="display:none; margin-top:10px; max-height:220px; overflow:auto; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; color:var(--text-muted); font-size:11px;"></pre>
     </div>
   </div>
 </div>
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
 <script>
   (function () {
@@ -370,7 +397,24 @@
       rows: [],
       lastDataUrl: "",
       lastPlotUrl: "",
+      lastPlotPayload: {},
+      indexOptions: {
+        absoltec: { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} },
+        tec: { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} },
+      },
     };
+
+    function getDataSourceType() {
+      const endpoint = document.getElementById("data-endpoint")?.value || "";
+      if (endpoint.startsWith("tec/") || endpoint.startsWith("stations/")) return "tec";
+      return "absoltec";
+    }
+
+    function getPlotSourceType() {
+      const endpoint = document.getElementById("plot-endpoint")?.value || "";
+      if (endpoint.startsWith("plots/tec/")) return "tec";
+      return "absoltec";
+    }
 
     const dataEndpointRules = {
       "absoltec/stations": {
@@ -503,13 +547,131 @@
       if (v !== "") params.append(key, v);
     }
 
-    function qpAppendCsvArray(params, key, value) {
-      const items = clean(value)
-        .split(",")
-        .map((v) => v.trim())
-        .filter((v) => v !== "");
+    function qpAppendCsvArray(params, key, valueOrArray) {
+      const items = Array.isArray(valueOrArray)
+        ? valueOrArray.map((v) => clean(v)).filter((v) => v !== "")
+        : clean(valueOrArray)
+            .split(",")
+            .map((v) => v.trim())
+            .filter((v) => v !== "");
       for (const item of items) {
         params.append(key, item);
+      }
+    }
+
+    function sortedNumericStrings(values) {
+      return Array.from(new Set(values || [])).sort((a, b) => {
+        const ai = Number(a);
+        const bi = Number(b);
+        if (isNaN(ai) || isNaN(bi)) return String(a).localeCompare(String(b));
+        if (ai !== bi) return ai - bi;
+        return String(a).length - String(b).length;
+      });
+    }
+
+    function fillSelect(selectId, values, selectedValue) {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const options = values || [];
+      if (!options.length) {
+        select.innerHTML = '<option value="">(none)</option>';
+        return;
+      }
+      select.innerHTML = options
+        .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+        .join("");
+      const target = clean(selectedValue) || options[0];
+      select.value = options.includes(target) ? target : options[0];
+    }
+
+    function fillMultiSelect(selectId, values, selectedValues) {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const options = values || [];
+      select.innerHTML = options
+        .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+        .join("");
+      const selected = new Set(selectedValues || []);
+      for (const option of Array.from(select.options)) {
+        option.selected = selected.has(option.value);
+      }
+      if (!selected.size && select.options.length) {
+        select.options[0].selected = true;
+        if (select.options.length > 1) select.options[1].selected = true;
+      }
+    }
+
+    function getMultiSelectedValues(selectId) {
+      const select = document.getElementById(selectId);
+      if (!select) return [];
+      return Array.from(select.selectedOptions || []).map((o) => o.value).filter((v) => clean(v) !== "");
+    }
+
+    function updateDataSelectors() {
+      const source = state.indexOptions[getDataSourceType()] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
+      const years = source.years || [];
+      fillSelect("data-year", years, document.getElementById("data-year")?.value || "");
+      const year = document.getElementById("data-year").value;
+      const doys = sortedNumericStrings((source.doysByYear || {})[year] || []);
+
+      fillSelect("data-doy", doys, document.getElementById("data-doy")?.value || "");
+      fillSelect("data-doy-start", doys, document.getElementById("data-doy-start")?.value || (doys[0] || ""));
+      fillSelect("data-doy-end", doys, document.getElementById("data-doy-end")?.value || (doys[doys.length - 1] || ""));
+
+      const doy = document.getElementById("data-doy").value;
+      const stationsByYear = (source.stationsByYearDoy || {})[year] || {};
+      const stations = sortedNumericStrings((stationsByYear[doy] || []).map((s) => String(s)));
+      const satellitesByYear = (source.satellitesByYearDoy || {})[year] || {};
+      const satellites = sortedNumericStrings((satellitesByYear[doy] || []).map((s) => String(s)));
+      fillSelect("data-station", stations, document.getElementById("data-station")?.value || "");
+      fillSelect("data-satellite", satellites, document.getElementById("data-satellite")?.value || "");
+      fillMultiSelect("data-stations", stations, getMultiSelectedValues("data-stations"));
+    }
+
+    function updatePlotSelectors() {
+      const source = state.indexOptions[getPlotSourceType()] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
+      const years = source.years || [];
+      fillSelect("plot-year", years, document.getElementById("plot-year")?.value || "");
+      const year = document.getElementById("plot-year").value;
+      const doys = sortedNumericStrings((source.doysByYear || {})[year] || []);
+
+      fillSelect("plot-doy", doys, document.getElementById("plot-doy")?.value || "");
+      fillSelect("plot-doy-start", doys, document.getElementById("plot-doy-start")?.value || (doys[0] || ""));
+      fillSelect("plot-doy-end", doys, document.getElementById("plot-doy-end")?.value || (doys[doys.length - 1] || ""));
+
+      const doy = document.getElementById("plot-doy").value;
+      const stationsByYear = (source.stationsByYearDoy || {})[year] || {};
+      const stations = sortedNumericStrings((stationsByYear[doy] || []).map((s) => String(s)));
+      const satellitesByYear = (source.satellitesByYearDoy || {})[year] || {};
+      const satellites = sortedNumericStrings((satellitesByYear[doy] || []).map((s) => String(s)));
+      fillSelect("plot-station", stations, document.getElementById("plot-station")?.value || "");
+      fillSelect("plot-satellite", satellites, document.getElementById("plot-satellite")?.value || "");
+      fillMultiSelect("plot-stations", stations, getMultiSelectedValues("plot-stations"));
+    }
+
+    async function loadIndexOptions() {
+      try {
+        const res = await fetch("/analysis/index-options", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const payload = await res.json();
+        state.indexOptions = {
+          absoltec: {
+            years: Array.isArray(payload?.absoltec?.years) ? payload.absoltec.years.map((v) => String(v)) : [],
+            doysByYear: payload?.absoltec?.doysByYear || {},
+            stationsByYearDoy: payload?.absoltec?.stationsByYearDoy || {},
+            satellitesByYearDoy: payload?.absoltec?.satellitesByYearDoy || {},
+          },
+          tec: {
+            years: Array.isArray(payload?.tec?.years) ? payload.tec.years.map((v) => String(v)) : [],
+            doysByYear: payload?.tec?.doysByYear || {},
+            stationsByYearDoy: payload?.tec?.stationsByYearDoy || {},
+            satellitesByYearDoy: payload?.tec?.satellitesByYearDoy || {},
+          },
+        };
+        updateDataSelectors();
+        updatePlotSelectors();
+      } catch (_) {
+        // Keep existing defaults when index options are unavailable.
       }
     }
 
@@ -599,7 +761,7 @@
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
-        qpAppendCsvArray(params, "stations", document.getElementById("data-stations").value);
+        qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
       }
       if (endpoint === "absoltec/statistics" || endpoint === "absoltec/statistics/per-station-day") {
         qpAppend(params, "doy_start", doyStart);
@@ -607,7 +769,7 @@
         qpAppend(params, "alpha", alpha);
       }
       if (endpoint === "absoltec/statistics/per-station-day") {
-        qpAppendCsvArray(params, "stations", document.getElementById("data-stations").value);
+        qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
       }
       if (endpoint === "tec/data") {
         qpAppend(params, "satellite", satellite);
@@ -633,7 +795,7 @@
       const doyEnd = document.getElementById("plot-doy-end").value;
       const station = document.getElementById("plot-station").value;
       const satellite = document.getElementById("plot-satellite").value;
-      const stations = document.getElementById("plot-stations").value;
+      const stations = getMultiSelectedValues("plot-stations");
 
       if (endpointName === "plots/absoltec/average") {
         qpAppend(params, "doy_start", doyStart);
@@ -832,41 +994,310 @@
       }
     }
 
+    let canvasState = { seriesList: [], globalYMin: 0, globalYMax: 0, w: 0, h: 0, pad: 50, hoveredPoints: [] };
+
+    function toPlotlyTraces(series) {
+      if (!series || typeof series !== "object") return [];
+      const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+      const keys = Object.keys(series);
+      if (!keys.length) return [];
+
+      const firstValue = series[keys[0]];
+      const nested = !!(firstValue && typeof firstValue === "object" && Array.isArray(firstValue.x) && Array.isArray(firstValue.y));
+
+      if (nested) {
+        return keys.map((key, idx) => {
+          const entry = series[key] || {};
+          const xVals = Array.isArray(entry.x) ? entry.x : [];
+          const yVals = Array.isArray(entry.y) ? entry.y : [];
+          return {
+            type: "scatter",
+            mode: "lines",
+            name: key,
+            x: xVals,
+            y: yVals,
+            line: { width: 2, color: colors[idx % colors.length] },
+            hovertemplate: "%{fullData.name}<br>x=%{x}<br>y=%{y}<extra></extra>",
+          };
+        }).filter((t) => Array.isArray(t.x) && t.x.length && Array.isArray(t.y) && t.y.length);
+      }
+
+      const xVals = Array.isArray(series.ut) ? series.ut : null;
+      if (!xVals) return [];
+      return keys
+        .filter((k) => k !== "ut" && Array.isArray(series[k]))
+        .map((key, idx) => ({
+          type: "scatter",
+          mode: "lines",
+          name: key,
+          x: xVals,
+          y: series[key],
+          line: { width: 2, color: colors[idx % colors.length] },
+          hovertemplate: "%{fullData.name}<br>x=%{x}<br>y=%{y}<extra></extra>",
+        }));
+    }
+
+    async function renderPlotlyChart(payload, chartEl) {
+      if (!chartEl || !window.Plotly || !payload || typeof payload !== "object") return false;
+      const traces = toPlotlyTraces(payload.series);
+      if (!traces.length) return false;
+
+      const layout = {
+        font: { color: "#fff8e3" },
+        title: {
+          text: payload.title || "Interactive Plot",
+          x: 0.5,
+          xanchor: "center",
+          y: 0.98,
+          yanchor: "top",
+          pad: { b: 20 },
+        },
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        hovermode: "x unified",
+        hoverlabel: {
+          bgcolor: "rgba(0,0,0,0.85)",
+          bordercolor: "#fff8e3",
+          font: { color: "#fff8e3" },
+        },
+        margin: { l: 64, r: 24, t: 72, b: 56 },
+        xaxis: {
+          title: payload.xlabel || "X",
+          gridcolor: "#ffbd00",
+          zerolinecolor: "#ffbd00",
+          showline: true,
+          linecolor: "#a98a37",
+          tickfont: { color: "#fff8e3" },
+          titlefont: { color: "#fff8e3" },
+        },
+        yaxis: {
+          title: payload.ylabel || "Value",
+          gridcolor: "#ffbd00",
+          zerolinecolor: "#ffbd00",
+          showline: true,
+          linecolor: "#a98a37",
+          tickfont: { color: "#fff8e3" },
+          titlefont: { color: "#fff8e3" },
+        },
+        legend: {
+          orientation: "h",
+          yanchor: "bottom",
+          y: 1.02,
+          xanchor: "left",
+          x: 0,
+          font: { color: "#fff8e3" },
+        },
+      };
+
+      const config = {
+        responsive: true,
+        displaylogo: false,
+        scrollZoom: true,
+        modeBarButtonsToRemove: ["select2d", "lasso2d"],
+      };
+
+      await window.Plotly.react(chartEl, traces, layout, config);
+      return true;
+    }
+
     function drawSeriesOnCanvas(series, canvas) {
       if (!canvas || !series) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const x = Array.isArray(series.ut) ? series.ut : null;
-      const yKey = Object.keys(series).find((k) => k !== "ut" && Array.isArray(series[k]));
-      const y = yKey ? series[yKey] : null;
-      if (!x || !y || x.length === 0 || y.length === 0) {
+      // Support two data structures:
+      // 1. Flat: { ut: [...], column1: [...], column2: [...] }
+      // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
+
+      let seriesList = [];
+      const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+
+      // Detect data structure
+      const firstKey = Object.keys(series)[0];
+      const firstValue = series[firstKey];
+
+      if (firstValue && typeof firstValue === "object" && firstValue.x && firstValue.y) {
+        // Nested structure with x/y
+        seriesList = Object.entries(series).map(([key, data], idx) => ({
+          name: key,
+          x: Array.isArray(data.x) ? data.x : [],
+          y: Array.isArray(data.y) ? data.y : [],
+          color: colors[idx % colors.length],
+        }));
+      } else {
+        // Flat structure with ut
+        const x = Array.isArray(series.ut) ? series.ut : null;
+        if (!x) return;
+        const yKeys = Object.keys(series).filter((k) => k !== "ut" && Array.isArray(series[k]));
+        seriesList = yKeys.map((key, idx) => ({
+          name: key,
+          x: x,
+          y: series[key],
+          color: colors[idx % colors.length],
+        }));
+      }
+
+      if (!seriesList.length) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         return;
       }
 
-      const yNums = y.map((v) => Number(v)).filter((v) => !isNaN(v));
-      if (!yNums.length) return;
-      const yMin = Math.min.apply(null, yNums);
-      const yMax = Math.max.apply(null, yNums);
+      // Find global x/y ranges across all series
+      let globalYMin = Infinity, globalYMax = -Infinity;
+      for (const s of seriesList) {
+        const yNums = s.y.map((v) => Number(v)).filter((v) => !isNaN(v));
+        if (yNums.length) {
+          globalYMin = Math.min(globalYMin, ...yNums);
+          globalYMax = Math.max(globalYMax, ...yNums);
+        }
+      }
+      if (!isFinite(globalYMin) || !isFinite(globalYMax)) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = "#C4A87A";
       ctx.lineWidth = 2;
-      ctx.beginPath();
 
       const w = canvas.width;
       const h = canvas.height;
-      const pad = 30;
-      for (let i = 0; i < x.length; i += 1) {
-        const xv = Number(x[i]);
-        const yv = Number(y[i]);
-        if (isNaN(xv) || isNaN(yv)) continue;
-        const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2);
-        const py = pad + (1 - ((yv - yMin) / Math.max(1e-9, yMax - yMin))) * (h - pad * 2);
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      const pad = 50;
+
+      // Store state for hover interaction
+      canvasState = { seriesList, globalYMin, globalYMax, w, h, pad, hoveredPoints: [] };
+
+      // Draw grid
+      const gridColor = "#ffbd00";
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.3;
+
+      // Vertical grid lines
+      const verticalGridLines = 10;
+      for (let i = 0; i <= verticalGridLines; i += 1) {
+        const x = pad + (i / verticalGridLines) * (w - pad * 2 - pad);
+        ctx.beginPath();
+        ctx.moveTo(x, pad);
+        ctx.lineTo(x, h - pad);
+        ctx.stroke();
       }
+
+      // Horizontal grid lines
+      const horizontalGridLines = 8;
+      for (let i = 0; i <= horizontalGridLines; i += 1) {
+        const y = pad + (i / horizontalGridLines) * (h - pad * 2);
+        ctx.beginPath();
+        ctx.moveTo(pad, y);
+        ctx.lineTo(w - pad, y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // Draw axis frame
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.rect(pad, pad, w - pad * 2 - pad, h - pad * 2);
       ctx.stroke();
+
+      // Draw each series
+      for (const s of seriesList) {
+        const { x, y, color } = s;
+        if (!x.length || !y.length) continue;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+          const xv = Number(x[i]);
+          const yv = Number(y[i]);
+          if (isNaN(xv) || isNaN(yv)) continue;
+          const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2 - pad);
+          const py = pad + (1 - ((yv - globalYMin) / Math.max(1e-9, globalYMax - globalYMin))) * (h - pad * 2);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      // Draw Y-axis labels
+      ctx.fillStyle = "#fff8e3";
+      ctx.font = "11px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(globalYMax.toFixed(2), pad - 8, pad + 5);
+      ctx.fillText(globalYMin.toFixed(2), pad - 8, h - pad + 5);
+      
+      // Draw Y-axis name
+      ctx.save();
+      ctx.translate(12, h / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fff8e3";
+      ctx.font = "11px monospace";
+      ctx.fillText("Value", 0, 0);
+      ctx.restore();
+
+      // Draw X-axis name
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fff8e3";
+      ctx.font = "11px monospace";
+      ctx.fillText("Index", w / 2, h - 12);
+    }
+
+    function findHoveredPoints(canvasX, canvasY, canvas) {
+      if (!canvas || !canvasState.seriesList.length) return [];
+      const { seriesList, globalYMin, globalYMax, w, h, pad } = canvasState;
+      const tolerance = 8;
+      const points = [];
+
+      for (const s of seriesList) {
+        const { x, y, name, color } = s;
+        if (!x.length || !y.length) continue;
+
+        for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+          const xv = Number(x[i]);
+          const yv = Number(y[i]);
+          if (isNaN(xv) || isNaN(yv)) continue;
+          
+          const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2 - pad);
+          const py = pad + (1 - ((yv - globalYMin) / Math.max(1e-9, globalYMax - globalYMin))) * (h - pad * 2);
+          
+          const dist = Math.sqrt((px - canvasX) ** 2 + (py - canvasY) ** 2);
+          if (dist < tolerance) {
+            points.push({ name, value: yv.toFixed(3), x: xv.toFixed(3), px, py, color });
+          }
+        }
+      }
+      return points;
+    }
+
+    function drawHoverLabels(canvas, points) {
+      if (!canvas || !points.length) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.font = "11px monospace";
+      ctx.textAlign = "left";
+      const lineHeight = 16;
+      const padding = 8;
+
+      for (let i = 0; i < points.length; i += 1) {
+        const p = points[i];
+        const label = `${p.name}: ${p.value}`;
+        const metrics = ctx.measureText(label);
+        const boxWidth = metrics.width + padding * 2;
+        const boxHeight = lineHeight;
+        const boxX = p.px + 12;
+        const boxY = p.py - padding - lineHeight / 2 + i * (lineHeight + 4);
+
+        // Draw box background
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+        // Draw text
+        ctx.fillStyle = p.color;
+        ctx.fillText(label, boxX + padding, boxY + padding + 8);
+      }
     }
 
     async function runPlotQuery() {
@@ -880,6 +1311,7 @@
       const img = document.getElementById("plot-image");
       const pre = document.getElementById("plot-json");
       const canvas = document.getElementById("plot-canvas");
+      const plotlyChart = document.getElementById("plotly-chart");
 
       if (format === "script") {
         window.open(url, "_blank");
@@ -891,6 +1323,10 @@
       img.style.display = "none";
       pre.style.display = "none";
       canvas.style.display = "none";
+      plotlyChart.style.display = "none";
+      if (window.Plotly) {
+        window.Plotly.purge(plotlyChart);
+      }
 
       if (format === "png") {
         img.src = url + "&_t=" + Date.now();
@@ -906,11 +1342,17 @@
           return;
         }
         const payload = await res.json();
+        state.lastPlotPayload = payload;
         pre.textContent = JSON.stringify(payload, null, 2);
         pre.style.display = "block";
         if (payload.series && typeof payload.series === "object") {
-          canvas.style.display = "block";
-          drawSeriesOnCanvas(payload.series, canvas);
+          const rendered = await renderPlotlyChart(payload, plotlyChart);
+          if (rendered) {
+            plotlyChart.style.display = "block";
+          } else {
+            canvas.style.display = "block";
+            drawSeriesOnCanvas(payload.series, canvas);
+          }
         }
       } catch (err) {
         pre.textContent = "Error: " + err;
@@ -922,13 +1364,23 @@
       e.preventDefault();
       runDataQuery();
     });
-    document.getElementById("data-endpoint").addEventListener("change", updateDataFieldHighlights);
+    document.getElementById("data-endpoint").addEventListener("change", function () {
+      updateDataSelectors();
+      updateDataFieldHighlights();
+    });
+    document.getElementById("data-year").addEventListener("change", updateDataSelectors);
+    document.getElementById("data-doy").addEventListener("change", updateDataSelectors);
 
     document.getElementById("analysis-plot-form").addEventListener("submit", function (e) {
       e.preventDefault();
       runPlotQuery();
     });
-    document.getElementById("plot-endpoint").addEventListener("change", updatePlotFieldHighlights);
+    document.getElementById("plot-endpoint").addEventListener("change", function () {
+      updatePlotSelectors();
+      updatePlotFieldHighlights();
+    });
+    document.getElementById("plot-year").addEventListener("change", updatePlotSelectors);
+    document.getElementById("plot-doy").addEventListener("change", updatePlotSelectors);
     document.getElementById("data-open-new").addEventListener("click", function () {
       const url = state.lastDataUrl || buildDataUrl();
       window.open(url, "_blank");
@@ -939,8 +1391,43 @@
     });
     document.getElementById("pivot-run").addEventListener("click", runPivot);
 
-    updateDataFieldHighlights();
-    updatePlotFieldHighlights();
+    // Canvas hover interaction
+    const canvas = document.getElementById("plot-canvas");
+    canvas.addEventListener("mousemove", function (e) {
+      if (canvas.style.display === "none" || !canvasState.seriesList.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const canvasY = e.clientY - rect.top;
+      const points = findHoveredPoints(canvasX, canvasY, canvas);
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (state.lastPlotPayload && state.lastPlotPayload.series) {
+          drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
+        }
+        if (points.length > 0) {
+          drawHoverLabels(canvas, points);
+        }
+      }
+    });
+
+    canvas.addEventListener("mouseleave", function () {
+      if (state.lastPlotPayload) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (state.lastPlotPayload.series) {
+            drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
+          }
+        }
+      }
+    });
+
+    loadIndexOptions().finally(function () {
+      updateDataFieldHighlights();
+      updatePlotFieldHighlights();
+    });
   })();
 </script>
 

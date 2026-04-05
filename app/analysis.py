@@ -13,11 +13,12 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
 from app.auth import get_current_user
+from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure
 from app.models import User
 from app.registry import CONVERTERS
 
@@ -41,6 +42,87 @@ async def analysis_home(
             "analysis_api_enabled": bool(cfg.ANALYSIS_API_BASE_URL.strip()),
         },
     )
+
+
+@router.get("/analysis/index-options")
+async def analysis_index_options(
+    current_user: User = Depends(get_current_user),
+):
+    """Return endpoint-aware options from parquet-only data-indexer APIs."""
+    _ = current_user  # explicit auth guard via dependency
+
+    clear_data_indexer_cache()
+
+    def _sort_doy_key(name: str) -> tuple[int, int, str]:
+        try:
+            return (int(name), len(name), name)
+        except ValueError:
+            return (9999, len(name), name)
+
+    def _build_source_payload(tree: list[dict[str, object]]) -> dict[str, object]:
+        years: list[str] = []
+        doys_by_year: dict[str, list[str]] = {}
+        stations_by_year_doy: dict[str, dict[str, list[str]]] = {}
+        satellites_by_year_doy: dict[str, dict[str, list[str]]] = {}
+
+        for year_item in tree:
+            year = str(year_item.get("year", "")).strip()
+            if not year:
+                continue
+            years.append(year)
+
+            doys: list[str] = []
+            stations_for_year: dict[str, list[str]] = {}
+            satellites_for_year: dict[str, list[str]] = {}
+
+            days_raw = year_item.get("days", [])
+            if isinstance(days_raw, list):
+                for day_item in days_raw:
+                    if not isinstance(day_item, dict):
+                        continue
+                    doy = str(day_item.get("day", "")).strip()
+                    if not doy:
+                        continue
+                    doys.append(doy)
+
+                    stations_raw = day_item.get("stations", [])
+                    satellites_raw = day_item.get("satellites", [])
+                    stations_for_year[doy] = (
+                        sorted({str(v).strip() for v in stations_raw if str(v).strip()})
+                        if isinstance(stations_raw, list)
+                        else []
+                    )
+                    satellites_for_year[doy] = (
+                        sorted({str(v).strip() for v in satellites_raw if str(v).strip()})
+                        if isinstance(satellites_raw, list)
+                        else []
+                    )
+
+            doys_by_year[year] = sorted(set(doys), key=_sort_doy_key)
+            stations_by_year_doy[year] = stations_for_year
+            satellites_by_year_doy[year] = satellites_for_year
+
+        sorted_years = sorted(set(years), key=lambda y: int(y), reverse=True)
+        return {
+            "years": sorted_years,
+            "doysByYear": doys_by_year,
+            "stationsByYearDoy": stations_by_year_doy,
+            "satellitesByYearDoy": satellites_by_year_doy,
+        }
+
+    abs_scan = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
+    abs_host = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
+    abs_tree = list_parquet_satellite_structure(abs_scan) if abs_scan else []
+    if not abs_tree and abs_host and abs_scan != abs_host:
+        abs_tree = list_parquet_satellite_structure(abs_host)
+
+    tec_scan = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    tec_host = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    tec_tree = list_parquet_satellite_structure(tec_scan) if tec_scan else []
+    if not tec_tree and tec_host and tec_scan != tec_host:
+        tec_tree = list_parquet_satellite_structure(tec_host)
+
+    return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
 
 @router.get("/analysis/api/{api_path:path}")

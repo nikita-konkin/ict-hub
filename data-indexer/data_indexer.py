@@ -18,6 +18,7 @@ from typing import TypedDict
 _rinex_cache: dict[str, tuple[float, list]] = {}
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
+_parquet_sat_cache: dict[str, tuple[float, list]] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -25,6 +26,7 @@ MONTH_DIR_RE = re.compile(r"^\d{2}$")
 DAY_IN_MONTH_RE = re.compile(r"^\d{2}$")
 ABSTEC_YEAR_DIR_RE = re.compile(r"^\d{4}$")
 ABSTEC_DAY_DIR_RE = re.compile(r"^\d{1,3}$")
+SATELLITE_RE = re.compile(r"(?<![A-Z0-9])([A-Z][0-9]{2})(?![0-9])")
 
 
 class DayInfo(TypedDict):
@@ -214,6 +216,34 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     return result
 
 
+def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
+    """
+    Return parquet structure with stations and satellites under host_root.
+
+    Expected layout (best effort):
+      <root>/YYYY/DDD/SITE/*.parquet
+      <root>/YYYY/DDD/**/*.parquet
+    """
+    if not host_root:
+        return []
+    root = Path(host_root)
+    if not root.exists() or not root.is_dir():
+        return []
+
+    try:
+        mtime = root.stat().st_mtime
+    except OSError:
+        return []
+
+    cached_mtime, cached_result = _parquet_sat_cache.get(host_root, (None, None))
+    if mtime == cached_mtime:
+        return cached_result  # type: ignore[return-value]
+
+    result = _scan_parquet_satellites(root)
+    _parquet_sat_cache[host_root] = (mtime, result)
+    return result
+
+
 def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""
     years: list[dict[str, object]] = []
@@ -230,6 +260,51 @@ def _scan_parquet(root: Path) -> list[dict[str, object]]:
 
         if days:
             days.sort(key=lambda d: _abstec_day_sort_key(d))
+            years.append({"year": year_dir.name, "days": days})
+
+    years.sort(key=lambda item: int(str(item["year"])), reverse=True)
+    return years
+
+
+def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
+    """Full filesystem scan for parquet roots with station/satellite extraction."""
+    years: list[dict[str, object]] = []
+
+    for year_dir in root.iterdir():
+        if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
+            continue
+
+        days: list[dict[str, object]] = []
+        for day_dir in year_dir.iterdir():
+            if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
+                continue
+
+            stations: set[str] = set()
+            satellites: set[str] = set()
+
+            for pq_file in day_dir.rglob("*.parquet"):
+                rel_parts = pq_file.relative_to(day_dir).parts
+                if len(rel_parts) >= 2:
+                    stations.add(rel_parts[0])
+
+                # Extract satellite IDs like G01, E07, R19 from file names when present.
+                stem = pq_file.stem.upper()
+                for match in SATELLITE_RE.findall(stem):
+                    satellites.add(match)
+
+            if not stations and not satellites:
+                continue
+
+            days.append(
+                {
+                    "day": day_dir.name.zfill(3),
+                    "stations": sorted(stations),
+                    "satellites": sorted(satellites),
+                }
+            )
+
+        if days:
+            days.sort(key=lambda item: _abstec_day_sort_key(str(item["day"])))
             years.append({"year": year_dir.name, "days": days})
 
     years.sort(key=lambda item: int(str(item["year"])), reverse=True)

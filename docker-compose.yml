@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
 
@@ -128,25 +126,20 @@ services:
 
     environment:
       # ── Data Indexer Paths ───────────────────────────────────────────────
-      # Host paths for data indexing
-      INDEXER_RINEX_DATA_PATH_HOST: ${INDEXER_RINEX_DATA_PATH_HOST:-}
+      # Container paths used by the data-indexer service API defaults
       INDEXER_RINEX_DATA_PATH_CONTAINER: ${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}
-      INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST: ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST:-}
       INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}
-      INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST: ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST:-}
       INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
-      INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST: ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST:-}
       INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}
-      INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST: ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST:-}
       INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
 
     volumes:
-      # Mount data volumes for indexing - using indexer-specific environment variables
-      - ${INDEXER_RINEX_DATA_PATH_HOST}:${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
-      - ${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST}:${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}:ro
-      - ${INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST}:${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}:ro
-      - ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
-      - ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}:ro
+      # Mount data volumes for indexing (reuse the same host paths as converter-hub)
+      - ${RINEX_DATA_PATH_HOST}:${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
+      - ${TECSUITE_OUT_DAT_DATA_PATH_HOST}:${INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}:ro
+      - ${ABSTEC_OUTPUT_DATA_PATH_HOST}:${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}:ro
+      - ${PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
+      - ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}:ro
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
