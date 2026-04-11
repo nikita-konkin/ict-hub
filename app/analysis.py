@@ -157,12 +157,16 @@ async def analysis_proxy(
 
     timeout = httpx.Timeout(cfg.ANALYSIS_API_TIMEOUT_SEC)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # trust_env=False prevents proxy env vars from hijacking internal calls.
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             upstream = await client.get(target_url)
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Analysis API timeout")
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Analysis API error: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Analysis API error (base={base_url}): {exc}",
+        )
 
     passthrough_headers = {}
     for name in ("content-type", "content-disposition", "cache-control"):

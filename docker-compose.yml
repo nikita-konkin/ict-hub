@@ -24,10 +24,10 @@ services:
       # Prevent runtime proxy interception for container-to-container traffic.
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub"
+      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
       http_proxy: ""
       https_proxy: ""
-      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub"
+      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
 
       # ── Security (CHANGE THESE before exposing to a network) ──────────────
       SECRET_KEY: ${SECRET_KEY:-replace-me-with-a-random-32-char-string!!}
@@ -98,6 +98,10 @@ services:
       # to wipe it completely.
       - db:/app/data
 
+    # Linux support for host.docker.internal when analysis backend is exposed on host port.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     # ── Resource limits ───────────────────────────────────────────────────
     # The web service itself is very lightweight; these are conservative
     # defaults for a local-network tool. Adjust freely.
@@ -136,10 +140,10 @@ services:
       # Prevent runtime proxy interception for container-to-container traffic.
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub"
+      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
       http_proxy: ""
       https_proxy: ""
-      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub"
+      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
 
       # ── Data Indexer Paths ───────────────────────────────────────────────
       # Container paths used by the data-indexer service API defaults
