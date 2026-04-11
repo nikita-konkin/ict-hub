@@ -25,6 +25,8 @@
   </div>
 </div>
 
+<div id="index-options-status" style="margin:-8px 0 16px; font-size:12px; color:var(--text-muted);"></div>
+
 <style>
   .param-required .form-label {
     color: var(--accent);
@@ -569,6 +571,29 @@
       });
     }
 
+    function setIndexOptionsStatus(kind, text) {
+      const el = document.getElementById("index-options-status");
+      if (!el) return;
+      el.textContent = text || "";
+      if (!text) {
+        el.style.color = "var(--text-muted)";
+        return;
+      }
+      if (kind === "error") {
+        el.style.color = "var(--danger-text)";
+        return;
+      }
+      if (kind === "warning") {
+        el.style.color = "var(--warning-text, #d3b37a)";
+        return;
+      }
+      if (kind === "success") {
+        el.style.color = "var(--success-text)";
+        return;
+      }
+      el.style.color = "var(--text-muted)";
+    }
+
     function fillSelect(selectId, values, selectedValue) {
       const select = document.getElementById(selectId);
       if (!select) return;
@@ -650,9 +675,13 @@
     }
 
     async function loadIndexOptions() {
+      setIndexOptionsStatus("info", "Loading index options...");
       try {
         const res = await fetch("/analysis/index-options", { credentials: "same-origin" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setIndexOptionsStatus("error", "Index options unavailable (" + res.status + "). Data-indexer may be unreachable or returning errors.");
+          return;
+        }
         const payload = await res.json();
         state.indexOptions = {
           absoltec: {
@@ -670,8 +699,15 @@
         };
         updateDataSelectors();
         updatePlotSelectors();
+        const absYears = state.indexOptions.absoltec.years.length;
+        const tecYears = state.indexOptions.tec.years.length;
+        if (!absYears && !tecYears) {
+          setIndexOptionsStatus("warning", "Index loaded, but no data was discovered for configured parquet paths.");
+        } else {
+          setIndexOptionsStatus("success", "Index loaded: absoltec years=" + absYears + ", tec years=" + tecYears + ".");
+        }
       } catch (_) {
-        // Keep existing defaults when index options are unavailable.
+        setIndexOptionsStatus("error", "Failed to load index options. Check converter-hub and data-indexer connectivity, mounts, and parquet root paths.");
       }
     }
 
