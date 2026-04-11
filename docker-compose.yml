@@ -64,6 +64,7 @@ services:
 
       # ── Data Indexer Service ─────────────────────────────────────────────
       DATA_INDEXER_URL: ${DATA_INDEXER_URL:-http://data-indexer:5001}
+      DATA_INDEXER_TIMEOUT_SEC: ${DATA_INDEXER_TIMEOUT_SEC:-120}
 
       # ── External data-analysis API (TEC backend) ───────────────────────
       # Example when analysis service is another compose service:

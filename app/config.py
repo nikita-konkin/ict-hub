@@ -76,4 +76,4 @@ ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "4
 
 # External data-indexer FastAPI integration
 DATA_INDEXER_URL: str = os.getenv("DATA_INDEXER_URL", "")
-DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "30"))
+DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "120"))

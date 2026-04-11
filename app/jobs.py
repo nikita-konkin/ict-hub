@@ -11,6 +11,7 @@ Routes:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -27,9 +28,9 @@ from app.database import get_db
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
 from app.data_indexer_client import (
-    list_parquet_output_structure,
-    list_rinex_server_structure,
-    list_tecsuite_output_structure,
+    list_parquet_output_structure_async,
+    list_rinex_server_structure_async,
+    list_tecsuite_output_structure_async,
 )
 from app.runner import parse_progress, start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
@@ -250,17 +251,13 @@ async def run_page(
     if converter_name == "tec-suite":
         tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
         scan_path = cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path
-        tec_rinex_tree = list_rinex_server_structure(scan_path)
+        tec_rinex_tree = await list_rinex_server_structure_async(scan_path) if scan_path else []
     elif converter_name == "abstec-suite":
         abstec_scan_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER.strip()
         host_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
         if not abstec_scan_path:
             abstec_scan_path = host_path
-        abstec_dat_tree = list_tecsuite_output_structure(abstec_scan_path)
-        if not abstec_dat_tree and host_path and abstec_scan_path != host_path:
-            abstec_dat_tree = list_tecsuite_output_structure(host_path)
-            if abstec_dat_tree:
-                abstec_scan_path = host_path
+        abstec_dat_tree = await list_tecsuite_output_structure_async(abstec_scan_path) if abstec_scan_path else []
     elif converter_name == "dat-parquet-handler":
         default_direction = "dat-to-parquet"
         dat_parquet_profiles = _dat_parquet_profiles(default_direction)
@@ -270,31 +267,25 @@ async def run_page(
         tecsuite_host_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
         if not tecsuite_scan_path:
             tecsuite_scan_path = tecsuite_host_path
-        tecsuite_tree = list_tecsuite_output_structure(tecsuite_scan_path)
-        if not tecsuite_tree and tecsuite_host_path and tecsuite_scan_path != tecsuite_host_path:
-            tecsuite_tree = list_tecsuite_output_structure(tecsuite_host_path)
 
         abstec_container_path = cfg.ABSTEC_OUTPUT_DATA_PATH_CONTAINER.strip()
         abstec_host_path = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
         abstec_scan_path = abstec_container_path or abstec_host_path
-        abstec_tree = list_parquet_output_structure(abstec_scan_path) if abstec_scan_path else []
-        if not abstec_tree and abstec_host_path and abstec_scan_path != abstec_host_path:
-            abstec_tree = list_parquet_output_structure(abstec_host_path)
 
         # parquet-to-dat sources: parquet output directories
         parquet_tecsuite_container = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip()
         parquet_tecsuite_host = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
         parquet_tecsuite_scan = parquet_tecsuite_container or parquet_tecsuite_host
-        parquet_tecsuite_tree = list_parquet_output_structure(parquet_tecsuite_scan) if parquet_tecsuite_scan else []
-        if not parquet_tecsuite_tree and parquet_tecsuite_host and parquet_tecsuite_scan != parquet_tecsuite_host:
-            parquet_tecsuite_tree = list_parquet_output_structure(parquet_tecsuite_host)
 
         parquet_abstec_container = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip()
         parquet_abstec_host = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
         parquet_abstec_scan = parquet_abstec_container or parquet_abstec_host
-        parquet_abstec_tree = list_parquet_output_structure(parquet_abstec_scan) if parquet_abstec_scan else []
-        if not parquet_abstec_tree and parquet_abstec_host and parquet_abstec_scan != parquet_abstec_host:
-            parquet_abstec_tree = list_parquet_output_structure(parquet_abstec_host)
+        tecsuite_tree, abstec_tree, parquet_tecsuite_tree, parquet_abstec_tree = await asyncio.gather(
+            list_tecsuite_output_structure_async(tecsuite_scan_path) if tecsuite_scan_path else asyncio.sleep(0, result=[]),
+            list_parquet_output_structure_async(abstec_scan_path) if abstec_scan_path else asyncio.sleep(0, result=[]),
+            list_parquet_output_structure_async(parquet_tecsuite_scan) if parquet_tecsuite_scan else asyncio.sleep(0, result=[]),
+            list_parquet_output_structure_async(parquet_abstec_scan) if parquet_abstec_scan else asyncio.sleep(0, result=[]),
+        )
 
         dat_parquet_source_tree_matrix = {
             "dat-to-parquet": {

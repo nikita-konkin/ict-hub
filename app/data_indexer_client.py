@@ -69,6 +69,113 @@ def _set_cache(endpoint: str, root_path: str, value: list[dict[str, object]]) ->
     return value
 
 
+def _parse_rinex_root(root: ET.Element) -> list[dict[str, object]]:
+    years: list[dict[str, object]] = []
+    for item in root.findall("item"):
+        year_name = _text(item.find("year"))
+        if not year_name:
+            continue
+
+        days: list[dict[str, object]] = []
+        days_node = item.find("days")
+        if days_node is not None:
+            for day_item in days_node.findall("item"):
+                day_name = _text(day_item.find("day"))
+                stations = _as_int(_text(day_item.find("stations"), "0"), 0)
+                if day_name:
+                    days.append({"day": day_name, "stations": stations})
+
+        years.append({"year": year_name, "days": days})
+
+    return years
+
+
+def _parse_tecsuite_root(root: ET.Element) -> list[dict[str, object]]:
+    years: list[dict[str, object]] = []
+    for item in root.findall("item"):
+        year_name = _text(item.find("year"))
+        if not year_name:
+            continue
+
+        days: list[dict[str, object]] = []
+        days_node = item.find("days")
+        if days_node is not None:
+            for day_item in days_node.findall("item"):
+                day_name = _text(day_item.find("day"))
+                sites: list[str] = []
+                sites_node = day_item.find("sites")
+                if sites_node is not None:
+                    for site_item in sites_node.findall("item"):
+                        site_name = _text(site_item)
+                        if site_name:
+                            sites.append(site_name)
+                if day_name:
+                    days.append({"day": day_name, "sites": sites})
+
+        years.append({"year": year_name, "days": days})
+
+    return years
+
+
+def _parse_parquet_root(root: ET.Element) -> list[dict[str, object]]:
+    years: list[dict[str, object]] = []
+    for item in root.findall("item"):
+        year_name = _text(item.find("year"))
+        if not year_name:
+            continue
+
+        days: list[str] = []
+        days_node = item.find("days")
+        if days_node is not None:
+            for day_item in days_node.findall("item"):
+                day_name = _text(day_item)
+                if day_name:
+                    days.append(day_name)
+
+        years.append({"year": year_name, "days": days})
+
+    return years
+
+
+def _parse_parquet_sat_root(root: ET.Element) -> list[dict[str, object]]:
+    years: list[dict[str, object]] = []
+    for item in root.findall("item"):
+        year_name = _text(item.find("year"))
+        if not year_name:
+            continue
+
+        days: list[dict[str, object]] = []
+        days_node = item.find("days")
+        if days_node is not None:
+            for day_item in days_node.findall("item"):
+                day_name = _text(day_item.find("day"))
+                if not day_name:
+                    continue
+
+                stations: list[str] = []
+                satellites: list[str] = []
+
+                stations_node = day_item.find("stations")
+                if stations_node is not None:
+                    for station_item in stations_node.findall("item"):
+                        station_name = _text(station_item)
+                        if station_name:
+                            stations.append(station_name)
+
+                satellites_node = day_item.find("satellites")
+                if satellites_node is not None:
+                    for sat_item in satellites_node.findall("item"):
+                        sat_name = _text(sat_item)
+                        if sat_name:
+                            satellites.append(sat_name)
+
+                days.append({"day": day_name, "stations": stations, "satellites": satellites})
+
+        years.append({"year": year_name, "days": days})
+
+    return years
+
+
 async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None":
     """Async version of _fetch_xml — does not block the event loop."""
     if not DATA_INDEXER_URL:
@@ -109,42 +216,43 @@ async def list_parquet_satellite_structure_async(host_root: str) -> list[dict[st
     if root is None:
         return []
 
-    years: list[dict[str, object]] = []
-    for item in root.findall("item"):
-        year_name = _text(item.find("year"))
-        if not year_name:
-            continue
+    return _set_cache("parquet-satellites", host_root, _parse_parquet_sat_root(root))
 
-        days: list[dict[str, object]] = []
-        days_node = item.find("days")
-        if days_node is not None:
-            for day_item in days_node.findall("item"):
-                day_name = _text(day_item.find("day"))
-                if not day_name:
-                    continue
 
-                stations: list[str] = []
-                satellites: list[str] = []
+async def list_rinex_server_structure_async(host_root: str) -> list[dict[str, object]]:
+    cache_key = ("rinex", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
 
-                stations_node = day_item.find("stations")
-                if stations_node is not None:
-                    for s in stations_node.findall("item"):
-                        v = _text(s)
-                        if v:
-                            stations.append(v)
+    root = await _fetch_xml_async("rinex", host_root)
+    if root is None:
+        return []
 
-                satellites_node = day_item.find("satellites")
-                if satellites_node is not None:
-                    for s in satellites_node.findall("item"):
-                        v = _text(s)
-                        if v:
-                            satellites.append(v)
+    return _set_cache("rinex", host_root, _parse_rinex_root(root))
 
-                days.append({"day": day_name, "stations": stations, "satellites": satellites})
 
-        years.append({"year": year_name, "days": days})
+async def list_tecsuite_output_structure_async(host_root: str) -> list[dict[str, object]]:
+    cache_key = ("tecsuite", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
 
-    return _set_cache("parquet-satellites", host_root, years)
+    root = await _fetch_xml_async("tecsuite", host_root)
+    if root is None:
+        return []
+
+    return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
+
+
+async def list_parquet_output_structure_async(host_root: str) -> list[dict[str, object]]:
+    cache_key = ("parquet", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
+
+    root = await _fetch_xml_async("parquet", host_root)
+    if root is None:
+        return []
+
+    return _set_cache("parquet", host_root, _parse_parquet_root(root))
 
 
 def list_rinex_server_structure(host_root: str) -> list[dict[str, object]]:
@@ -157,24 +265,7 @@ def list_rinex_server_structure(host_root: str) -> list[dict[str, object]]:
     if root is None:
         return []
 
-    years: list[dict[str, object]] = []
-    for item in root.findall("item"):
-        year_name = _text(item.find("year"))
-        if not year_name:
-            continue
-
-        days: list[dict[str, object]] = []
-        days_node = item.find("days")
-        if days_node is not None:
-            for day_item in days_node.findall("item"):
-                day_name = _text(day_item.find("day"))
-                stations = _as_int(_text(day_item.find("stations"), "0"), 0)
-                if day_name:
-                    days.append({"day": day_name, "stations": stations})
-
-        years.append({"year": year_name, "days": days})
-
-    return _set_cache("rinex", host_root, years)
+    return _set_cache("rinex", host_root, _parse_rinex_root(root))
 
 
 def list_tecsuite_output_structure(host_root: str) -> list[dict[str, object]]:
@@ -187,30 +278,7 @@ def list_tecsuite_output_structure(host_root: str) -> list[dict[str, object]]:
     if root is None:
         return []
 
-    years: list[dict[str, object]] = []
-    for item in root.findall("item"):
-        year_name = _text(item.find("year"))
-        if not year_name:
-            continue
-
-        days: list[dict[str, object]] = []
-        days_node = item.find("days")
-        if days_node is not None:
-            for day_item in days_node.findall("item"):
-                day_name = _text(day_item.find("day"))
-                sites: list[str] = []
-                sites_node = day_item.find("sites")
-                if sites_node is not None:
-                    for site_item in sites_node.findall("item"):
-                        site_name = _text(site_item)
-                        if site_name:
-                            sites.append(site_name)
-                if day_name:
-                    days.append({"day": day_name, "sites": sites})
-
-        years.append({"year": year_name, "days": days})
-
-    return _set_cache("tecsuite", host_root, years)
+    return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
 
 
 def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
@@ -223,23 +291,7 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     if root is None:
         return []
 
-    years: list[dict[str, object]] = []
-    for item in root.findall("item"):
-        year_name = _text(item.find("year"))
-        if not year_name:
-            continue
-
-        days: list[str] = []
-        days_node = item.find("days")
-        if days_node is not None:
-            for day_item in days_node.findall("item"):
-                day_name = _text(day_item)
-                if day_name:
-                    days.append(day_name)
-
-        years.append({"year": year_name, "days": days})
-
-    return _set_cache("parquet", host_root, years)
+    return _set_cache("parquet", host_root, _parse_parquet_root(root))
 
 
 def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
@@ -252,45 +304,4 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     if root is None:
         return []
 
-    years: list[dict[str, object]] = []
-    for item in root.findall("item"):
-        year_name = _text(item.find("year"))
-        if not year_name:
-            continue
-
-        days: list[dict[str, object]] = []
-        days_node = item.find("days")
-        if days_node is not None:
-            for day_item in days_node.findall("item"):
-                day_name = _text(day_item.find("day"))
-                if not day_name:
-                    continue
-
-                stations: list[str] = []
-                satellites: list[str] = []
-
-                stations_node = day_item.find("stations")
-                if stations_node is not None:
-                    for station_item in stations_node.findall("item"):
-                        station_name = _text(station_item)
-                        if station_name:
-                            stations.append(station_name)
-
-                satellites_node = day_item.find("satellites")
-                if satellites_node is not None:
-                    for sat_item in satellites_node.findall("item"):
-                        sat_name = _text(sat_item)
-                        if sat_name:
-                            satellites.append(sat_name)
-
-                days.append(
-                    {
-                        "day": day_name,
-                        "stations": stations,
-                        "satellites": satellites,
-                    }
-                )
-
-        years.append({"year": year_name, "days": days})
-
-    return _set_cache("parquet-satellites", host_root, years)
+    return _set_cache("parquet-satellites", host_root, _parse_parquet_sat_root(root))
