@@ -5,6 +5,11 @@
 # (~200 MB) while still being easy to work with.
 FROM python:3.12-slim
 
+# Optional build-time proxy support. These values are not persisted at runtime.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 # Set working directory inside the container
 WORKDIR /app
 

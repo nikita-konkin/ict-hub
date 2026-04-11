@@ -45,7 +45,17 @@ def _fetch_xml(endpoint: str, root_path: str) -> ET.Element | None:
         url = f"{url}?root={quote(root_path, safe='/:\\')}"
 
     try:
-        response = httpx.get(url, timeout=DATA_INDEXER_TIMEOUT_SEC)
+        # trust_env=False avoids accidental proxy routing for internal Docker service calls.
+        response = httpx.get(url, timeout=DATA_INDEXER_TIMEOUT_SEC, trust_env=False)
+        if response.status_code >= 400:
+            logger.warning(
+                "data-indexer upstream status=%s endpoint=%s url=%s server=%s body_prefix=%s",
+                response.status_code,
+                endpoint,
+                url,
+                response.headers.get("server", ""),
+                response.text[:180],
+            )
         response.raise_for_status()
         root = ET.fromstring(response.text)
         return root
@@ -70,8 +80,18 @@ async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None"
         url = f"{url}?root={quote(root_path, safe='/:\\')}"
 
     try:
-        async with httpx.AsyncClient(timeout=DATA_INDEXER_TIMEOUT_SEC) as client:
+        # trust_env=False avoids accidental proxy routing for internal Docker service calls.
+        async with httpx.AsyncClient(timeout=DATA_INDEXER_TIMEOUT_SEC, trust_env=False) as client:
             response = await client.get(url)
+        if response.status_code >= 400:
+            logger.warning(
+                "data-indexer upstream status=%s endpoint=%s url=%s server=%s body_prefix=%s",
+                response.status_code,
+                endpoint,
+                url,
+                response.headers.get("server", ""),
+                response.text[:180],
+            )
         response.raise_for_status()
         return ET.fromstring(response.text)
     except Exception as exc:  # noqa: BLE001

@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# Optional build-time proxy support. These values are not persisted at runtime.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 WORKDIR /app
 
 COPY requirements.txt .

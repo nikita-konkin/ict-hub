@@ -21,6 +21,14 @@ services:
       - .env
 
     environment:
+      # Prevent runtime proxy interception for container-to-container traffic.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub"
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub"
+
       # ── Security (CHANGE THESE before exposing to a network) ──────────────
       SECRET_KEY: ${SECRET_KEY:-replace-me-with-a-random-32-char-string!!}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # password for the first-boot 'admin' user
@@ -125,6 +133,14 @@ services:
       - .env
 
     environment:
+      # Prevent runtime proxy interception for container-to-container traffic.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "localhost,127.0.0.1,data-indexer,converter-hub"
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub"
+
       # ── Data Indexer Paths ───────────────────────────────────────────────
       # Container paths used by the data-indexer service API defaults
       INDEXER_RINEX_DATA_PATH_CONTAINER: ${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}
