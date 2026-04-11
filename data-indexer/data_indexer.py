@@ -282,15 +282,32 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
             stations: set[str] = set()
             satellites: set[str] = set()
 
-            for pq_file in day_dir.rglob("*.parquet"):
-                rel_parts = pq_file.relative_to(day_dir).parts
-                if len(rel_parts) >= 2:
-                    stations.add(rel_parts[0])
+            # Stations = immediate subdirectories of day_dir.
+            # Satellites are extracted from ONE representative station's parquet
+            # file names only — avoids scanning millions of files across all
+            # stations on large datasets (significant speedup: O(stations) vs
+            # O(stations × files_per_station) for the full rglob approach).
+            flat_pq: list[Path] = []
+            for entry in day_dir.iterdir():
+                if entry.is_dir():
+                    stations.add(entry.name)
+                elif entry.suffix.lower() == ".parquet":
+                    flat_pq.append(entry)
 
-                # Extract satellite IDs like G01, E07, R19 from file names when present.
-                stem = pq_file.stem.upper()
-                for match in SATELLITE_RE.findall(stem):
-                    satellites.add(match)
+            if stations:
+                # Sample the alphabetically first station dir for satellite IDs.
+                # Satellite sets are uniform across stations on the same day.
+                sample_dir = day_dir / min(stations)
+                for pq_file in sample_dir.glob("*.parquet"):
+                    stem = pq_file.stem.upper()
+                    for match in SATELLITE_RE.findall(stem):
+                        satellites.add(match)
+            else:
+                # Flat layout: parquet files live directly under day_dir.
+                for pq_file in flat_pq:
+                    stem = pq_file.stem.upper()
+                    for match in SATELLITE_RE.findall(stem):
+                        satellites.add(match)
 
             if not stations and not satellites:
                 continue
