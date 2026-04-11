@@ -111,16 +111,10 @@ async def analysis_index_options(
         }
 
     abs_scan = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
-    abs_host = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
     abs_tree = list_parquet_satellite_structure(abs_scan) if abs_scan else []
-    if not abs_tree and abs_host and abs_scan != abs_host:
-        abs_tree = list_parquet_satellite_structure(abs_host)
 
     tec_scan = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
-    tec_host = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
     tec_tree = list_parquet_satellite_structure(tec_scan) if tec_scan else []
-    if not tec_tree and tec_host and tec_scan != tec_host:
-        tec_tree = list_parquet_satellite_structure(tec_host)
 
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
