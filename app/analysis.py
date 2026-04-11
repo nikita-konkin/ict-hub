@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
 from app.auth import get_current_user
-from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure
+from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure_async
 from app.models import User
 from app.registry import CONVERTERS
 
@@ -111,10 +111,10 @@ async def analysis_index_options(
         }
 
     abs_scan = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
-    abs_tree = list_parquet_satellite_structure(abs_scan) if abs_scan else []
+    abs_tree = await list_parquet_satellite_structure_async(abs_scan) if abs_scan else []
 
     tec_scan = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
-    tec_tree = list_parquet_satellite_structure(tec_scan) if tec_scan else []
+    tec_tree = await list_parquet_satellite_structure_async(tec_scan) if tec_scan else []
 
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 

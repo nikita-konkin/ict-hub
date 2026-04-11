@@ -11,14 +11,22 @@ All endpoints return XML responses for consumption by other services.
 """
 
 import re
+import time
 from pathlib import Path
 from typing import TypedDict
+
+# Minimum seconds between full re-scans of a parquet-satellites root.
+# Prevents constant rescans when the output directory is actively written to
+# (new files change mtime on every write, invalidating a mtime-only cache on
+# every page load and causing the expensive filesystem scan to run again).
+_PARQUET_SAT_CACHE_TTL_SEC: float = 300.0
 
 # (path → (mtime, result)) — module-level, lives for the process lifetime
 _rinex_cache: dict[str, tuple[float, list]] = {}
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
-_parquet_sat_cache: dict[str, tuple[float, list]] = {}
+# (path → (last_scan_monotonic, mtime, result))
+_parquet_sat_cache: dict[str, tuple[float, float, list]] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -235,12 +243,21 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     except OSError:
         return []
 
-    cached_mtime, cached_result = _parquet_sat_cache.get(host_root, (None, None))
-    if mtime == cached_mtime:
-        return cached_result  # type: ignore[return-value]
+    now = time.monotonic()
+    cached = _parquet_sat_cache.get(host_root)
+    if cached is not None:
+        last_scan, cached_mtime, cached_result = cached
+        if now - last_scan < _PARQUET_SAT_CACHE_TTL_SEC:
+            # Within TTL: serve from cache regardless of mtime changes caused
+            # by the pipeline writing new parquet files.
+            return cached_result  # type: ignore[return-value]
+        if mtime == cached_mtime:
+            # TTL expired but directory unchanged: renew TTL, skip rescan.
+            _parquet_sat_cache[host_root] = (now, mtime, cached_result)
+            return cached_result  # type: ignore[return-value]
 
     result = _scan_parquet_satellites(root)
-    _parquet_sat_cache[host_root] = (mtime, result)
+    _parquet_sat_cache[host_root] = (now, mtime, result)
     return result
 
 

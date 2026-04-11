@@ -59,6 +59,74 @@ def _set_cache(endpoint: str, root_path: str, value: list[dict[str, object]]) ->
     return value
 
 
+async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None":
+    """Async version of _fetch_xml — does not block the event loop."""
+    if not DATA_INDEXER_URL:
+        return None
+
+    base = DATA_INDEXER_URL.rstrip("/")
+    url = f"{base}/{endpoint}"
+    if root_path:
+        url = f"{url}?root={quote(root_path, safe='/:\\')}"
+
+    try:
+        async with httpx.AsyncClient(timeout=DATA_INDEXER_TIMEOUT_SEC) as client:
+            response = await client.get(url)
+        response.raise_for_status()
+        return ET.fromstring(response.text)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
+        return None
+
+
+async def list_parquet_satellite_structure_async(host_root: str) -> list[dict[str, object]]:
+    """Async variant of list_parquet_satellite_structure — for use inside async FastAPI handlers."""
+    cache_key = ("parquet-satellites", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
+
+    root = await _fetch_xml_async("parquet-satellites", host_root)
+    if root is None:
+        return []
+
+    years: list[dict[str, object]] = []
+    for item in root.findall("item"):
+        year_name = _text(item.find("year"))
+        if not year_name:
+            continue
+
+        days: list[dict[str, object]] = []
+        days_node = item.find("days")
+        if days_node is not None:
+            for day_item in days_node.findall("item"):
+                day_name = _text(day_item.find("day"))
+                if not day_name:
+                    continue
+
+                stations: list[str] = []
+                satellites: list[str] = []
+
+                stations_node = day_item.find("stations")
+                if stations_node is not None:
+                    for s in stations_node.findall("item"):
+                        v = _text(s)
+                        if v:
+                            stations.append(v)
+
+                satellites_node = day_item.find("satellites")
+                if satellites_node is not None:
+                    for s in satellites_node.findall("item"):
+                        v = _text(s)
+                        if v:
+                            satellites.append(v)
+
+                days.append({"day": day_name, "stations": stations, "satellites": satellites})
+
+        years.append({"year": year_name, "days": days})
+
+    return _set_cache("parquet-satellites", host_root, years)
+
+
 def list_rinex_server_structure(host_root: str) -> list[dict[str, object]]:
     """Return RINEX tree from data-indexer /rinex endpoint."""
     cache_key = ("rinex", host_root)
