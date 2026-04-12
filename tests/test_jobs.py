@@ -439,6 +439,198 @@ class TestStartJob:
         )
         assert response.status_code in (302, 303)
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # DAT <-> Parquet Day Range Validation Tests
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    @patch("app.jobs.start_container", return_value="container_day_range_valid")
+    def test_dat_parquet_accepts_valid_day_from_and_day_to(self, mock_start, operator_client):
+        """DAT-Parquet with valid day_from and day_to should succeed."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="1", day_to="366"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    def test_dat_parquet_day_from_below_range_returns_400(self, operator_client):
+        """Day from < 1 should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="0", day_to="100"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"day-from" in response.content or b"day_from" in response.content or b"Day from" in response.content
+
+    def test_dat_parquet_day_from_above_range_returns_400(self, operator_client):
+        """Day from > 366 should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="367", day_to="367"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+    def test_dat_parquet_day_to_below_range_returns_400(self, operator_client):
+        """Day to < 1 should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="1", day_to="0"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+    def test_dat_parquet_day_to_above_range_returns_400(self, operator_client):
+        """Day to > 366 should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="100", day_to="500"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+    def test_dat_parquet_day_from_greater_than_day_to_returns_400(self, operator_client):
+        """day_from > day_to should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="100", day_to="50"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"day-from" in response.content or b"day_from" in response.content or b"less than or equal" in response.content
+
+    def test_dat_parquet_day_range_non_numeric_returns_400(self, operator_client):
+        """Non-numeric day values should be rejected with 400."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="abc", day_to="100"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        # Should have an error about the day_from value
+        assert b"day-from" in response.content or b"numeric" in response.content.lower() or b"digit" in response.content.lower()
+
+    @patch("app.jobs.start_container", return_value="container_day_from_empty")
+    def test_dat_parquet_day_from_empty_is_valid(self, mock_start, operator_client):
+        """Empty day_from should be valid (optional)."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="", day_to="100"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_day_to_empty")
+    def test_dat_parquet_day_to_empty_is_valid(self, mock_start, operator_client):
+        """Empty day_to should be valid (optional)."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="100", day_to=""),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_both_empty")
+    def test_dat_parquet_both_day_range_empty_is_valid(self, mock_start, operator_client):
+        """Both day_from and day_to empty should be valid."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="", day_to=""),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_day_range_edge")
+    def test_dat_parquet_day_boundaries_1_and_366(self, mock_start, operator_client):
+        """Edge case: day_from=1 and day_to=366 should succeed."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="1", day_to="366"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_day_range_single")
+    def test_dat_parquet_day_from_equals_day_to(self, mock_start, operator_client):
+        """Edge case: day_from == day_to should succeed."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="100", day_to="100"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_day_whitespace")
+    def test_dat_parquet_day_range_whitespace_trimmed(self, mock_start, operator_client):
+        """Whitespace around day values should be trimmed."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_dat_parquet_job_data(day_from="  50  ", day_to="  100  "),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TEC-Suite Days Filter Option Tests
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    @patch("app.jobs.start_container", return_value="container_tec_days")
+    def test_tec_suite_accepts_days_filter(self, mock_start, operator_client):
+        """TEC-Suite with --days option should pass to container."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(days="1-5,10,12-14"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_tec_days_empty")
+    def test_tec_suite_days_empty_is_valid(self, mock_start, operator_client):
+        """TEC-Suite with empty --days should be valid (optional)."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(days=""),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_tec_jobs_default")
+    def test_tec_suite_jobs_default_is_1(self, mock_start, operator_client):
+        """TEC-Suite default --jobs should be 1 (not 4)."""
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(jobs=""),  # omit jobs value to use default
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
 
 class TestJobHistory:
     """Tests for GET /history — audit log access control."""
