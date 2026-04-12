@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app import config as cfg
 from app.auth import get_admin_user, get_current_user
 from app.database import get_db
+from app.i18n import apply_lang_cookie, template_context
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
 from app.data_indexer_client import (
@@ -184,15 +185,16 @@ async def dashboard(
         .limit(5)
         .all()
     )
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "dashboard.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "converters": CONVERTERS,
-            "recent_jobs": recent_jobs,
-        },
+        template_context(
+            request,
+            current_user=current_user,
+            converters=CONVERTERS,
+            recent_jobs=recent_jobs,
+        ),
     )
+    return apply_lang_cookie(request, response)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,33 +300,34 @@ async def run_page(
             },
         }
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "run.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "converter_name": converter_name,
-            "converter": conv,
-            "recent_jobs": recent,
-            "active_job": active_job,
-            "active_stream_tail": active_stream_tail,
-            "tec_rinex_host_path": tec_rinex_host_path,
-            "tec_rinex_tree": tec_rinex_tree,
-            "tec_rinex_scan_path": cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path,
-            "abstec_dat_tree": abstec_dat_tree,
-            "abstec_dat_host_path": cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST,
-            "abstec_dat_scan_path": (
+        template_context(
+            request,
+            current_user=current_user,
+            converter_name=converter_name,
+            converter=conv,
+            recent_jobs=recent,
+            active_job=active_job,
+            active_stream_tail=active_stream_tail,
+            tec_rinex_host_path=tec_rinex_host_path,
+            tec_rinex_tree=tec_rinex_tree,
+            tec_rinex_scan_path=cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path,
+            abstec_dat_tree=abstec_dat_tree,
+            abstec_dat_host_path=cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST,
+            abstec_dat_scan_path=(
                 cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER
                 or cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST
             ),
-            "abstec_output_host_path": cfg.ABSTEC_OUTPUT_DATA_PATH_HOST,
-            "dat_parquet_profiles": dat_parquet_profiles,
-            "dat_parquet_profile_matrix": dat_parquet_profile_matrix,
-            "dat_parquet_source_tree_matrix": dat_parquet_source_tree_matrix,
-            "dat_parquet_default_direction": "dat-to-parquet",
-            "converters": CONVERTERS,
-        },
+            abstec_output_host_path=cfg.ABSTEC_OUTPUT_DATA_PATH_HOST,
+            dat_parquet_profiles=dat_parquet_profiles,
+            dat_parquet_profile_matrix=dat_parquet_profile_matrix,
+            dat_parquet_source_tree_matrix=dat_parquet_source_tree_matrix,
+            dat_parquet_default_direction="dat-to-parquet",
+            converters=CONVERTERS,
+        ),
     )
+    return apply_lang_cookie(request, response)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -489,14 +492,11 @@ async def start_job(
         return RedirectResponse(url=f"/run/{converter_name}?job_id={job.id}", status_code=303)
 
     # Return the SSE monitoring panel. HTMX will swap this into #job-output.
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "job_panel.html",
-        {
-            "request": request,
-            "job": job,
-            "converter": conv,
-        },
+        template_context(request, job=job, converter=conv),
     )
+    return apply_lang_cookie(request, response)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -688,16 +688,17 @@ async def history(
         .limit(per_page)
         .all()
     )
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "history.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "jobs": jobs,
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": max(1, (total + per_page - 1) // per_page),
-            "converters": CONVERTERS,
-        },
+        template_context(
+            request,
+            current_user=current_user,
+            jobs=jobs,
+            total=total,
+            page=page,
+            per_page=per_page,
+            total_pages=max(1, (total + per_page - 1) // per_page),
+            converters=CONVERTERS,
+        ),
     )
+    return apply_lang_cookie(request, response)

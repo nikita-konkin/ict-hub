@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Sign In — ConverterHub{% endblock %}
+{% block title %}{{ t('login_title') }} — {{ t('app_name') }}{% endblock %}
 
 {% block content %}
 <div style="width:380px;">
@@ -10,13 +10,13 @@
       ConverterHub
     </div>
     <div style="font-size:11px; color:var(--text-muted); letter-spacing:0.14em; text-transform:uppercase; margin-top:6px;">
-      Data Processing Suite
+      {{ t('app_subtitle') }}
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title" style="font-size:16px;">Sign in to your account</div>
+      <div class="card-title" style="font-size:16px;">{{ t('login_card_title') }}</div>
     </div>
     <div class="card-body">
       {% if error %}
@@ -25,7 +25,7 @@
 
       <form method="POST" action="/login">
         <div class="form-group">
-          <label class="form-label" for="username">Username</label>
+          <label class="form-label" for="username">{{ t('login_username') }}</label>
           <input
             class="form-input"
             type="text"
@@ -38,7 +38,7 @@
         </div>
 
         <div class="form-group" style="margin-bottom:28px;">
-          <label class="form-label" for="password">Password</label>
+          <label class="form-label" for="password">{{ t('login_password') }}</label>
           <input
             class="form-input"
             type="password"
@@ -50,14 +50,14 @@
         </div>
 
         <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">
-          Continue
+          {{ t('login_continue') }}
         </button>
       </form>
     </div>
   </div>
 
   <p style="text-align:center; margin-top:20px; font-size:11px; color:var(--text-dim);">
-    Access restricted to authorised users only.
+    {{ t('login_restricted') }}
   </p>
 </div>
 {% endblock %}

@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ converter.label }} — ConverterHub{% endblock %}
+{% block title %}{{ converter.label }} — {{ t('app_name') }}{% endblock %}
 
 {% block content %}
 <div class="page-header flex-between">
   <div>
     <h1 class="page-title">{{ converter.label }}</h1>
-    <p class="page-subtitle">{{ converter.description }}</p>
+    <p class="page-subtitle">{{ t('run_page_subtitle') }}</p>
   </div>
-  <a href="/" class="btn btn-ghost">← Dashboard</a>
+  <a href="/" class="btn btn-ghost">← {{ t('run_back') }}</a>
 </div>
 
 <!-- ── Two-column layout: form left, output right ─────────────────── -->
@@ -16,7 +16,7 @@
   <!-- Left: Flag configuration form -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title">Configuration</div>
+      <div class="card-title">{{ t('run_configuration') }}</div>
     </div>
     <div class="card-body">
       <form
@@ -33,29 +33,29 @@
         {% if converter_name == 'tec-suite' %}
           <input type="hidden" name="root_subpath" id="tec-root-subpath" value="">
 
-          <p class="form-hint" style="margin-bottom:20px;">Server Folder (host path) is configured from environment variable RINEX_DATA_PATH_HOST.</p>
+          <p class="form-hint" style="margin-bottom:20px;">{{ t('run_hint_tecsuite_server_folder') }}</p>
 
           <div class="form-group">
-            <label class="form-label" for="tec-year-select">Year Folder</label>
+            <label class="form-label" for="tec-year-select">{{ t('label_year_folder') }}</label>
             <select class="form-select" id="tec-year-select" {% if not tec_rinex_tree %}disabled{% endif %}>
               {% if tec_rinex_tree %}
-              <option value="">All days in selected year</option>
+              <option value="">{{ t('option_all_days_selected_year') }}</option>
               {% for year_item in tec_rinex_tree %}
               <option value="{{ year_item.year }}">{{ year_item.year }}</option>
               {% endfor %}
               {% else %}
-              <option value="">No year folders available</option>
+              <option value="">{{ t('run_no_year_folders_available') }}</option>
               {% endif %}
             </select>
-            <p class="form-hint">Only folders in format YYYY_original are shown.</p>
+            <p class="form-hint">{{ t('run_hint_year_folder_format') }}</p>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="tec-day-select">Day Folder</label>
+            <label class="form-label" for="tec-day-select">{{ t('label_day_folder') }}</label>
             <select class="form-select" id="tec-day-select" disabled>
-              <option value="">All days in selected year</option>
+              <option value="">{{ t('option_all_days_selected_year') }}</option>
             </select>
-            <p class="form-hint">Day options include the number of station ZIP files in each day folder.</p>
+            <p class="form-hint">{{ t('run_hint_day_folder_options') }}</p>
           </div>
 
           {% if not tec_rinex_host_path %}
@@ -78,38 +78,38 @@
           <input type="hidden" name="days" id="abstec-days-hidden" value="">
           <input type="hidden" name="site" id="abstec-site-hidden" value="">
 
-          <p class="form-hint" style="margin-bottom:10px;">Input DAT Root (host path) is configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST.</p>
-          <p class="form-hint" style="margin-bottom:20px;">Output Root (host path) is configured from environment variable ABSTEC_OUTPUT_DATA_PATH_HOST.</p>
+          <p class="form-hint" style="margin-bottom:10px;">{{ t('run_hint_abstec_input_root') }}</p>
+          <p class="form-hint" style="margin-bottom:20px;">{{ t('run_hint_abstec_output_root') }}</p>
 
           <div class="form-group">
-            <label class="form-label" for="abstec-year-select">Year</label>
+            <label class="form-label" for="abstec-year-select">{{ t('label_year') }}</label>
             <select class="form-select" id="abstec-year-select" multiple size="4" {% if not abstec_dat_tree %}disabled{% endif %}>
               {% for year_item in abstec_dat_tree %}
               <option value="{{ year_item.year }}">{{ year_item.year }}</option>
               {% endfor %}
             </select>
-            <p class="form-hint">Choose one or more years. First selected year drives dependent day/site options.</p>
+            <p class="form-hint">{{ t('run_hint_abstec_years') }}</p>
             <div id="abstec-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="abstec-day-of-year-select">Day Of Year (single run)</label>
+            <label class="form-label" for="abstec-day-of-year-select">{{ t('run_label_day_of_year_single') }}</label>
             <select class="form-select" id="abstec-day-of-year-select" multiple size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
-            <p class="form-hint">Choose one or more days for single-run mode. Selecting this clears batch days.</p>
+            <p class="form-hint">{{ t('run_hint_abstec_day_single') }}</p>
             <div id="abstec-day-of-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="abstec-days-select">Days (batch mode)</label>
+            <label class="form-label" for="abstec-days-select">{{ t('run_label_days_batch') }}</label>
             <select class="form-select" id="abstec-days-select" multiple size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
-            <p class="form-hint">Choose one or more days for batch mode. Selecting this clears single-run days.</p>
+            <p class="form-hint">{{ t('run_hint_abstec_days_batch') }}</p>
             <div id="abstec-days-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="abstec-site-select">Site</label>
+            <label class="form-label" for="abstec-site-select">{{ t('label_site') }}</label>
             <select class="form-select" id="abstec-site-select" multiple size="10" {% if not abstec_dat_tree %}disabled{% endif %}></select>
-            <p class="form-hint">Choose one or more sites. Options depend on selected year/day values.</p>
+            <p class="form-hint">{{ t('run_hint_abstec_sites') }}</p>
             <div id="abstec-site-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
@@ -131,48 +131,48 @@
           <input type="hidden" name="root_subpath" id="dat-parquet-root-subpath" value="">
 
           <div class="form-group">
-            <label class="form-label" for="direction">Direction <span class="required">*</span></label>
+            <label class="form-label" for="direction">{{ t('label_direction') }} <span class="required">*</span></label>
             <select class="form-select" id="direction" name="direction">
               <option value="dat-to-parquet" selected>DAT -> Parquet</option>
               <option value="parquet-to-dat">Parquet -> DAT</option>
             </select>
-            <p class="form-hint">Conversion direction.</p>
+            <p class="form-hint">{{ t('run_hint_conversion_direction') }}</p>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="dataset-profile">Source Dataset</label>
+            <label class="form-label" for="dataset-profile">{{ t('run_label_source_dataset') }}</label>
             <select class="form-select" id="dataset-profile" name="dataset_profile">
               {% for profile_key, profile in dat_parquet_profiles.items() %}
               <option value="{{ profile_key }}">{{ profile.label }}</option>
               {% endfor %}
             </select>
-            <p class="form-hint">Choose which env-backed dataset root to use as the source directory.</p>
+            <p class="form-hint">{{ t('run_hint_source_dataset') }}</p>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="dat-parquet-year-select">Year Folder</label>
+            <label class="form-label" for="dat-parquet-year-select">{{ t('label_year_folder') }}</label>
             <select class="form-select" id="dat-parquet-year-select">
-              <option value="">Whole source root</option>
+              <option value="">{{ t('run_option_whole_source_root') }}</option>
             </select>
-            <p class="form-hint">Optional filter. Choose a year to convert only that year subtree.</p>
+            <p class="form-hint">{{ t('run_hint_year_filter') }}</p>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="dat-parquet-day-select">Day Folder</label>
+            <label class="form-label" for="dat-parquet-day-select">{{ t('label_day_folder') }}</label>
             <select class="form-select" id="dat-parquet-day-select" disabled>
-              <option value="">All days in selected year</option>
+              <option value="">{{ t('option_all_days_selected_year') }}</option>
             </select>
-            <p class="form-hint">Optional filter. Choose a day to convert only that day subtree.</p>
+            <p class="form-hint">{{ t('run_hint_day_filter') }}</p>
           </div>
 
           <div class="form-group">
-            <label class="form-label">Source Directory (host path)</label>
+            <label class="form-label">{{ t('run_label_source_directory') }}</label>
             <p class="form-hint" id="dat-parquet-src-hint"></p>
             <p class="form-hint"><code id="dat-parquet-src-preview"></code></p>
           </div>
 
           <div class="form-group">
-            <label class="form-label">Destination Directory (host path)</label>
+            <label class="form-label">{{ t('run_label_destination_directory') }}</label>
             <p class="form-hint" id="dat-parquet-dst-hint"></p>
             <p class="form-hint"><code id="dat-parquet-dst-preview"></code></p>
           </div>
@@ -270,8 +270,8 @@
               name="auto_remove"
             >
             <div class="checkbox-label-wrap">
-              <label class="checkbox-label" for="auto_remove">Auto-remove container (--rm)</label>
-              <p class="form-hint">Remove the Docker container automatically after it exits.</p>
+              <label class="checkbox-label" for="auto_remove">{{ t('run_label_auto_remove') }}</label>
+              <p class="form-hint">{{ t('run_hint_auto_remove') }}</p>
             </div>
           </div>
         </div>
@@ -281,11 +281,11 @@
             <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
               <path d="M4 2l10 6-10 6V2z"/>
             </svg>
-            Run
+            {{ t('run_button') }}
           </button>
           <!-- Loading spinner shown during the HTMX request -->
           <span id="run-indicator" class="htmx-indicator" style="font-size:12px; color:var(--text-muted);">
-            Starting container…
+            {{ t('run_starting') }}
           </span>
         </div>
       </form>
@@ -415,7 +415,7 @@
 
       const allOption = document.createElement("option");
       allOption.value = "";
-      allOption.textContent = "All days in selected year";
+      allOption.textContent = "{{ t('option_all_days_selected_year') }}";
       daySelect.appendChild(allOption);
 
       if (!year) {
@@ -434,7 +434,7 @@
       for (const dayItem of yearItem.days) {
         const option = document.createElement("option");
         option.value = dayItem.day;
-        option.textContent = dayItem.day + " (" + dayItem.stations + " stations)";
+        option.textContent = dayItem.day + " (" + dayItem.stations + " {{ t('run_unit_stations') }})";
         daySelect.appendChild(option);
       }
       daySelect.disabled = false;
@@ -526,7 +526,7 @@
       daySelect.innerHTML = "";
       const allOption = document.createElement("option");
       allOption.value = "";
-      allOption.textContent = "All days in selected year";
+      allOption.textContent = "{{ t('option_all_days_selected_year') }}";
       daySelect.appendChild(allOption);
 
       if (!yearItem || !Array.isArray(yearItem.days) || yearItem.days.length === 0) {
@@ -554,13 +554,13 @@
 
       const rootOption = document.createElement("option");
       rootOption.value = "";
-      rootOption.textContent = "Whole source root";
+      rootOption.textContent = "{{ t('run_option_whole_source_root') }}";
       yearSelect.appendChild(rootOption);
 
       if (!Array.isArray(tree) || tree.length === 0) {
         yearSelect.disabled = true;
         daySelect.disabled = true;
-        daySelect.innerHTML = '<option value="">All days in selected year</option>';
+        daySelect.innerHTML = '<option value="">{{ t('option_all_days_selected_year') }}</option>';
         yearSelect.value = "";
         daySelect.value = "";
         updateRootSubpath();
@@ -613,8 +613,8 @@
         dstHidden.value = "";
         srcPreview.textContent = "";
         dstPreview.textContent = "";
-        srcHint.textContent = "No source profile available.";
-        dstHint.textContent = "No destination profile available.";
+        srcHint.textContent = "{{ t('run_no_source_profile') }}";
+        dstHint.textContent = "{{ t('run_no_destination_profile') }}";
         yearSelect.disabled = true;
         daySelect.disabled = true;
         rootSubpathHidden.value = "";
@@ -632,7 +632,7 @@
       dstPreview.textContent = dstHidden.value;
       srcHint.textContent = profile.src_env ? ("Configured from environment variable " + profile.src_env + ".") : "";
       dstHint.textContent = overwrite
-        ? "Overwrite is enabled, so output will be written back into the source directory."
+        ? "{{ t('run_hint_overwrite_enabled') }}"
         : (profile.dst_env ? ("Configured from environment variable " + profile.dst_env + ".") : "");
     }
 

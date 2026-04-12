@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}ConverterHub{% endblock %}</title>
+  <title>{% block title %}{{ t('app_name') }}{% endblock %}</title>
 
   <!-- Luxury typography: Cormorant Garamond (headings) + DM Sans (body) + JetBrains Mono (code) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -44,6 +44,26 @@
       --transition:   180ms ease;
 
       --sidebar-w:    220px;
+    }
+
+    :root[data-theme="light"] {
+      --bg:           #F7F4EE;
+      --surface:      #FFFFFF;
+      --surface-2:    #F3EEE5;
+      --surface-3:    #ECE4D7;
+      --border:       #D9CFBF;
+      --border-light: #C9BEAC;
+      --text:         #2B251E;
+      --text-muted:   #655A4A;
+      --text-dim:     #9B8E7A;
+      --accent:       #8A6A3D;
+      --accent-dim:   #A07B47;
+      --accent-glow:  rgba(138,106,61,0.10);
+      --danger:       #B75454;
+      --danger-text:  #8F3434;
+      --success:      #4C8B63;
+      --success-text: #2D6A45;
+      --warning-text: #8B6A15;
     }
 
     /* ─── Reset & base ──────────────────────────────────────────────────────── */
@@ -87,6 +107,48 @@
       display: flex;
       /* Subtle grain overlay for depth — pure CSS, no images needed */
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    }
+
+    .theme-toggle,
+    .lang-toggle {
+      position: fixed;
+      top: 18px;
+      z-index: 120;
+      background: var(--surface);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color var(--transition), border-color var(--transition), background var(--transition);
+      backdrop-filter: blur(4px);
+    }
+
+    .theme-toggle { right: 18px; }
+
+    .lang-toggle {
+      right: 130px;
+      text-transform: none;
+      letter-spacing: 0.03em;
+      font-size: 12px;
+      padding: 7px 10px;
+    }
+
+    .theme-toggle:hover,
+    .lang-toggle:hover {
+      color: var(--text);
+      border-color: var(--border-light);
+      background: var(--surface-2);
+    }
+
+    .theme-toggle:focus-visible,
+    .lang-toggle:focus-visible {
+      outline: 2px solid var(--accent-dim);
+      outline-offset: 2px;
     }
 
     /* ─── Sidebar navigation ────────────────────────────────────────────────── */
@@ -701,44 +763,64 @@
 
     .page-btn:hover { color: var(--text); border-color: var(--border-light); }
     .page-btn.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+
+    @media (max-width: 700px) {
+      .lang-toggle {
+        top: 10px;
+        right: 95px;
+        max-width: 80px;
+      }
+
+      .theme-toggle {
+        top: 10px;
+        right: 10px;
+        padding: 7px 10px;
+        font-size: 10px;
+      }
+    }
   </style>
 
   {% block head %}{% endblock %}
 </head>
 <body>
+  <select id="lang-toggle" class="lang-toggle" aria-label="{{ t('lang_label') }}">
+    <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t('lang_en') }}</option>
+    <option value="ru" {% if lang == 'ru' %}selected{% endif %}>{{ t('lang_ru') }}</option>
+  </select>
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">{{ t('theme_light') }}</button>
 
   <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
   {% if current_user is defined and current_user %}
   <nav class="sidebar">
     <div class="sidebar-logo">
       <div class="sidebar-logo-mark">ConverterHub</div>
-      <div class="sidebar-logo-sub">Data Processing Suite</div>
+      <div class="sidebar-logo-sub">{{ t('app_subtitle') }}</div>
     </div>
 
     <div class="sidebar-nav">
-      <div class="nav-section-label">Overview</div>
+      <div class="nav-section-label">{{ t('nav_overview') }}</div>
       <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <rect x="1.5" y="1.5" width="5" height="5" rx="0.5"/><rect x="9.5" y="1.5" width="5" height="5" rx="0.5"/>
           <rect x="1.5" y="9.5" width="5" height="5" rx="0.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="0.5"/>
         </svg>
-        Dashboard
+        {{ t('nav_dashboard') }}
       </a>
       <a href="/history" class="nav-link {% if '/history' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="8" cy="8" r="6"/><path d="M8 5v3.5l2 1.5"/>
         </svg>
-        History
+        {{ t('nav_history') }}
       </a>
       <a href="/analysis" class="nav-link {% if '/analysis' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M2 13.5h12"/>
           <path d="M4 11V7"/><path d="M8 11V3"/><path d="M12 11V6"/>
         </svg>
-        Data Analysis
+        {{ t('nav_analysis') }}
       </a>
 
-      <div class="nav-section-label">Converters</div>
+      <div class="nav-section-label">{{ t('nav_converters') }}</div>
       {% for name, conv in converters.items() %}
       <a href="/run/{{ name }}" class="nav-link nav-link-converter {% if '/run/' + name in request.url.path %}active{% endif %}">
         {{ conv.label }}
@@ -746,12 +828,12 @@
       {% endfor %}
 
       {% if current_user.is_admin %}
-      <div class="nav-section-label">Admin</div>
+      <div class="nav-section-label">{{ t('nav_admin') }}</div>
       <a href="/users" class="nav-link {% if '/users' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.314 2.686-6 6-6s6 2.686 6 6"/>
         </svg>
-        Users
+        {{ t('nav_users') }}
       </a>
       {% endif %}
     </div>
@@ -763,7 +845,7 @@
           <div class="user-name">{{ current_user.username }}</div>
           <div class="user-role">{{ current_user.role }}</div>
         </div>
-        <a href="/logout" class="logout-btn" title="Sign out">
+        <a href="/logout" class="logout-btn" title="{{ t('logout') }}">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M11 8H3M3 8l3-3M3 8l3 3M9 3h3a1 1 0 011 1v8a1 1 0 01-1 1H9"/>
           </svg>
@@ -959,6 +1041,63 @@
         });
       }
 
+      // ── Theme toggle ───────────────────────────────────────────────────────
+      const THEME_STORAGE_KEY = 'converterhub-theme';
+      const LANG_STORAGE_KEY = 'converterhub-lang';
+
+      function setTheme(theme) {
+        const root = document.documentElement;
+        const nextTheme = theme === 'light' ? 'light' : 'dark';
+        root.setAttribute('data-theme', nextTheme);
+        try { localStorage.setItem(THEME_STORAGE_KEY, nextTheme); } catch (_) {}
+
+        const toggle = document.getElementById('theme-toggle');
+        if (toggle) {
+          const darkLabel = "{{ t('theme_dark') }}";
+          const lightLabel = "{{ t('theme_light') }}";
+          const switchTo = nextTheme === 'light' ? darkLabel : lightLabel;
+          toggle.textContent = switchTo;
+          toggle.setAttribute('aria-label', 'Switch to ' + switchTo.toLowerCase());
+        }
+      }
+
+      function initializeTheme() {
+        let savedTheme = '';
+        try { savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || ''; } catch (_) {}
+        setTheme(savedTheme === 'light' ? 'light' : 'dark');
+
+        const toggle = document.getElementById('theme-toggle');
+        if (!toggle) return;
+        toggle.addEventListener('click', function () {
+          const current = document.documentElement.getAttribute('data-theme') || 'dark';
+          setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+      }
+
+      function initializeLanguage() {
+        const langSelect = document.getElementById('lang-toggle');
+        if (!langSelect) return;
+
+        const currentLang = "{{ lang }}";
+        try {
+          const stored = localStorage.getItem(LANG_STORAGE_KEY);
+          if (stored && stored !== currentLang && (stored === 'en' || stored === 'ru')) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('lang', stored);
+            window.location.replace(url.toString());
+            return;
+          }
+        } catch (_) {}
+
+        langSelect.addEventListener('change', function () {
+          const selected = langSelect.value === 'ru' ? 'ru' : 'en';
+          try { localStorage.setItem(LANG_STORAGE_KEY, selected); } catch (_) {}
+          const url = new URL(window.location.href);
+          url.searchParams.set('lang', selected);
+          window.location.assign(url.toString());
+        });
+      }
+
       // ── Core panel initialiser ─────────────────────────────────────────────
 
       function initializeJobPanel(panel) {
@@ -1068,6 +1207,8 @@
         formatLocalDateTimes(document);
         initializeAllJobPanels(document);
         initializeRecentRunTrackers(document);
+        initializeTheme();
+        initializeLanguage();
       });
 
       document.body.addEventListener("htmx:afterSwap", function (evt) {

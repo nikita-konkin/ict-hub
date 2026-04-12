@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from app import config as cfg
 from app.auth import get_current_user
 from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure_async
+from app.i18n import apply_lang_cookie, template_context
 from app.models import User
 from app.registry import CONVERTERS
 
@@ -32,16 +33,17 @@ async def analysis_home(
     current_user: User = Depends(get_current_user),
 ):
     """Analysis landing page for TEC data exploration and exports."""
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "analysis.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "converters": CONVERTERS,
-            "analysis_api_base_url": cfg.ANALYSIS_API_BASE_URL,
-            "analysis_api_enabled": bool(cfg.ANALYSIS_API_BASE_URL.strip()),
-        },
+        template_context(
+            request,
+            current_user=current_user,
+            converters=CONVERTERS,
+            analysis_api_base_url=cfg.ANALYSIS_API_BASE_URL,
+            analysis_api_enabled=bool(cfg.ANALYSIS_API_BASE_URL.strip()),
+        ),
     )
+    return apply_lang_cookie(request, response)
 
 
 @router.get("/analysis/index-options")

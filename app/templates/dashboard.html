@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — ConverterHub{% endblock %}
+{% block title %}{{ t('dashboard_title') }} — {{ t('app_name') }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">Dashboard</h1>
-  <p class="page-subtitle">Choose a converter below to begin processing.</p>
+  <h1 class="page-title">{{ t('dashboard_title') }}</h1>
+  <p class="page-subtitle">{{ t('dashboard_subtitle') }}</p>
 </div>
 
 <!-- ── Converter cards ───────────────────────────────────────────────── -->
@@ -21,8 +21,8 @@
 
   <a href="/analysis" class="converter-card" style="border-color:var(--accent-dim);">
     <span class="converter-card-arrow">↗</span>
-    <div class="converter-card-name">Data Analysis</div>
-    <div class="converter-card-desc">Explore TEC data, export pivot-ready CSV/XLSX, and fetch plot PNG/JSON/script from the analysis backend.</div>
+    <div class="converter-card-name">{{ t('nav_analysis') }}</div>
+    <div class="converter-card-desc">{{ t('dashboard_analysis_desc') }}</div>
   </a>
 </div>
 
@@ -31,10 +31,10 @@
 <div class="divider"></div>
 <div class="flex-between" style="margin-bottom:16px;">
   <h2 style="font-family:var(--font-display); font-size:20px; font-weight:400; color:var(--text);">
-    Recent Activity
+    {{ t('recent_activity') }}
   </h2>
   <a href="/history" class="btn btn-ghost" style="padding:6px 14px; font-size:11px;">
-    View all
+    {{ t('view_all') }}
   </a>
 </div>
 

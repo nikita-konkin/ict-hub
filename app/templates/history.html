@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}History — ConverterHub{% endblock %}
+{% block title %}{{ t('nav_history') }} — {{ t('app_name') }}{% endblock %}
 
 {% block content %}
 <div class="page-header flex-between">
   <div>
-    <h1 class="page-title">Job History</h1>
+    <h1 class="page-title">{{ t('history_title') }}</h1>
     <p class="page-subtitle">
       {% if current_user.is_admin %}
-        All users · {{ total }} total runs
+        {{ t('history_all_users', total=total) }}
       {% else %}
-        Your runs · {{ total }} total
+        {{ t('history_your_runs', total=total) }}
       {% endif %}
     </p>
   </div>

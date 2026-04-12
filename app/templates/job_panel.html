@@ -29,9 +29,9 @@
           <!-- Status badge — updated by JS on SSE "done" event -->
           <div id="job-status-{{ job.id }}">
             {% if job.status == "running" %}
-            <span class="badge badge-running">Running</span>
+            <span class="badge badge-running">{{ t('badge_running') }}</span>
             {% elif job.status == "success" %}
-            <span class="badge badge-success">Success</span>
+            <span class="badge badge-success">{{ t('badge_success') }}</span>
             {% else %}
             <span class="badge badge-danger">{{ job.status }}</span>
             {% endif %}

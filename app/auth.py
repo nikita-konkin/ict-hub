@@ -25,6 +25,7 @@ import bcrypt
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.i18n import apply_lang_cookie, get_lang, template_context, translate
 from app.models import User
 from app.registry import CONVERTERS
 
@@ -95,7 +96,11 @@ async def login_form(request: Request):
     """Render the login page. Redirect to dashboard if already logged in."""
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None, "converters": CONVERTERS})
+    response = templates.TemplateResponse(
+        "login.html",
+        template_context(request, error=None, converters=CONVERTERS),
+    )
+    return apply_lang_cookie(request, response)
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -110,18 +115,30 @@ async def login_submit(
 
     if not user or not verify_password(password, user.hashed_pw):
         logger.warning("Failed login attempt for username=%r", username)
-        return templates.TemplateResponse(
+        lang = get_lang(request)
+        response = templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Invalid username or password.", "converters": CONVERTERS},
+            template_context(
+                request,
+                error=translate(lang, "auth_invalid_credentials"),
+                converters=CONVERTERS,
+            ),
             status_code=401,
         )
+        return apply_lang_cookie(request, response)
 
     if not user.is_active:
-        return templates.TemplateResponse(
+        lang = get_lang(request)
+        response = templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Account is deactivated. Contact an administrator.", "converters": CONVERTERS},
+            template_context(
+                request,
+                error=translate(lang, "auth_account_deactivated"),
+                converters=CONVERTERS,
+            ),
             status_code=403,
         )
+        return apply_lang_cookie(request, response)
 
     # Write user_id into the signed session cookie
     request.session["user_id"] = user.id
@@ -147,10 +164,11 @@ async def users_list(
 ):
     """Admin-only: list all users with their roles and status."""
     users = db.query(User).order_by(User.created_at).all()
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "users.html",
-        {"request": request, "users": users, "current_user": admin, "converters": CONVERTERS},
+        template_context(request, users=users, current_user=admin, converters=CONVERTERS),
     )
+    return apply_lang_cookie(request, response)
 
 
 @router.post("/users", response_class=HTMLResponse)
@@ -166,17 +184,18 @@ async def create_user(
     existing = db.query(User).filter(User.username == username).first()
     if existing:
         users = db.query(User).order_by(User.created_at).all()
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             "users.html",
-            {
-                "request": request,
-                "users": users,
-                "current_user": admin,
-                "error": f"Username '{username}' is already taken.",
-                "converters": CONVERTERS,
-            },
+            template_context(
+                request,
+                users=users,
+                current_user=admin,
+                error=f"Username '{username}' is already taken.",
+                converters=CONVERTERS,
+            ),
             status_code=400,
         )
+        return apply_lang_cookie(request, response)
 
     if role not in ("admin", "operator"):
         role = "operator"

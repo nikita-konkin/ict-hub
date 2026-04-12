@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Data Analysis — ConverterHub{% endblock %}
+{% block title %}{{ t('nav_analysis') }} — {{ t('app_name') }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">Data Analysis</h1>
-  <p class="page-subtitle">Query TEC data, preview pivot summaries, and render plots from the analysis backend.</p>
+  <h1 class="page-title">{{ t('nav_analysis') }}</h1>
+  <p class="page-subtitle">{{ t('analysis_page_subtitle') }}</p>
 </div>
 
 <div class="card" style="margin-bottom:20px;">
@@ -52,11 +52,11 @@
 
 <div class="grid-2" style="align-items:start;">
   <div class="card" id="data-query-card">
-    <div class="card-header"><div class="card-title">Data Query Builder</div></div>
+    <div class="card-header"><div class="card-title">{{ t('analysis_data_query_builder') }}</div></div>
     <div class="card-body">
       <form id="analysis-data-form" style="display:grid; gap:12px;">
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="data-endpoint">Endpoint</label>
+          <label class="form-label" for="data-endpoint">{{ t('analysis_label_endpoint') }}</label>
           <select id="data-endpoint" class="form-select">
             <optgroup label="AbsolTEC">
               <option value="absoltec/stations">GET /absoltec/stations — List Stations</option>
@@ -81,13 +81,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-year">Year</label>
+            <label class="form-label" for="data-year">{{ t('label_year') }}</label>
             <select id="data-year" class="form-select">
               <option value="">Loading...</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-doy">DOY</label>
+            <label class="form-label" for="data-doy">{{ t('analysis_label_doy') }}</label>
             <select id="data-doy" class="form-select">
               <option value="">Select year first</option>
             </select>
@@ -96,13 +96,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-doy-start">DOY Start</label>
+            <label class="form-label" for="data-doy-start">{{ t('analysis_label_doy_start') }}</label>
             <select id="data-doy-start" class="form-select">
               <option value="">Select year first</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-doy-end">DOY End</label>
+            <label class="form-label" for="data-doy-end">{{ t('analysis_label_doy_end') }}</label>
             <select id="data-doy-end" class="form-select">
               <option value="">Select year first</option>
             </select>
@@ -111,13 +111,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-station">Station</label>
+            <label class="form-label" for="data-station">{{ t('analysis_label_station') }}</label>
             <select id="data-station" class="form-select">
               <option value="">Select DOY first</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-satellite">Satellite</label>
+            <label class="form-label" for="data-satellite">{{ t('analysis_label_satellite') }}</label>
             <select id="data-satellite" class="form-select">
               <option value="">Select DOY first</option>
             </select>
@@ -126,11 +126,11 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-stations">Stations (multi-select)</label>
+            <label class="form-label" for="data-stations">{{ t('analysis_label_stations_multi') }}</label>
             <select id="data-stations" class="form-select" multiple size="4"></select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-source">Source</label>
+            <label class="form-label" for="data-source">{{ t('analysis_label_source') }}</label>
             <select id="data-source" class="form-select">
               <option value="both">both</option>
               <option value="absoltec">absoltec</option>
@@ -141,11 +141,11 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-alpha">Alpha</label>
+            <label class="form-label" for="data-alpha">{{ t('analysis_label_alpha') }}</label>
             <input id="data-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="data-format">Format</label>
+            <label class="form-label" for="data-format">{{ t('analysis_label_format') }}</label>
             <select id="data-format" class="form-select">
               <option value="json">json</option>
               <option value="csv">csv</option>
@@ -155,8 +155,8 @@
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
-          <button type="submit" class="btn btn-primary">Run Data Query</button>
-          <button type="button" id="data-open-new" class="btn btn-ghost">Open In New Tab</button>
+          <button type="submit" class="btn btn-primary">{{ t('analysis_run_data_query') }}</button>
+          <button type="button" id="data-open-new" class="btn btn-ghost">{{ t('analysis_open_new_tab') }}</button>
         </div>
       </form>
 
@@ -168,11 +168,11 @@
   </div>
 
   <div class="card" id="plot-query-card">
-    <div class="card-header"><div class="card-title">Plot Viewer</div></div>
+    <div class="card-header"><div class="card-title">{{ t('analysis_plot_viewer') }}</div></div>
     <div class="card-body">
       <form id="analysis-plot-form" style="display:grid; gap:12px;">
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="plot-endpoint">Plot Endpoint</label>
+          <label class="form-label" for="plot-endpoint">{{ t('analysis_label_plot_endpoint') }}</label>
           <select id="plot-endpoint" class="form-select">
             <optgroup label="Plots">
               <option value="plots/absoltec/average">GET /plots/absoltec/average — Plot Absoltec Average</option>
@@ -189,13 +189,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-year">Year</label>
+            <label class="form-label" for="plot-year">{{ t('label_year') }}</label>
             <select id="plot-year" class="form-select">
               <option value="">Loading...</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-doy">DOY</label>
+            <label class="form-label" for="plot-doy">{{ t('analysis_label_doy') }}</label>
             <select id="plot-doy" class="form-select">
               <option value="">Select year first</option>
             </select>
@@ -204,13 +204,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-doy-start">DOY Start</label>
+            <label class="form-label" for="plot-doy-start">{{ t('analysis_label_doy_start') }}</label>
             <select id="plot-doy-start" class="form-select">
               <option value="">Select year first</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-doy-end">DOY End</label>
+            <label class="form-label" for="plot-doy-end">{{ t('analysis_label_doy_end') }}</label>
             <select id="plot-doy-end" class="form-select">
               <option value="">Select year first</option>
             </select>
@@ -219,13 +219,13 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-station">Station</label>
+            <label class="form-label" for="plot-station">{{ t('analysis_label_station') }}</label>
             <select id="plot-station" class="form-select">
               <option value="">Select DOY first</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-satellite">Satellite</label>
+            <label class="form-label" for="plot-satellite">{{ t('analysis_label_satellite') }}</label>
             <select id="plot-satellite" class="form-select">
               <option value="">Select DOY first</option>
             </select>
@@ -233,17 +233,17 @@
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="plot-stations">Stations (multi-select)</label>
+          <label class="form-label" for="plot-stations">{{ t('analysis_label_stations_multi') }}</label>
           <select id="plot-stations" class="form-select" multiple size="4"></select>
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="plot-columns">columns (CSV list)</label>
+          <label class="form-label" for="plot-columns">{{ t('analysis_label_columns_csv') }}</label>
           <input id="plot-columns" class="form-input" type="text" value="tec,g_lon">
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="plot-format">Format</label>
+          <label class="form-label" for="plot-format">{{ t('analysis_label_format') }}</label>
           <select id="plot-format" class="form-select">
             <option value="png">png</option>
             <option value="json">json</option>
@@ -252,18 +252,18 @@
         </div>
 
         <div class="divider" style="margin:4px 0 0;"></div>
-        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Plot Options</div>
+        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">{{ t('analysis_plot_options') }}</div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-show-ci">show_ci</label>
+            <label class="form-label" for="plot-show-ci">{{ t('analysis_label_show_ci') }}</label>
             <select id="plot-show-ci" class="form-select">
               <option value="true" selected>true</option>
               <option value="false">false</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-show-var">show_var</label>
+            <label class="form-label" for="plot-show-var">{{ t('analysis_label_show_var') }}</label>
             <select id="plot-show-var" class="form-select">
               <option value="false" selected>false</option>
               <option value="true">true</option>
@@ -273,54 +273,54 @@
 
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-width-px">width_px</label>
+            <label class="form-label" for="plot-width-px">{{ t('analysis_label_width_px') }}</label>
             <input id="plot-width-px" class="form-input" type="number" min="400" max="4000" value="1200">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-height-px">height_px</label>
+            <label class="form-label" for="plot-height-px">{{ t('analysis_label_height_px') }}</label>
             <input id="plot-height-px" class="form-input" type="number" min="300" max="4000" value="600">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-dpi">dpi</label>
+            <label class="form-label" for="plot-dpi">{{ t('analysis_label_dpi') }}</label>
             <input id="plot-dpi" class="form-input" type="number" min="72" max="300" value="100">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-smooth">smooth</label>
+            <label class="form-label" for="plot-smooth">{{ t('analysis_label_smooth') }}</label>
             <select id="plot-smooth" class="form-select">
               <option value="false" selected>false</option>
               <option value="true">true</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-poly">poly</label>
+            <label class="form-label" for="plot-poly">{{ t('analysis_label_poly') }}</label>
             <input id="plot-poly" class="form-input" type="number" min="2" max="6" value="3">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-size-px">size_px</label>
+            <label class="form-label" for="plot-size-px">{{ t('analysis_label_size_px') }}</label>
             <input id="plot-size-px" class="form-input" type="number" min="300" max="4000" value="600">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-column">column</label>
+            <label class="form-label" for="plot-column">{{ t('analysis_label_column') }}</label>
             <select id="plot-column" class="form-select">
               <option value="tec_l1l2" selected>tec_l1l2</option>
               <option value="tec_c1p2">tec_c1p2</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-valid-only">valid_only</label>
+            <label class="form-label" for="plot-valid-only">{{ t('analysis_label_valid_only') }}</label>
             <select id="plot-valid-only" class="form-select">
               <option value="true" selected>true</option>
               <option value="false">false</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="plot-color-by-tec">color_by_tec</label>
+            <label class="form-label" for="plot-color-by-tec">{{ t('analysis_label_color_by_tec') }}</label>
             <select id="plot-color-by-tec" class="form-select">
               <option value="true" selected>true</option>
               <option value="false">false</option>
@@ -329,8 +329,8 @@
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
-          <button type="submit" class="btn btn-primary">Render Plot</button>
-          <button type="button" id="plot-open-new" class="btn btn-ghost">Open In New Tab</button>
+          <button type="submit" class="btn btn-primary">{{ t('analysis_render_plot') }}</button>
+          <button type="button" id="plot-open-new" class="btn btn-ghost">{{ t('analysis_open_new_tab') }}</button>
         </div>
       </form>
 
@@ -342,7 +342,7 @@
 </div>
 
 <div class="card" style="margin-top:20px;">
-  <div class="card-header"><div class="card-title">Data Preview</div></div>
+  <div class="card-header"><div class="card-title">{{ t('analysis_data_preview') }}</div></div>
   <div class="card-body">
     <div id="data-preview-empty" style="font-size:12px; color:var(--text-muted);">Run a JSON query to preview rows and pivot summary.</div>
 
@@ -374,7 +374,7 @@
 </div>
 
 <div class="card" style="margin-top:20px;">
-  <div class="card-header"><div class="card-title">Plot Output</div></div>
+  <div class="card-header"><div class="card-title">{{ t('analysis_plot_output') }}</div></div>
   <div class="card-body">
     <div id="plot-empty" style="font-size:12px; color:var(--text-muted);">Run a plot query to render PNG or inspect JSON series.</div>
     <div id="plot-viewer" style="display:none;">
