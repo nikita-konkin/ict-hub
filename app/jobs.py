@@ -398,12 +398,54 @@ async def start_job(
         profile_name = str(form.get("dataset_profile", "tecsuite")).strip() or "tecsuite"
         overwrite = _is_truthy_checkbox(form.get("overwrite", False))
         root_subpath = str(form.get("root_subpath", "")).strip()
+        day_from_raw = str(form.get("day_from", "")).strip()
+        day_to_raw = str(form.get("day_to", "")).strip()
         resolved_paths, error_message = _resolve_dat_parquet_paths(direction, profile_name, overwrite)
         if error_message:
             return HTMLResponse(
                 f'<div class="alert alert-danger">{error_message}</div>',
                 status_code=400,
             )
+
+        day_from = None
+        day_to = None
+        if day_from_raw:
+            if not day_from_raw.isdigit():
+                return HTMLResponse(
+                    '<div class="alert alert-danger">--day-from must be an integer in range 1..366.</div>',
+                    status_code=400,
+                )
+            day_from = int(day_from_raw)
+            if day_from < 1 or day_from > 366:
+                return HTMLResponse(
+                    '<div class="alert alert-danger">--day-from must be in range 1..366.</div>',
+                    status_code=400,
+                )
+
+        if day_to_raw:
+            if not day_to_raw.isdigit():
+                return HTMLResponse(
+                    '<div class="alert alert-danger">--day-to must be an integer in range 1..366.</div>',
+                    status_code=400,
+                )
+            day_to = int(day_to_raw)
+            if day_to < 1 or day_to > 366:
+                return HTMLResponse(
+                    '<div class="alert alert-danger">--day-to must be in range 1..366.</div>',
+                    status_code=400,
+                )
+
+        if day_from is not None and day_to is not None and day_from > day_to:
+            return HTMLResponse(
+                '<div class="alert alert-danger">--day-from must be less than or equal to --day-to.</div>',
+                status_code=400,
+            )
+
+        if day_from is not None:
+            form_dict["day_from"] = day_from
+        if day_to is not None:
+            form_dict["day_to"] = day_to
+
         if root_subpath:
             if not _DAT_PARQUET_ROOT_SUBPATH_RE.fullmatch(root_subpath):
                 return HTMLResponse(

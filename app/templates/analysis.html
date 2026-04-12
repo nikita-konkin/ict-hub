@@ -1032,6 +1032,28 @@
 
     let canvasState = { seriesList: [], globalYMin: 0, globalYMax: 0, w: 0, h: 0, pad: 50, hoveredPoints: [] };
 
+    function isNumericArray(values) {
+      if (!Array.isArray(values) || values.length === 0) return false;
+      return values.some((v) => Number.isFinite(Number(v)));
+    }
+
+    function detectSeriesXKey(series) {
+      if (!series || typeof series !== "object") return null;
+      const keys = Object.keys(series);
+      if (!keys.length) return null;
+
+      const preferred = ["ut", "hour", "time", "x"];
+      for (const key of preferred) {
+        if (Array.isArray(series[key])) return key;
+      }
+
+      const semantic = keys.find((k) => /(time|hour|ut|^x$)/i.test(k) && Array.isArray(series[k]));
+      if (semantic) return semantic;
+
+      const firstArrayKey = keys.find((k) => Array.isArray(series[k]));
+      return firstArrayKey || null;
+    }
+
     function toPlotlyTraces(series) {
       if (!series || typeof series !== "object") return [];
       const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
@@ -1058,10 +1080,12 @@
         }).filter((t) => Array.isArray(t.x) && t.x.length && Array.isArray(t.y) && t.y.length);
       }
 
-      const xVals = Array.isArray(series.ut) ? series.ut : null;
+      const xKey = detectSeriesXKey(series);
+      const xVals = xKey && Array.isArray(series[xKey]) ? series[xKey] : null;
       if (!xVals) return [];
+
       return keys
-        .filter((k) => k !== "ut" && Array.isArray(series[k]))
+        .filter((k) => k !== xKey && isNumericArray(series[k]))
         .map((key, idx) => ({
           type: "scatter",
           mode: "lines",
@@ -1073,12 +1097,46 @@
         }));
     }
 
+    function toRootXYTrace(payload) {
+      if (!payload || typeof payload !== "object") return null;
+      if (!Array.isArray(payload.x) || !Array.isArray(payload.y)) return null;
+      return {
+        type: payload.type || "scatter",
+        mode: payload.mode || "lines",
+        name: payload.name || payload.column || "series",
+        x: payload.x,
+        y: payload.y,
+      };
+    }
+
     async function renderPlotlyChart(payload, chartEl) {
       if (!chartEl || !window.Plotly || !payload || typeof payload !== "object") return false;
-      const traces = toPlotlyTraces(payload.series);
+
+      let traces = [];
+      // Case 1: backend already returns Plotly-like figure JSON.
+      if (Array.isArray(payload.data) && payload.data.length > 0) {
+        traces = payload.data;
+      }
+
+      // Case 2: existing ConverterHub structure with payload.series.
+      if (!traces.length) {
+        traces = toPlotlyTraces(payload.series);
+      }
+
+      // Case 3: root-level {x: [...], y: [...]}.
+      if (!traces.length) {
+        const rootTrace = toRootXYTrace(payload);
+        if (rootTrace) traces = [rootTrace];
+      }
+
+      // Case 4: flat/nested series provided at root level.
+      if (!traces.length) {
+        traces = toPlotlyTraces(payload);
+      }
+
       if (!traces.length) return false;
 
-      const layout = {
+      const baseLayout = {
         font: { color: "#fff8e3" },
         title: {
           text: payload.title || "Interactive Plot",
@@ -1125,6 +1183,9 @@
         },
       };
 
+      const payloadLayout = payload.layout && typeof payload.layout === "object" ? payload.layout : {};
+      const layout = { ...baseLayout, ...payloadLayout };
+
       const config = {
         responsive: true,
         displaylogo: false,
@@ -1142,7 +1203,7 @@
       if (!ctx) return;
 
       // Support two data structures:
-      // 1. Flat: { ut: [...], column1: [...], column2: [...] }
+      // 1. Flat: { ut/hour/time/x: [...], column1: [...], column2: [...] }
       // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
 
       let seriesList = [];
@@ -1161,10 +1222,11 @@
           color: colors[idx % colors.length],
         }));
       } else {
-        // Flat structure with ut
-        const x = Array.isArray(series.ut) ? series.ut : null;
+        // Flat structure with detected x-axis key (ut/hour/time/x)
+        const xKey = detectSeriesXKey(series);
+        const x = xKey && Array.isArray(series[xKey]) ? series[xKey] : null;
         if (!x) return;
-        const yKeys = Object.keys(series).filter((k) => k !== "ut" && Array.isArray(series[k]));
+        const yKeys = Object.keys(series).filter((k) => k !== xKey && isNumericArray(series[k]));
         seriesList = yKeys.map((key, idx) => ({
           name: key,
           x: x,
@@ -1377,17 +1439,52 @@
           pre.style.display = "block";
           return;
         }
-        const payload = await res.json();
+        const responseText = await res.text();
+        let payload = null;
+        try {
+          payload = JSON.parse(responseText);
+        } catch (_) {
+          payload = null;
+        }
+
+        // In JSON mode we always show raw/pretty JSON (or text fallback) in the UI,
+        // and still continue to graph rendering below.
+        if (format === "json") {
+          pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
+          pre.style.display = "block";
+          if (payload) {
+            state.lastPlotPayload = payload;
+          }
+        }
+
+        if (!payload) {
+          pre.textContent = responseText;
+          pre.style.display = "block";
+          return;
+        }
+
         state.lastPlotPayload = payload;
-        pre.textContent = JSON.stringify(payload, null, 2);
-        pre.style.display = "block";
-        if (payload.series && typeof payload.series === "object") {
-          const rendered = await renderPlotlyChart(payload, plotlyChart);
-          if (rendered) {
-            plotlyChart.style.display = "block";
-          } else {
-            canvas.style.display = "block";
-            drawSeriesOnCanvas(payload.series, canvas);
+
+        if (format === "json") {
+          pre.textContent = JSON.stringify(payload, null, 2);
+          pre.style.display = "block";
+        }
+
+        const rendered = await renderPlotlyChart(payload, plotlyChart);
+        if (rendered) {
+          plotlyChart.style.display = "block";
+        } else {
+          // Canvas fallback for legacy series structures.
+          const fallbackSeries =
+            payload.series && typeof payload.series === "object"
+              ? payload.series
+              : payload;
+          canvas.style.display = "block";
+          drawSeriesOnCanvas(fallbackSeries, canvas);
+          // If nothing drawable was found, keep JSON visible for troubleshooting.
+          if (canvasState.seriesList.length === 0) {
+            pre.textContent = JSON.stringify(payload, null, 2);
+            pre.style.display = "block";
           }
         }
       } catch (err) {

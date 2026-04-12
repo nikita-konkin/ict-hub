@@ -184,6 +184,10 @@
           {% set skip_abstec_flag = converter_name == 'abstec-suite' and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
           {% set skip_dat_parquet_flag = converter_name == 'dat-parquet-handler' and key in ('src', 'dst', 'direction') %}
           {% set skip_default_flag = skip_tecsuite_flag or skip_abstec_flag or skip_dat_parquet_flag %}
+          {% set translated_label = t('flag_label_' ~ key) %}
+          {% set display_label = translated_label if translated_label != ('flag_label_' ~ key) else flag.label %}
+          {% set translated_help = t('flag_help_' ~ key) %}
+          {% set display_help = translated_help if translated_help != ('flag_help_' ~ key) else flag.help %}
 
           {% if not skip_default_flag %}
 
@@ -198,9 +202,9 @@
                 {% if flag.default %}checked{% endif %}
               >
               <div class="checkbox-label-wrap">
-                <label class="checkbox-label" for="{{ key }}">{{ flag.label }}</label>
-                {% if flag.help %}
-                <p class="form-hint">{{ flag.help }}</p>
+                <label class="checkbox-label" for="{{ key }}">{{ display_label }}</label>
+                {% if display_help %}
+                <p class="form-hint">{{ display_help }}</p>
                 {% endif %}
               </div>
             </div>
@@ -209,7 +213,7 @@
           {% elif flag.type == 'number' %}
           <div class="form-group">
             <label class="form-label" for="{{ key }}">
-              {{ flag.label }}
+              {{ display_label }}
               {% if flag.required %}<span class="required">*</span>{% endif %}
             </label>
             <input
@@ -222,12 +226,12 @@
               {% if flag.max is defined %}max="{{ flag.max }}"{% endif %}
               {% if flag.required %}required{% endif %}
             >
-            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+            {% if display_help %}<p class="form-hint">{{ display_help }}</p>{% endif %}
           </div>
 
           {% elif flag.type == 'select' %}
           <div class="form-group">
-            <label class="form-label" for="{{ key }}">{{ flag.label }}</label>
+            <label class="form-label" for="{{ key }}">{{ display_label }}</label>
             <select class="form-select" id="{{ key }}" name="{{ key }}">
               {% for opt in flag.options %}
               <option value="{{ opt.0 }}" {% if flag.default == opt.0 %}selected{% endif %}>
@@ -235,13 +239,13 @@
               </option>
               {% endfor %}
             </select>
-            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+            {% if display_help %}<p class="form-hint">{{ display_help }}</p>{% endif %}
           </div>
 
           {% else %}{# text #}
           <div class="form-group">
             <label class="form-label" for="{{ key }}">
-              {{ flag.label }}
+              {{ display_label }}
               {% if flag.required %}<span class="required">*</span>{% endif %}
             </label>
             <input
@@ -250,10 +254,10 @@
               id="{{ key }}"
               name="{{ key }}"
               value="{{ flag.default or '' }}"
-              placeholder="e.g. {{ flag.help.split('.')[0] if flag.help else '' }}"
+              placeholder="e.g. {{ display_help.split('.')[0] if display_help else '' }}"
               {% if flag.required %}required{% endif %}
             >
-            {% if flag.help %}<p class="form-hint">{{ flag.help }}</p>{% endif %}
+            {% if display_help %}<p class="form-hint">{{ display_help }}</p>{% endif %}
           </div>
           {% endif %}
 

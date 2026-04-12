@@ -122,6 +122,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "analysis_label_column": "column",
         "analysis_label_valid_only": "valid_only",
         "analysis_label_color_by_tec": "color_by_tec",
+        "flag_label_days": "Days Filter",
+        "flag_help_days": "Optional day selection list/range, e.g. 1-5,10,12-14.",
+        "flag_label_day_from": "Day From (inclusive)",
+        "flag_help_day_from": "Optional inclusive start day-of-year filter (1..366).",
+        "flag_label_day_to": "Day To (inclusive)",
+        "flag_help_day_to": "Optional inclusive end day-of-year filter (1..366).",
     },
     "ru": {
         "app_name": "ConverterHub",
@@ -233,6 +239,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "analysis_label_column": "column",
         "analysis_label_valid_only": "valid_only",
         "analysis_label_color_by_tec": "color_by_tec",
+        "flag_label_days": "Фильтр дней",
+        "flag_help_days": "Необязательный список/диапазон дней, например 1-5,10,12-14.",
+        "flag_label_day_from": "День от (включительно)",
+        "flag_help_day_from": "Необязательная начальная граница дня года (1..366).",
+        "flag_label_day_to": "День до (включительно)",
+        "flag_help_day_to": "Необязательная конечная граница дня года (1..366).",
     },
 }
 
