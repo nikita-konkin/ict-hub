@@ -29,7 +29,7 @@ def test_rinex_xml_parsing_and_cache(monkeypatch) -> None:
         '</rinex_structure>'
     )
 
-    def _mock_get(url: str, timeout: float):
+    def _mock_get(url: str, timeout: float, **kwargs):
         calls["count"] += 1
         return _MockResponse(xml)
 
@@ -55,7 +55,7 @@ def test_tecsuite_xml_parsing(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
-    monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _MockResponse(xml))
+    monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _MockResponse(xml))
 
     result = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
 
@@ -71,7 +71,7 @@ def test_parquet_xml_parsing(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
-    monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _MockResponse(xml))
+    monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _MockResponse(xml))
 
     result = client.list_parquet_output_structure("/mnt/tecsuite-parquet-out")
 

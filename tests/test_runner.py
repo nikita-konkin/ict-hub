@@ -245,12 +245,14 @@ class TestRinexServerStructure:
 
         class _Resp:
             text = xml
+            status_code = 200
+            headers: dict = {}
 
             @staticmethod
             def raise_for_status():
                 return None
 
-        monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _Resp())
+        monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _Resp())
 
         tree = client.list_rinex_server_structure("/mnt/rinex-server")
         assert tree == [{"year": "2026_original", "days": [{"day": "01", "stations": 1}, {"day": "365", "stations": 2}]}]
@@ -283,12 +285,14 @@ class TestTecsuiteOutputStructure:
 
         class _Resp:
             text = xml
+            status_code = 200
+            headers: dict = {}
 
             @staticmethod
             def raise_for_status():
                 return None
 
-        monkeypatch.setattr(client.httpx, "get", lambda url, timeout: _Resp())
+        monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _Resp())
 
         tree = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
         assert tree == [{"year": "2026", "days": [{"day": "001", "sites": ["aksu"]}, {"day": "002", "sites": ["cher"]}]}]

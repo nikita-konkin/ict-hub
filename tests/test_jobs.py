@@ -69,6 +69,78 @@ class TestRunPage:
         assert response.status_code == 200
         assert b"No job running" in response.content
 
+    # -- async indexer integration -------------------------------------------------
+
+    def test_tec_suite_run_page_calls_async_rinex_indexer(self, operator_client, monkeypatch):
+        """GET /run/tec-suite must use list_rinex_server_structure_async (not the sync variant)."""
+        import app.jobs as jobs_module
+        calls: list[str] = []
+
+        async def _fake_rinex_async(host_root: str):
+            calls.append(host_root)
+            return [{"year": "2026_original", "days": [{"day": "001", "stations": 3}]}]
+
+        monkeypatch.setattr(jobs_module, "list_rinex_server_structure_async", _fake_rinex_async)
+
+        response = operator_client.get("/run/tec-suite", follow_redirects=True)
+        assert response.status_code == 200
+        assert calls, "list_rinex_server_structure_async was never called"
+        assert calls[0] == "/data/rinex"
+
+    def test_abstec_run_page_calls_async_tecsuite_indexer(self, operator_client, monkeypatch):
+        """GET /run/abstec-suite must use list_tecsuite_output_structure_async."""
+        import app.jobs as jobs_module
+        calls: list[str] = []
+
+        async def _fake_tecsuite_async(host_root: str):
+            calls.append(host_root)
+            return [{"year": "2026", "days": [{"day": "001", "sites": ["aksu"]}]}]
+
+        monkeypatch.setattr(jobs_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
+
+        response = operator_client.get("/run/abstec-suite", follow_redirects=True)
+        assert response.status_code == 200
+        assert calls, "list_tecsuite_output_structure_async was never called"
+        assert calls[0] == "/data/tecs-out"
+
+    def test_dat_parquet_run_page_calls_all_four_async_indexers(self, operator_client, monkeypatch):
+        """GET /run/dat-parquet-handler must call all four async indexers (via asyncio.gather)."""
+        import app.jobs as jobs_module
+        tecsuite_calls: list[str] = []
+        abstec_calls: list[str] = []
+        parquet_calls: list[str] = []
+
+        async def _fake_tecsuite_async(host_root: str):
+            tecsuite_calls.append(host_root)
+            return []
+
+        async def _fake_parquet_async(host_root: str):
+            parquet_calls.append(host_root)
+            return []
+
+        # Both tecsuite and parquet async functions are used for four trees
+        monkeypatch.setattr(jobs_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
+        monkeypatch.setattr(jobs_module, "list_parquet_output_structure_async", _fake_parquet_async)
+
+        response = operator_client.get("/run/dat-parquet-handler", follow_redirects=True)
+        assert response.status_code == 200
+        # tecsuite + abstec paths
+        assert len(tecsuite_calls) >= 1
+        # tecsuite-parquet + abstec-parquet paths
+        assert len(parquet_calls) >= 1
+
+    def test_run_page_renders_even_when_indexer_returns_empty(self, operator_client, monkeypatch):
+        """A completely empty tree from the indexer must not cause a 500."""
+        import app.jobs as jobs_module
+
+        async def _empty_tree(host_root: str):
+            return []
+
+        monkeypatch.setattr(jobs_module, "list_rinex_server_structure_async", _empty_tree)
+
+        response = operator_client.get("/run/tec-suite", follow_redirects=True)
+        assert response.status_code == 200
+
 
 class TestStartJob:
     """Tests for POST /jobs/start — container launch."""
