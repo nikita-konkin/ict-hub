@@ -293,6 +293,65 @@
     }
     .logout-btn:hover { color: var(--danger-text); }
 
+    /* Data Indexer Status */
+    .sidebar-status {
+      margin: 16px 0;
+      padding: 12px 16px;
+      background: var(--surface-2);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.active {
+      background: var(--success-text);
+      animation: none;
+    }
+
+    .status-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .status-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .status-item span:first-child {
+      color: var(--text-muted);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+
     /* ─── Main content area ─────────────────────────────────────────────────── */
     .main {
       margin-left: var(--sidebar-w);
@@ -838,6 +897,28 @@
       {% endif %}
     </div>
 
+    <!-- Data Indexer Status -->
+    <div class="sidebar-status" id="data-indexer-status">
+      <div class="status-indicator">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-text">{{ t('data_indexer_status') }}</span>
+      </div>
+      <div class="status-details" id="status-details">
+        <div class="status-item">
+          <span>RINEX:</span>
+          <span id="rinex-count">-</span>
+        </div>
+        <div class="status-item">
+          <span>TEC-suite:</span>
+          <span id="tecsuite-count">-</span>
+        </div>
+        <div class="status-item">
+          <span>Parquet:</span>
+          <span id="parquet-count">-</span>
+        </div>
+      </div>
+    </div>
+
     <div class="sidebar-footer">
       <div class="user-pill">
         <div class="user-avatar">{{ current_user.username[0].upper() }}</div>
@@ -1209,6 +1290,9 @@
         initializeRecentRunTrackers(document);
         initializeTheme();
         initializeLanguage();
+
+        // Initialize data indexer status
+        initializeDataIndexerStatus();
       });
 
       document.body.addEventListener("htmx:afterSwap", function (evt) {
@@ -1216,6 +1300,43 @@
         initializeAllJobPanels(evt.target || document);
         initializeRecentRunTrackers(evt.target || document);
       });
+
+      // ── Data Indexer Status ───────────────────────────────────────────────
+      function initializeDataIndexerStatus() {
+        const statusDot = document.getElementById('status-dot');
+        const rinexCount = document.getElementById('rinex-count');
+        const tecsuiteCount = document.getElementById('tecsuite-count');
+        const parquetCount = document.getElementById('parquet-count');
+
+        if (!statusDot || !rinexCount || !tecsuiteCount || !parquetCount) return;
+
+        async function updateStatus() {
+          try {
+            const response = await fetch('/api/data-indexer/status');
+            if (response.ok) {
+              const data = await response.json();
+              statusDot.classList.add('active');
+              rinexCount.textContent = data.cache_info.rinex.entries;
+              tecsuiteCount.textContent = data.cache_info.tecsuite.entries;
+              parquetCount.textContent = data.cache_info.parquet.entries;
+            } else {
+              statusDot.classList.remove('active');
+              rinexCount.textContent = '-';
+              tecsuiteCount.textContent = '-';
+              parquetCount.textContent = '-';
+            }
+          } catch (error) {
+            statusDot.classList.remove('active');
+            rinexCount.textContent = '-';
+            tecsuiteCount.textContent = '-';
+            parquetCount.textContent = '-';
+          }
+        }
+
+        // Update status immediately and then every 30 seconds
+        updateStatus();
+        setInterval(updateStatus, 30000);
+      }
     })();
   </script>
 

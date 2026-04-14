@@ -19,6 +19,7 @@ import re
 import time
 import sqlite3
 import json
+import logging
 from pathlib import Path
 from typing import TypedDict
 
@@ -30,7 +31,10 @@ try:
 except ImportError:
     WATCHDOG_AVAILABLE = False
 
-# Minimum seconds between full re-scans (configurable via env var)
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Minimum seconds between full re-scans
 _CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
 
 # Persistent cache database path
@@ -149,7 +153,10 @@ def _get_directory_hash(root: Path) -> str:
         return ""
 
 # File watching observers (path → observer)
-_observers: dict[str, Observer] = {}
+if WATCHDOG_AVAILABLE:
+    _observers: dict[str, Observer] = {}
+else:
+    _observers: dict[str, object] = {}
 # Cache invalidation flags (path → bool)
 _cache_invalidated: dict[str, bool] = {}
 
@@ -223,7 +230,9 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     if current_hash and current_hash == cached_hash:
         return cached_result  # type: ignore[return-value]
 
+    logger.info(f"Starting RINEX indexing for path: {host_root}")
     result = _scan_rinex(root)
+    logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
     _rinex_cache[host_root] = (current_hash, result)
     _save_cache_to_db('rinex', host_root, (current_hash, result))
     return result
@@ -306,8 +315,10 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
         return cached_result  # type: ignore[return-value]
 
+    logger.info(f"Starting TEC-suite indexing for path: {host_root}")
     scan_root = root / "in" if (root / "in").is_dir() else root
     result = _scan_tecsuite(scan_root)
+    logger.info(f"Completed TEC-suite indexing for path: {host_root} - found {len(result)} years")
     _tecsuite_cache[host_root] = (now, result)
     _save_cache_to_db('tecsuite', host_root, (now, result))
     return result
@@ -334,7 +345,9 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
         return cached_result  # type: ignore[return-value]
 
+    logger.info(f"Starting Parquet indexing for path: {host_root}")
     result = _scan_parquet(root)
+    logger.info(f"Completed Parquet indexing for path: {host_root} - found {len(result)} years")
     _parquet_cache[host_root] = (now, result)
     _save_cache_to_db('parquet', host_root, (now, result))
     return result
@@ -362,7 +375,9 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
         return cached_result  # type: ignore[return-value]
 
+    logger.info(f"Starting Parquet satellite indexing for path: {host_root}")
     result = _scan_parquet_satellites(root)
+    logger.info(f"Completed Parquet satellite indexing for path: {host_root} - found {len(result)} years")
     _parquet_sat_cache[host_root] = (now, result)
     _save_cache_to_db('parquet_sat', host_root, (now, result))
     return result

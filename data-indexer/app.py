@@ -78,6 +78,41 @@ def health():
     """Health check endpoint."""
     return JSONResponse(content={"status": "healthy"})
 
+@app.get('/status')
+def indexer_status():
+    """Get data indexer status and cache information."""
+    import time
+    from data_indexer import (
+        _CACHE_TTL_SEC,
+        _rinex_cache, _tecsuite_cache, _parquet_cache, _parquet_sat_cache
+    )
+
+    now = time.monotonic()
+    cache_info = {
+        "rinex": {
+            "entries": len(_rinex_cache),
+            "ttl_seconds": _CACHE_TTL_SEC
+        },
+        "tecsuite": {
+            "entries": len(_tecsuite_cache),
+            "ttl_seconds": _CACHE_TTL_SEC
+        },
+        "parquet": {
+            "entries": len(_parquet_cache),
+            "ttl_seconds": _CACHE_TTL_SEC
+        },
+        "parquet_satellite": {
+            "entries": len(_parquet_sat_cache),
+            "ttl_seconds": _CACHE_TTL_SEC
+        }
+    }
+
+    return JSONResponse(content={
+        "status": "healthy",
+        "cache_info": cache_info,
+        "timestamp": time.time()
+    })
+
 @app.get('/rinex')
 def rinex_index(root: str = Query(default=DEFAULT_PATHS['rinex'])):
     """Get RINEX server structure as XML."""
