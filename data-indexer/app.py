@@ -11,6 +11,8 @@ All endpoints return XML responses.
 
 Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
+- DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
+- DATA_INDEXER_RUN_ON_STARTUP: Run initial indexing on startup (default: false)
 - INDEXER_RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
 - INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
 - INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
@@ -44,6 +46,32 @@ def dict_to_xml_response(data, root_element="data"):
     """Convert dictionary to XML response."""
     xml_data = dicttoxml.dicttoxml(data, custom_root=root_element, attr_type=False)
     return Response(content=xml_data, media_type="application/xml")
+
+@app.on_event("startup")
+async def startup_event():
+    """Run initial indexing on startup if enabled."""
+    if os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').lower() == 'true':
+        import asyncio
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        async def index_all():
+            logger.info("Running initial indexing on startup...")
+            try:
+                # Index all data types to warm up caches
+                list_rinex_server_structure(DEFAULT_PATHS['rinex'])
+                list_tecsuite_output_structure(DEFAULT_PATHS['tecsuite'])
+                list_parquet_output_structure(DEFAULT_PATHS['parquet_tecsuite'])
+                list_parquet_satellite_structure(DEFAULT_PATHS['parquet_tecsuite'])
+                list_parquet_output_structure(DEFAULT_PATHS['parquet_abstec'])
+                list_parquet_satellite_structure(DEFAULT_PATHS['parquet_abstec'])
+                logger.info("Initial indexing completed successfully")
+            except Exception as e:
+                logger.error(f"Initial indexing failed: {e}")
+
+        # Run indexing in background to not block startup
+        asyncio.create_task(index_all())
 
 @app.get('/health')
 def health():

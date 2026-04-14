@@ -12,6 +12,18 @@ The service uses the following environment variables (set in `.env` file):
   - Lower values = more frequent updates but higher CPU/disk usage
   - Higher values = less frequent updates but may miss new files sooner
 
+### Persistent Cache Database
+- `DATA_INDEXER_CACHE_DB_PATH`: Path to SQLite database for persistent caching (default: `/app/data/cache.db`)
+  - Cache survives container restarts and rebuilds
+  - Mount as a volume to persist across container lifecycles
+  - Improves startup performance by avoiding re-indexing
+
+### Startup Configuration
+- `DATA_INDEXER_RUN_ON_STARTUP`: Control initial indexing behavior (default: `false`)
+  - `false`: No initial indexing (default FastAPI behavior)
+  - `true` or `async`: Run indexing asynchronously on FastAPI startup (non-blocking)
+  - `sync`: Run indexing synchronously before starting FastAPI (blocking, requires Docker rebuild)
+
 ### Data Paths
 - `INDEXER_RINEX_DATA_PATH_HOST`: Host path to RINEX data directory
 - `INDEXER_RINEX_DATA_PATH_CONTAINER`: Container path for RINEX data (default: `/mnt/rinex-server`)

@@ -154,6 +154,12 @@ services:
       INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}
       INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: ${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
 
+      # ── Data Indexer Configuration ───────────────────────────────────────
+      DATA_INDEXER_CACHE_TTL_SEC: ${DATA_INDEXER_CACHE_TTL_SEC:-300.0}
+      DATA_INDEXER_CACHE_DB_PATH: ${DATA_INDEXER_CACHE_DB_PATH:-/app/data/cache.db}
+      # Options: false (default), true/async (non-blocking), sync (blocking, requires rebuild)
+      DATA_INDEXER_RUN_ON_STARTUP: ${DATA_INDEXER_RUN_ON_STARTUP:-false}
+
     volumes:
       # Mount data volumes for indexing (reuse the same host paths as converter-hub)
       - ${RINEX_DATA_PATH_HOST}:${INDEXER_RINEX_DATA_PATH_CONTAINER:-/mnt/rinex-server}:ro
@@ -161,6 +167,8 @@ services:
       - ${ABSTEC_OUTPUT_DATA_PATH_HOST}:${INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}:ro
       - ${PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
       - ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}:ro
+      # Mount cache database volume to persist cache across container restarts
+      - data-indexer-cache:/app/data
 
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -179,3 +187,10 @@ volumes:
     #   type: none
     #   o: bind
     #   device: C:\converter-hub\data  # Windows example
+  data-indexer-cache:
+    driver: local
+    # Uncomment and set a host path to persist cache across container rebuilds:
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: C:\converter-hub\data-indexer-cache  # Windows example

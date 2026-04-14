@@ -11,11 +11,14 @@ All endpoints return XML responses for consumption by other services.
 
 Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
+- DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
 """
 
 import os
 import re
 import time
+import sqlite3
+import json
 from pathlib import Path
 from typing import TypedDict
 
@@ -30,11 +33,107 @@ except ImportError:
 # Minimum seconds between full re-scans (configurable via env var)
 _CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
 
+# Persistent cache database path
+_CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
+
 # (path → (file_list_hash, result)) — file list comparison cache
 _rinex_cache: dict[str, tuple[str, list]] = {}
-_tecsuite_cache: dict[str, tuple[str, list]] = {}
-_parquet_cache: dict[str, tuple[str, list]] = {}
-_parquet_sat_cache: dict[str, tuple[str, list]] = {}
+_tecsuite_cache: dict[str, tuple[float, list]] = {}
+_parquet_cache: dict[str, tuple[float, list]] = {}
+_parquet_sat_cache: dict[str, tuple[float, list]] = {}
+
+
+def _init_cache_db():
+    """Initialize the persistent cache database."""
+    try:
+        os.makedirs(os.path.dirname(_CACHE_DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(_CACHE_DB_PATH)
+        cursor = conn.cursor()
+
+        # Create cache table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cache (
+                cache_key TEXT PRIMARY KEY,
+                cache_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        ''')
+
+        # Create index for faster lookups
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_cache_type_timestamp
+            ON cache (cache_type, timestamp)
+        ''')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        # If database initialization fails, continue without persistence
+        print(f"Warning: Failed to initialize cache database: {e}")
+
+
+def _load_cache_from_db():
+    """Load cached data from database on startup."""
+    try:
+        if not os.path.exists(_CACHE_DB_PATH):
+            return
+
+        conn = sqlite3.connect(_CACHE_DB_PATH)
+        cursor = conn.cursor()
+
+        # Load each cache type
+        for cache_type, cache_dict in [
+            ('rinex', _rinex_cache),
+            ('tecsuite', _tecsuite_cache),
+            ('parquet', _parquet_cache),
+            ('parquet_sat', _parquet_sat_cache)
+        ]:
+            cursor.execute(
+                'SELECT cache_key, data, timestamp FROM cache WHERE cache_type = ?',
+                (cache_type,)
+            )
+
+            for row in cursor.fetchall():
+                cache_key, data_json, timestamp = row
+                try:
+                    data = json.loads(data_json)
+                    cache_dict[cache_key] = (timestamp, data)
+                except json.JSONDecodeError:
+                    continue  # Skip corrupted entries
+
+        conn.close()
+        print(f"Loaded {sum(len(c) for c in [_rinex_cache, _tecsuite_cache, _parquet_cache, _parquet_sat_cache])} cache entries from database")
+
+    except Exception as e:
+        print(f"Warning: Failed to load cache from database: {e}")
+
+
+def _save_cache_to_db(cache_type: str, cache_key: str, data: tuple):
+    """Save cache entry to database."""
+    try:
+        conn = sqlite3.connect(_CACHE_DB_PATH)
+        cursor = conn.cursor()
+
+        timestamp, result = data
+        data_json = json.dumps(result)
+
+        # Insert or replace cache entry
+        cursor.execute('''
+            INSERT OR REPLACE INTO cache (cache_key, cache_type, data, timestamp)
+            VALUES (?, ?, ?, ?)
+        ''', (cache_key, cache_type, data_json, timestamp))
+
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        print(f"Warning: Failed to save cache to database: {e}")
+
+
+# Initialize database and load cache on module import
+_init_cache_db()
+_load_cache_from_db()
 
 def _get_directory_hash(root: Path) -> str:
     """Generate a hash of all files in directory tree for change detection."""
@@ -126,6 +225,7 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
 
     result = _scan_rinex(root)
     _rinex_cache[host_root] = (current_hash, result)
+    _save_cache_to_db('rinex', host_root, (current_hash, result))
     return result
 
 
@@ -209,6 +309,7 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     scan_root = root / "in" if (root / "in").is_dir() else root
     result = _scan_tecsuite(scan_root)
     _tecsuite_cache[host_root] = (now, result)
+    _save_cache_to_db('tecsuite', host_root, (now, result))
     return result
 
 
@@ -235,6 +336,7 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
 
     result = _scan_parquet(root)
     _parquet_cache[host_root] = (now, result)
+    _save_cache_to_db('parquet', host_root, (now, result))
     return result
 
 
@@ -262,6 +364,7 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
 
     result = _scan_parquet_satellites(root)
     _parquet_sat_cache[host_root] = (now, result)
+    _save_cache_to_db('parquet_sat', host_root, (now, result))
     return result
 
 
