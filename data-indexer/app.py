@@ -8,6 +8,14 @@ A FastAPI-based microservice that provides XML-structured data indexing for:
 - Parquet output data
 
 All endpoints return XML responses.
+
+Configuration:
+- DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
+- INDEXER_RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
+- INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
+- INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
+- INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: TEC-suite parquet path (default: /mnt/tecsuite-parquet-out)
+- INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: AbsTEC parquet path (default: /mnt/abstec-parquet-out)
 """
 
 import os

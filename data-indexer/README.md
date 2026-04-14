@@ -6,6 +6,12 @@ A microservice that provides XML-structured data indexing for GNSS data processi
 
 The service uses the following environment variables (set in `.env` file):
 
+### Cache Configuration
+- `DATA_INDEXER_CACHE_TTL_SEC`: Cache time-to-live in seconds (default: `300.0` = 5 minutes)
+  - Controls how often the service rescans directories for new files
+  - Lower values = more frequent updates but higher CPU/disk usage
+  - Higher values = less frequent updates but may miss new files sooner
+
 ### Data Paths
 - `INDEXER_RINEX_DATA_PATH_HOST`: Host path to RINEX data directory
 - `INDEXER_RINEX_DATA_PATH_CONTAINER`: Container path for RINEX data (default: `/mnt/rinex-server`)

@@ -8,25 +8,51 @@ Provides REST endpoints that return XML structures for:
 - Parquet output structure
 
 All endpoints return XML responses for consumption by other services.
+
+Configuration:
+- DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
 """
 
+import os
 import re
 import time
 from pathlib import Path
 from typing import TypedDict
 
-# Minimum seconds between full re-scans of a parquet-satellites root.
-# Prevents constant rescans when the output directory is actively written to
-# (new files change mtime on every write, invalidating a mtime-only cache on
-# every page load and causing the expensive filesystem scan to run again).
-_PARQUET_SAT_CACHE_TTL_SEC: float = 300.0
+# For file watching approach
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    WATCHDOG_AVAILABLE = False
 
-# (path → (mtime, result)) — module-level, lives for the process lifetime
-_rinex_cache: dict[str, tuple[float, list]] = {}
-_tecsuite_cache: dict[str, tuple[float, list]] = {}
-_parquet_cache: dict[str, tuple[float, list]] = {}
-# (path → (last_scan_monotonic, mtime, result))
-_parquet_sat_cache: dict[str, tuple[float, float, list]] = {}
+# Minimum seconds between full re-scans (configurable via env var)
+_CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
+
+# (path → (file_list_hash, result)) — file list comparison cache
+_rinex_cache: dict[str, tuple[str, list]] = {}
+_tecsuite_cache: dict[str, tuple[str, list]] = {}
+_parquet_cache: dict[str, tuple[str, list]] = {}
+_parquet_sat_cache: dict[str, tuple[str, list]] = {}
+
+def _get_directory_hash(root: Path) -> str:
+    """Generate a hash of all files in directory tree for change detection."""
+    import hashlib
+    file_paths = []
+    try:
+        for path in root.rglob('*'):
+            if path.is_file():
+                file_paths.append(str(path.relative_to(root)))
+        file_paths.sort()
+        return hashlib.md5('\n'.join(file_paths).encode()).hexdigest()
+    except OSError:
+        return ""
+
+# File watching observers (path → observer)
+_observers: dict[str, Observer] = {}
+# Cache invalidation flags (path → bool)
+_cache_invalidated: dict[str, bool] = {}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -80,8 +106,8 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     """
     Return discovered RINEX server structure under host_root.
 
-    Results are cached and reused as long as the root directory mtime is
-    unchanged (i.e. no year folders have been added or removed).
+    Results are cached and reused as long as the directory file list hasn't
+    changed (detects added/removed files regardless of mtime issues).
 
         Supported layouts:
             <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
@@ -93,17 +119,13 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     if not root.exists() or not root.is_dir():
         return []
 
-    try:
-        mtime = root.stat().st_mtime
-    except OSError:
-        return []
-
-    cached_mtime, cached_result = _rinex_cache.get(host_root, (None, None))
-    if mtime == cached_mtime:
+    current_hash = _get_directory_hash(root)
+    cached_hash, cached_result = _rinex_cache.get(host_root, (None, None))
+    if current_hash and current_hash == cached_hash:
         return cached_result  # type: ignore[return-value]
 
     result = _scan_rinex(root)
-    _rinex_cache[host_root] = (mtime, result)
+    _rinex_cache[host_root] = (current_hash, result)
     return result
 
 
@@ -166,8 +188,8 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     """
     Return TEC-suite DAT output structure for AbsTEC selection UI.
 
-    Results are cached and reused as long as the scanned directory mtime is
-    unchanged (i.e. no year folders have been added or removed).
+    Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
+    DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
 
     Expected layouts:
       <root>/YYYY/DDD/SITE/*.dat
@@ -179,18 +201,14 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     if not root.exists() or not root.is_dir():
         return []
 
-    scan_root = root / "in" if (root / "in").is_dir() else root
-    try:
-        mtime = scan_root.stat().st_mtime
-    except OSError:
-        return []
-
-    cached_mtime, cached_result = _tecsuite_cache.get(host_root, (None, None))
-    if mtime == cached_mtime:
+    now = time.monotonic()
+    cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
+    if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
         return cached_result  # type: ignore[return-value]
 
+    scan_root = root / "in" if (root / "in").is_dir() else root
     result = _scan_tecsuite(scan_root)
-    _tecsuite_cache[host_root] = (mtime, result)
+    _tecsuite_cache[host_root] = (now, result)
     return result
 
 
@@ -198,8 +216,8 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     """
     Return parquet output structure under host_root for the year/day UI.
 
-    Results are cached and reused as long as the scanned directory mtime is
-    unchanged.
+    Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
+    DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
 
     Expected layout (mirrors the DAT source root):
       <root>/YYYY/DDD/…   (any files/subdirs below DDD are ignored)
@@ -210,23 +228,22 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     if not root.exists() or not root.is_dir():
         return []
 
-    try:
-        mtime = root.stat().st_mtime
-    except OSError:
-        return []
-
-    cached_mtime, cached_result = _parquet_cache.get(host_root, (None, None))
-    if mtime == cached_mtime:
+    now = time.monotonic()
+    cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
+    if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
         return cached_result  # type: ignore[return-value]
 
     result = _scan_parquet(root)
-    _parquet_cache[host_root] = (mtime, result)
+    _parquet_cache[host_root] = (now, result)
     return result
 
 
 def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     """
     Return parquet structure with stations and satellites under host_root.
+
+    Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
+    DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
 
     Expected layout (best effort):
       <root>/YYYY/DDD/SITE/*.parquet
@@ -238,26 +255,13 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     if not root.exists() or not root.is_dir():
         return []
 
-    try:
-        mtime = root.stat().st_mtime
-    except OSError:
-        return []
-
     now = time.monotonic()
-    cached = _parquet_sat_cache.get(host_root)
-    if cached is not None:
-        last_scan, cached_mtime, cached_result = cached
-        if now - last_scan < _PARQUET_SAT_CACHE_TTL_SEC:
-            # Within TTL: serve from cache regardless of mtime changes caused
-            # by the pipeline writing new parquet files.
-            return cached_result  # type: ignore[return-value]
-        if mtime == cached_mtime:
-            # TTL expired but directory unchanged: renew TTL, skip rescan.
-            _parquet_sat_cache[host_root] = (now, mtime, cached_result)
-            return cached_result  # type: ignore[return-value]
+    cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
+    if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+        return cached_result  # type: ignore[return-value]
 
     result = _scan_parquet_satellites(root)
-    _parquet_sat_cache[host_root] = (now, mtime, result)
+    _parquet_sat_cache[host_root] = (now, result)
     return result
 
 
