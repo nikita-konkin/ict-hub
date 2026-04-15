@@ -121,7 +121,45 @@ async def analysis_index_options(
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
 
-@router.get("/analysis/api/{api_path:path}")
+def _filter_outgoing_headers(request: Request) -> dict[str, str]:
+    hop_by_hop = {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "host",
+    }
+    return {
+        name: value
+        for name, value in request.headers.items()
+        if name.lower() not in hop_by_hop
+    }
+
+
+def _filter_incoming_headers(headers: dict[str, str]) -> dict[str, str]:
+    hop_by_hop = {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "host",
+    }
+    return {
+        name: value
+        for name, value in headers.items()
+        if name.lower() not in hop_by_hop
+    }
+
+
+@router.api_route("/analysis/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 async def analysis_proxy(
     api_path: str,
     request: Request,
@@ -159,9 +197,13 @@ async def analysis_proxy(
 
     timeout = httpx.Timeout(cfg.ANALYSIS_API_TIMEOUT_SEC)
     try:
-        # trust_env=False prevents proxy env vars from hijacking internal calls.
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            upstream = await client.get(target_url)
+            upstream = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=_filter_outgoing_headers(request),
+                content=await request.body(),
+            )
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Analysis API timeout")
     except httpx.HTTPError as exc:
@@ -170,14 +212,10 @@ async def analysis_proxy(
             detail=f"Analysis API error (base={base_url}): {exc}",
         )
 
-    passthrough_headers = {}
-    for name in ("content-type", "content-disposition", "cache-control"):
-        value = upstream.headers.get(name)
-        if value:
-            passthrough_headers[name] = value
-
+    response_headers = _filter_incoming_headers(dict(upstream.headers))
     return Response(
         content=upstream.content,
         status_code=upstream.status_code,
-        headers=passthrough_headers,
+        headers=response_headers,
+        media_type=upstream.headers.get("content-type"),
     )

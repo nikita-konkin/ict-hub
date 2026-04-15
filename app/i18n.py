@@ -13,7 +13,7 @@ COOKIE_NAME = "ch_lang"
 
 _TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
-        "app_name": "ConverterHub",
+        "app_name": "IonFlow",
         "app_subtitle": "Data Processing Suite",
         "nav_overview": "Overview",
         "nav_dashboard": "Dashboard",
@@ -130,7 +130,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "flag_help_day_to": "Optional inclusive end day-of-year filter (1..366).",
     },
     "ru": {
-        "app_name": "ConverterHub",
+        "app_name": "ИоноПоток",
         "app_subtitle": "Пакет обработки данных",
         "nav_overview": "Обзор",
         "nav_dashboard": "Панель",

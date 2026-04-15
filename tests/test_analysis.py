@@ -70,3 +70,53 @@ def test_analysis_index_options_returns_data(client: TestClient, monkeypatch):
         assert payload["tec"]["satellitesByYearDoy"]["2026"]["001"] == ["E07", "G12"]
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_analysis_proxy_forwards_api_request(client: TestClient, monkeypatch):
+    import app.analysis as analysis_module
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    class FakeResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.content = b'{"result": "ok"}'
+            self.headers = {
+                "content-type": "application/json",
+                "cache-control": "no-store",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            assert method == "GET"
+            assert url == "http://tec-backend:8000/absoltec/raw?year=2026&doy=1&station=aksu"
+            assert headers is not None
+            assert "host" not in {k.lower() for k in headers}
+            return FakeResponse()
+
+    monkeypatch.setattr(analysis_module.cfg, "ANALYSIS_API_BASE_URL", "http://tec-backend:8000")
+    monkeypatch.setattr(analysis_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        response = client.get("/analysis/api/absoltec/raw?year=2026&doy=1&station=aksu")
+        assert response.status_code == 200
+        assert response.json() == {"result": "ok"}
+        assert response.headers["cache-control"] == "no-store"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

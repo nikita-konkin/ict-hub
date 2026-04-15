@@ -218,7 +218,7 @@ CONVERTERS: dict[str, dict] = {
             # Example: "Processing year=2026 day=001 site=cher001s08 (23/870)"
             r"Processing\s+year=\d{4}\s+day=\d{1,3}\s+site=[^\s]+\s*\((\d+)\s*/\s*(\d+)\)",
             # Example: "INFO: Completed 2618 / 15221"
-            r"Organized station output under day folder:"
+            r"Organized station output under day folder:",
             r"Completed\s+(\d+)\s*/\s*(\d+)",
             # Example: "INFO: Progress: 17%"
             r"Progress:\s*(\d{1,3})\s*%",

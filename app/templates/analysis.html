@@ -66,6 +66,14 @@
               <option value="absoltec/statistics">GET /absoltec/statistics — Statistics</option>
               <option value="absoltec/statistics/per-station-day">GET /absoltec/statistics/per-station-day — Statistics Per Station Day</option>
             </optgroup>
+            <optgroup label="CB">
+              <option value="cb/stations">GET /cb/stations — List Stations</option>
+              <option value="cb/days">GET /cb/days — List Days</option>
+              <option value="cb/raw">GET /cb/raw — Raw Data</option>
+              <option value="cb/raw/range">GET /cb/raw/range — Raw Data Range</option>
+              <option value="cb/statistics">GET /cb/statistics — Statistics</option>
+              <option value="cb/statistics/per-station-day">GET /cb/statistics/per-station-day — Statistics Per Station Day</option>
+            </optgroup>
             <optgroup label="TEC-suite">
               <option value="tec/stations">GET /tec/stations — Stations With Meta</option>
               <option value="tec/satellites">GET /tec/satellites — Satellites</option>
@@ -183,6 +191,11 @@
               <option value="plots/tec/satellite">GET /plots/tec/satellite — Plot Tec Satellite</option>
               <option value="plots/tec/sky-track">GET /plots/tec/sky-track — Plot Tec Sky</option>
               <option value="plots/tec/all-satellites">GET /plots/tec/all-satellites — Plot Tec All Satellites</option>
+              <option value="plots/cb/average">GET /plots/cb/average — Plot Cb Average</option>
+              <option value="plots/cb/day">GET /plots/cb/day — Plot Cb Day</option>
+              <option value="plots/cb/multi-station">GET /plots/cb/multi-station — Plot Cb Multi Station</option>
+              <option value="plots/cb/vs-tec">GET /plots/cb/vs-tec — Plot Cb vs Tec</option>
+              <option value="plots/cb/per-station-averages">GET /plots/cb/per-station-averages/{doy} — Plot Cb Per Station Avg</option>
             </optgroup>
           </select>
         </div>
@@ -443,6 +456,30 @@
         required: ["data-year", "data-doy-start", "data-doy-end", "data-stations"],
         relevant: ["data-year", "data-doy-start", "data-doy-end", "data-stations", "data-alpha", "data-format"],
       },
+      "cb/stations": {
+        required: ["data-year", "data-doy"],
+        relevant: ["data-year", "data-doy", "data-format"],
+      },
+      "cb/days": {
+        required: ["data-year", "data-station"],
+        relevant: ["data-year", "data-station", "data-format"],
+      },
+      "cb/raw": {
+        required: ["data-year", "data-doy", "data-station"],
+        relevant: ["data-year", "data-doy", "data-station", "data-format"],
+      },
+      "cb/raw/range": {
+        required: ["data-year", "data-doy-start", "data-doy-end"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+      },
+      "cb/statistics": {
+        required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-alpha", "data-format"],
+      },
+      "cb/statistics/per-station-day": {
+        required: ["data-year", "data-doy-start", "data-doy-end", "data-stations"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-stations", "data-alpha", "data-format"],
+      },
       "tec/stations": {
         required: ["data-year", "data-doy"],
         relevant: ["data-year", "data-doy", "data-format"],
@@ -489,6 +526,26 @@
       "plots/tec/satellite": {
         required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
         relevant: ["plot-year", "plot-doy", "plot-station", "plot-satellite", "plot-column", "plot-valid-only", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/average": {
+        required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/day": {
+        required: ["plot-year", "plot-doy", "plot-station"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/multi-station": {
+        required: ["plot-year", "plot-doy", "plot-stations"],
+        relevant: ["plot-year", "plot-doy", "plot-stations", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/vs-tec": {
+        required: ["plot-year", "plot-doy", "plot-station"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/per-station-averages": {
+        required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
+        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/absoltec/raw/day-by-day": {
         required: ["plot-year", "plot-doy-start", "plot-doy-end"],
@@ -787,24 +844,24 @@
 
       qpAppend(params, "year", year);
 
-      if (endpoint === "absoltec/stations" || endpoint === "tec/stations" || endpoint === "stations/available" || endpoint === "stations/map" || endpoint === "absoltec/raw" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+      if (endpoint === "absoltec/stations" || endpoint === "cb/stations" || endpoint === "tec/stations" || endpoint === "stations/available" || endpoint === "stations/map" || endpoint === "absoltec/raw" || endpoint === "cb/raw" || endpoint === "tec/satellites" || endpoint === "tec/data") {
         qpAppend(params, "doy", doy);
       }
-      if (endpoint === "absoltec/days" || endpoint === "absoltec/raw" || endpoint === "absoltec/statistics" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+      if (endpoint === "absoltec/days" || endpoint === "cb/days" || endpoint === "absoltec/raw" || endpoint === "cb/raw" || endpoint === "absoltec/statistics" || endpoint === "cb/statistics" || endpoint === "tec/satellites" || endpoint === "tec/data") {
         qpAppend(params, "station", station);
       }
-      if (endpoint === "absoltec/raw/range" || endpoint === "tec/raw/range") {
+      if (endpoint === "absoltec/raw/range" || endpoint === "cb/raw/range" || endpoint === "tec/raw/range") {
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
         qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
       }
-      if (endpoint === "absoltec/statistics" || endpoint === "absoltec/statistics/per-station-day") {
+      if (endpoint === "absoltec/statistics" || endpoint === "cb/statistics" || endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "alpha", alpha);
       }
-      if (endpoint === "absoltec/statistics/per-station-day") {
+      if (endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
         qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
       }
       if (endpoint === "tec/data") {
@@ -863,6 +920,33 @@
         qpAppend(params, "station", station);
         qpAppendCsvArray(params, "stations", stations);
         qpAppendCsvArray(params, "columns", document.getElementById("plot-columns").value);
+      } else if (endpointName === "plots/cb/average") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+        qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+      } else if (endpointName === "plots/cb/day") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+        qpAppend(params, "poly", document.getElementById("plot-poly").value);
+      } else if (endpointName === "plots/cb/multi-station") {
+        qpAppend(params, "doy", doy);
+        qpAppendCsvArray(params, "stations", stations);
+        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+        qpAppend(params, "poly", document.getElementById("plot-poly").value);
+      } else if (endpointName === "plots/cb/vs-tec") {
+        qpAppend(params, "doy", doy);
+        qpAppend(params, "station", station);
+      } else if (endpointName === "plots/cb/per-station-averages") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppendCsvArray(params, "stations", stations);
+        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+        qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
       } else if (endpointName === "plots/tec/satellite") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
@@ -1590,6 +1674,15 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/satellites</span> — Satellites</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/data</span> — Satellite Data</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/raw/range</span> — Satellite Data Range</div>
+
+    <div class="divider" style="margin:12px 0;"></div>
+    <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">CB</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/stations</span> — List Stations</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/days</span> — List Days</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/raw</span> — Raw Data</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/raw/range</span> — Raw Data Range</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/statistics</span> — Statistics</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/statistics/per-station-day</span> — Statistics Per Station Day</div>
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Plots</div>

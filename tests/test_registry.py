@@ -361,6 +361,14 @@ class TestCommandBuilding:
         # Should have only one volume entry for the shared path
         assert "/data/tecs-out" in vols
 
+    def test_abstec_progress_patterns_are_individual(self):
+        """AbsTEC progress pattern definitions should be separate list entries."""
+        conv = get_converter("abstec-suite")
+        patterns = conv["progress_patterns"]
+        assert any(p == r"Organized station output under day folder:" for p in patterns)
+        assert any(p == r"Completed\s+(\d+)\s*/\s*(\d+)" for p in patterns)
+        assert any(p == r"Progress:\s*(\d{1,3})\s*%" for p in patterns)
+
 
 class TestFlagTranslationRendering:
     """Tests for flags that use dynamic translation lookups."""
