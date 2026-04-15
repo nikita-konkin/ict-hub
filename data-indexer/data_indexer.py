@@ -46,7 +46,8 @@ _CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
 _CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
 
 # (path → (file_list_hash, result)) — file list comparison cache
-_rinex_cache: dict[str, tuple[str, list]] = {}
+# _rinex_cache: dict[str, tuple[str, list]] = {}
+_rinex_cache: dict[str, tuple[float, list]] = {}
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
 _parquet_sat_cache: dict[str, tuple[float, list]] = {}
@@ -213,16 +214,56 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
     return (int(name), len(name), name)
 
 
+# def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
+#     """
+#     Return discovered RINEX server structure under host_root.
+
+#     Results are cached and reused as long as the directory file list hasn't
+#     changed (detects added/removed files regardless of mtime issues).
+
+#         Supported layouts:
+#             <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
+#             <root>/YYYY_original/MM/DD/<station>.zip
+#     """
+#     logger.info(f"[RINEX] Function called with host_root: {host_root}")
+#     if not host_root:
+#         logger.warning("[RINEX] Empty host_root provided")
+#         return []
+#     root = Path(host_root)
+#     logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
+#     if not root.exists() or not root.is_dir():
+#         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
+#         return []
+
+#     current_hash = _get_directory_hash(root)
+    
+#     cached_hash, cached_result = _rinex_cache.get(host_root, (None, None))
+    
+#     logger.info(f"[RINEX] current_hash={current_hash[:16] if current_hash else None}, cached_hash={cached_hash[:16] if cached_hash else None}")
+#     if current_hash and current_hash == cached_hash:
+        
+#         logger.info(f"[RINEX] Cache HIT for {host_root} - returning cached result")
+#         return cached_result  # type: ignore[return-value]
+
+    
+#     logger.info(f"[RINEX] Cache MISS for {host_root} - starting full scan")
+#     result = _scan_rinex(root)
+#     logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
+#     _rinex_cache[host_root] = (current_hash, result)
+#     _save_cache_to_db('rinex', host_root, (current_hash, result))
+#     return result
+
 def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     """
     Return discovered RINEX server structure under host_root.
 
-    Results are cached and reused as long as the directory file list hasn't
-    changed (detects added/removed files regardless of mtime issues).
+    Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
+    DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with
+    performance.
 
-        Supported layouts:
-            <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
-            <root>/YYYY_original/MM/DD/<station>.zip
+    Supported layouts:
+        <root>/YYYY_original/DOY/<station>.zip   (DOY can be 2 or 3 digits)
+        <root>/YYYY_original/MM/DD/<station>.zip
     """
     logger.info(f"[RINEX] Function called with host_root: {host_root}")
     if not host_root:
@@ -234,24 +275,19 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
         return []
 
-    current_hash = _get_directory_hash(root)
-    
-    cached_hash, cached_result = _rinex_cache.get(host_root, (None, None))
-    
-    logger.info(f"[RINEX] current_hash={current_hash[:16] if current_hash else None}, cached_hash={cached_hash[:16] if cached_hash else None}")
-    if current_hash and current_hash == cached_hash:
-        
-        logger.info(f"[RINEX] Cache HIT for {host_root} - returning cached result")
+    now = time.monotonic()
+    cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
+    if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+        cache_age = now - cached_time
+        logger.debug(f"[RINEX] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
         return cached_result  # type: ignore[return-value]
 
-    
-    logger.info(f"[RINEX] Cache MISS for {host_root} - starting full scan")
+    logger.info(f"[RINEX] Cache expired/miss for {host_root} - starting full scan")
     result = _scan_rinex(root)
     logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
-    _rinex_cache[host_root] = (current_hash, result)
-    _save_cache_to_db('rinex', host_root, (current_hash, result))
+    _rinex_cache[host_root] = (now, result)
+    _save_cache_to_db('rinex', host_root, (now, result))
     return result
-
 
 def _scan_rinex(root: Path) -> list[YearInfo]:
     """Full filesystem scan — called only when cache is cold or stale."""
