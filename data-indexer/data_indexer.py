@@ -34,14 +34,7 @@ except ImportError:
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Configure logging for this module - must be done before any logging calls
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    force=True  # Force reconfiguration
-)
-
+# Logging will be configured by the main app module
 # Test logging at module load
 logger.info("[MODULE] data_indexer module loaded")
 logger.debug("[MODULE] Debug logging test")
@@ -231,12 +224,12 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
             <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
             <root>/YYYY_original/MM/DD/<station>.zip
     """
-    
     logger.info(f"[RINEX] Function called with host_root: {host_root}")
     if not host_root:
         logger.warning("[RINEX] Empty host_root provided")
         return []
     root = Path(host_root)
+    logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
     if not root.exists() or not root.is_dir():
         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
         return []
@@ -263,11 +256,24 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
 def _scan_rinex(root: Path) -> list[YearInfo]:
     """Full filesystem scan — called only when cache is cold or stale."""
     
+    logger.debug(f"[RINEX] Starting scan of root directory: {root}")
     years: list[YearInfo] = []
+    
+    try:
+        dir_contents = list(root.iterdir())
+        logger.debug(f"[RINEX] Found {len(dir_contents)} items in root directory")
+        for item in dir_contents:
+            logger.debug(f"[RINEX] Checking item: {item.name} (is_dir: {item.is_dir()})")
+    except Exception as e:
+        logger.warning(f"[RINEX] Error reading directory {root}: {e}")
+        return years
+    
     for year_dir in root.iterdir():
         if not year_dir.is_dir():
+            logger.debug(f"[RINEX] Skipping non-directory: {year_dir.name}")
             continue
         if not YEAR_DIR_RE.fullmatch(year_dir.name):
+            logger.debug(f"[RINEX] Directory {year_dir.name} doesn't match year pattern (expected YYYY_original)")
             continue
 
         
@@ -320,6 +326,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         years.append({"year": year_dir.name, "days": days})
 
     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
+    logger.info(f"[RINEX] Scan completed - found {len(years)} year directories")
     return years
 
 

@@ -36,8 +36,12 @@ from data_indexer import (
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True  # Force reconfiguration
 )
+
+# Reduce verbosity of third-party libraries
+logging.getLogger('dicttoxml').setLevel(logging.WARNING)
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -127,10 +131,10 @@ def indexer_status():
 @app.get('/rinex')
 def rinex_index(root: str = Query(default=DEFAULT_PATHS['rinex'])):
     """Get RINEX server structure as XML."""
-    print(f"[DEBUG] RINEX endpoint called with root: {root}")
+    
     logger.info(f"[APP] RINEX endpoint called with root: {root}")
     data = list_rinex_server_structure(root)
-    print(f"[DEBUG] RINEX indexing completed, returning {len(data)} years")
+    
     logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
     return dict_to_xml_response(data, "rinex_structure")
 
