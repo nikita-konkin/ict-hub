@@ -14,6 +14,7 @@ Configuration:
 - DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
 import time
@@ -48,6 +49,7 @@ _CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
 # (path → (file_list_hash, result)) — file list comparison cache
 # _rinex_cache: dict[str, tuple[str, list]] = {}
 _rinex_cache: dict[str, tuple[float, list]] = {}
+_refresh_in_progress: set[str] = set()
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
 _parquet_sat_cache: dict[str, tuple[float, list]] = {}
@@ -253,118 +255,273 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
 #     _save_cache_to_db('rinex', host_root, (current_hash, result))
 #     return result
 
+# def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
+#     """
+#     Return discovered RINEX server structure under host_root.
+
+#     Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
+#     DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with
+#     performance.
+
+#     Supported layouts:
+#         <root>/YYYY_original/DOY/<station>.zip   (DOY can be 2 or 3 digits)
+#         <root>/YYYY_original/MM/DD/<station>.zip
+#     """
+#     logger.info(f"[RINEX] Function called with host_root: {host_root}")
+#     if not host_root:
+#         logger.warning("[RINEX] Empty host_root provided")
+#         return []
+#     root = Path(host_root)
+#     logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
+#     if not root.exists() or not root.is_dir():
+#         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
+#         return []
+
+#     now = time.monotonic()
+#     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
+#     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+#         cache_age = now - cached_time
+#         logger.debug(f"[RINEX] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
+#         return cached_result  # type: ignore[return-value]
+
+#     logger.info(f"[RINEX] Cache expired/miss for {host_root} - starting full scan")
+#     result = _scan_rinex(root)
+#     logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
+#     _rinex_cache[host_root] = (now, result)
+#     _save_cache_to_db('rinex', host_root, (now, result))
+#     return result
+
 def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
-    """
-    Return discovered RINEX server structure under host_root.
-
-    Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
-    DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with
-    performance.
-
-    Supported layouts:
-        <root>/YYYY_original/DOY/<station>.zip   (DOY can be 2 or 3 digits)
-        <root>/YYYY_original/MM/DD/<station>.zip
-    """
     logger.info(f"[RINEX] Function called with host_root: {host_root}")
     if not host_root:
-        logger.warning("[RINEX] Empty host_root provided")
         return []
     root = Path(host_root)
-    logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
     if not root.exists() or not root.is_dir():
         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
         return []
 
     now = time.monotonic()
     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
-    if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
-        cache_age = now - cached_time
-        logger.debug(f"[RINEX] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-        return cached_result  # type: ignore[return-value]
 
-    logger.info(f"[RINEX] Cache expired/miss for {host_root} - starting full scan")
+    if cached_time is not None:
+        cache_age = now - cached_time
+        if cache_age < _CACHE_TTL_SEC:
+            # Fresh — return immediately
+            logger.debug(f"[RINEX] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
+            return cached_result
+
+        # Stale — return old data instantly, refresh in background
+        logger.info(f"[RINEX] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
+        _trigger_background_refresh(host_root, root)
+        return cached_result  # ← don't block the request
+
+    # Cold start — no cached data at all, must scan now
+    logger.info(f"[RINEX] Cold start scan for {host_root}")
     result = _scan_rinex(root)
-    logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
-    _rinex_cache[host_root] = (now, result)
-    _save_cache_to_db('rinex', host_root, (now, result))
+    _rinex_cache[host_root] = (time.monotonic(), result)
+    _save_cache_to_db('rinex', host_root, (time.monotonic(), result))
     return result
 
-def _scan_rinex(root: Path) -> list[YearInfo]:
-    """Full filesystem scan — called only when cache is cold or stale."""
+
+def _trigger_background_refresh(host_root: str, root: Path) -> None:
+    """Kick off a background thread to refresh the RINEX cache without blocking the caller."""
+    if host_root in _refresh_in_progress:
+        logger.debug(f"[RINEX] Refresh already in progress for {host_root}, skipping")
+        return
+
+    import threading
+
+    def _do_refresh():
+        try:
+            _refresh_in_progress.add(host_root)
+            logger.info(f"[RINEX] Background refresh started for {host_root}")
+            result = _scan_rinex(root)
+            ts = time.monotonic()
+            _rinex_cache[host_root] = (ts, result)
+            _save_cache_to_db('rinex', host_root, (ts, result))
+            logger.info(f"[RINEX] Background refresh complete — {len(result)} years")
+        except Exception as e:
+            logger.error(f"[RINEX] Background refresh failed: {e}")
+        finally:
+            _refresh_in_progress.discard(host_root)
+
+    threading.Thread(target=_do_refresh, daemon=True).start()
+
+# def _scan_rinex(root: Path) -> list[YearInfo]:
+#     """Full filesystem scan — called only when cache is cold or stale."""
     
-    logger.debug(f"[RINEX] Starting scan of root directory: {root}")
-    years: list[YearInfo] = []
+#     logger.debug(f"[RINEX] Starting scan of root directory: {root}")
+#     years: list[YearInfo] = []
     
-    try:
-        dir_contents = list(root.iterdir())
-        logger.debug(f"[RINEX] Found {len(dir_contents)} items in root directory")
-        for item in dir_contents:
-            logger.debug(f"[RINEX] Checking item: {item.name} (is_dir: {item.is_dir()})")
-    except Exception as e:
-        logger.warning(f"[RINEX] Error reading directory {root}: {e}")
-        return years
+#     try:
+#         dir_contents = list(root.iterdir())
+#         logger.debug(f"[RINEX] Found {len(dir_contents)} items in root directory")
+#         for item in dir_contents:
+#             logger.debug(f"[RINEX] Checking item: {item.name} (is_dir: {item.is_dir()})")
+#     except Exception as e:
+#         logger.warning(f"[RINEX] Error reading directory {root}: {e}")
+#         return years
     
-    for year_dir in root.iterdir():
-        if not year_dir.is_dir():
-            logger.debug(f"[RINEX] Skipping non-directory: {year_dir.name}")
-            continue
-        if not YEAR_DIR_RE.fullmatch(year_dir.name):
-            logger.debug(f"[RINEX] Directory {year_dir.name} doesn't match year pattern (expected YYYY_original)")
-            continue
+#     for year_dir in root.iterdir():
+#         if not year_dir.is_dir():
+#             logger.debug(f"[RINEX] Skipping non-directory: {year_dir.name}")
+#             continue
+#         if not YEAR_DIR_RE.fullmatch(year_dir.name):
+#             logger.debug(f"[RINEX] Directory {year_dir.name} doesn't match year pattern (expected YYYY_original)")
+#             continue
 
         
-        logger.debug(f"[RINEX] Scanning year directory: {year_dir}")
+#         logger.debug(f"[RINEX] Scanning year directory: {year_dir}")
+#         days: list[DayInfo] = []
+
+#         for top_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
+#             if not top_dir.is_dir():
+#                 continue
+#             if not DAY_DIR_RE.fullmatch(top_dir.name):
+#                 continue
+            
+#             logger.debug(f"[RINEX] Scanning day/month directory: {top_dir}")
+
+#             # Layout A: YYYY_original/DOY/<station>.zip (DOY can be 2 or 3 digits)
+#             direct_zips = sum(
+#                 1
+#                 for entry in top_dir.iterdir()
+#                 if entry.is_file() and entry.suffix.lower() == ".zip"
+#             )
+#             if direct_zips:
+#                 logger.debug(f"[RINEX] Found {direct_zips} zip files in {top_dir}")
+#                 days.append({"day": top_dir.name, "stations": direct_zips})
+#                 continue
+
+#             # Layout B: YYYY_original/MM/DD/<station>.zip
+#             month_num = int(top_dir.name)
+#             if not 1 <= month_num <= 12:
+#                 continue
+
+#             for day_dir in sorted(top_dir.iterdir(), key=lambda d: d.name):
+#                 if not day_dir.is_dir():
+#                     continue
+#                 if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
+#                     continue
+#                 day_num = int(day_dir.name)
+#                 if not 1 <= day_num <= 31:
+#                     continue
+
+#                 logger.debug(f"[RINEX] Scanning nested day directory: {day_dir}")
+#                 stations = sum(
+#                     1
+#                     for entry in day_dir.iterdir()
+#                     if entry.is_file() and entry.suffix.lower() == ".zip"
+#                 )
+#                 logger.debug(f"[RINEX] Found {stations} zip files in {day_dir}")
+#                 days.append({"day": f"{top_dir.name}/{day_dir.name}", "stations": stations})
+
+#         days.sort(key=lambda item: _day_sort_key(item["day"]))
+#         years.append({"year": year_dir.name, "days": days})
+
+#     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
+#     logger.info(f"[RINEX] Scan completed - found {len(years)} year directories")
+#     return years
+
+# def _scan_rinex(root: Path) -> list[YearInfo]:
+#     years: list[YearInfo] = []
+
+#     with os.scandir(root) as it:
+#         year_entries = [e for e in it if e.is_dir() and YEAR_DIR_RE.fullmatch(e.name)]
+
+#     for year_entry in year_entries:
+#         days: list[DayInfo] = []
+
+#         with os.scandir(year_entry.path) as it:
+#             top_entries = sorted(
+#                 [e for e in it if e.is_dir() and DAY_DIR_RE.fullmatch(e.name)],
+#                 key=lambda e: e.name
+#             )
+
+#         for top_entry in top_entries:
+#             with os.scandir(top_entry.path) as it:
+#                 entries = list(it)
+
+#             direct_zips = sum(
+#                 1 for e in entries
+#                 if e.is_file() and e.name.lower().endswith('.zip')
+#             )
+#             if direct_zips:
+#                 days.append({"day": top_entry.name, "stations": direct_zips})
+#                 continue
+
+#             # Layout B: MM/DD
+#             month_num = int(top_entry.name)
+#             if not 1 <= month_num <= 12:
+#                 continue
+#             for day_entry in sorted([e for e in entries if e.is_dir()], key=lambda e: e.name):
+#                 if not DAY_IN_MONTH_RE.fullmatch(day_entry.name):
+#                     continue
+#                 with os.scandir(day_entry.path) as it2:
+#                     stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith('.zip'))
+#                 days.append({"day": f"{top_entry.name}/{day_entry.name}", "stations": stations})
+
+#         days.sort(key=lambda item: _day_sort_key(item["day"]))
+#         years.append({"year": year_entry.name, "days": days})
+
+#     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
+#     return years
+
+def _scan_rinex(root: Path) -> list[YearInfo]:
+    # Step 1: collect year directories
+    with os.scandir(root) as it:
+        year_entries = [e for e in it if e.is_dir() and YEAR_DIR_RE.fullmatch(e.name)]
+
+    # Step 2: each worker handles exactly ONE year_entry
+    def scan_year(year_entry) -> YearInfo | None:
         days: list[DayInfo] = []
 
-        for top_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
-            if not top_dir.is_dir():
-                continue
-            if not DAY_DIR_RE.fullmatch(top_dir.name):
-                continue
-            
-            logger.debug(f"[RINEX] Scanning day/month directory: {top_dir}")
+        with os.scandir(year_entry.path) as it:
+            top_entries = sorted(
+                [e for e in it if e.is_dir() and DAY_DIR_RE.fullmatch(e.name)],
+                key=lambda e: e.name
+            )
 
-            # Layout A: YYYY_original/DOY/<station>.zip (DOY can be 2 or 3 digits)
+        for top_entry in top_entries:
+            with os.scandir(top_entry.path) as it:
+                entries = list(it)
+
             direct_zips = sum(
-                1
-                for entry in top_dir.iterdir()
-                if entry.is_file() and entry.suffix.lower() == ".zip"
+                1 for e in entries
+                if e.is_file() and e.name.lower().endswith('.zip')
             )
             if direct_zips:
-                logger.debug(f"[RINEX] Found {direct_zips} zip files in {top_dir}")
-                days.append({"day": top_dir.name, "stations": direct_zips})
+                days.append({"day": top_entry.name, "stations": direct_zips})
                 continue
 
-            # Layout B: YYYY_original/MM/DD/<station>.zip
-            month_num = int(top_dir.name)
+            # Layout B: MM/DD
+            try:
+                month_num = int(top_entry.name)
+            except ValueError:
+                continue
             if not 1 <= month_num <= 12:
                 continue
 
-            for day_dir in sorted(top_dir.iterdir(), key=lambda d: d.name):
-                if not day_dir.is_dir():
+            for day_entry in sorted([e for e in entries if e.is_dir()], key=lambda e: e.name):
+                if not DAY_IN_MONTH_RE.fullmatch(day_entry.name):
                     continue
-                if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
-                    continue
-                day_num = int(day_dir.name)
-                if not 1 <= day_num <= 31:
-                    continue
+                with os.scandir(day_entry.path) as it2:
+                    stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith('.zip'))
+                days.append({"day": f"{top_entry.name}/{day_entry.name}", "stations": stations})
 
-                logger.debug(f"[RINEX] Scanning nested day directory: {day_dir}")
-                stations = sum(
-                    1
-                    for entry in day_dir.iterdir()
-                    if entry.is_file() and entry.suffix.lower() == ".zip"
-                )
-                logger.debug(f"[RINEX] Found {stations} zip files in {day_dir}")
-                days.append({"day": f"{top_dir.name}/{day_dir.name}", "stations": stations})
+        if not days:
+            return None
 
         days.sort(key=lambda item: _day_sort_key(item["day"]))
-        years.append({"year": year_dir.name, "days": days})
+        return {"year": year_entry.name, "days": days}  # ← uses its OWN year_entry
 
+    # Step 3: run all year scans in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(scan_year, year_entries))
+
+    years = [r for r in results if r is not None]
     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
-    logger.info(f"[RINEX] Scan completed - found {len(years)} year directories")
     return years
-
 
 def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     """
