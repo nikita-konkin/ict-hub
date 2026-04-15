@@ -36,6 +36,49 @@ The service uses the following environment variables (set in `.env` file):
 - `INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST`: Host path to AbsTEC Parquet output
 - `INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER`: Container path for AbsTEC Parquet (default: `/mnt/abstec-parquet-out`)
 
+## Debug Logging
+
+All indexing operations emit detailed debug logs to monitor which directories are being scanned in real-time.
+
+### Log Tags
+Each log message is tagged with a data-type prefix for easy filtering:
+- `[RINEX]` — RINEX server structure scanning
+- `[TEC-SUITE]` — TEC-suite DAT output scanning
+- `[PARQUET]` — Parquet year/day structure scanning
+- `[PARQUET-SAT]` — Parquet satellite/station extraction
+
+### Log Levels
+- **INFO**: Scan start/completion events and cache miss/expiration
+  - `[TYPE] Cache expired/miss for {path} - starting full scan`
+  - `Completed {TYPE} indexing for path: {path} - found {N} years`
+- **DEBUG**: Detailed folder-by-folder traversal and file discovery
+  - `[TYPE] Scanning year/day directory: {path}`
+  - `[TYPE] Found {N} files/stations at {path}`
+
+### Viewing Logs
+View all indexing activity in real-time:
+```bash
+# Show all indexing debug messages
+docker compose logs -f data-indexer | grep -E "\[RINEX\]|\[TEC-SUITE\]|\[PARQUET\]"
+
+# Show only cache hit/miss events
+docker compose logs -f data-indexer | grep -i "cache"
+
+# Show complete logs for data-indexer
+docker compose logs -f data-indexer
+```
+
+### Example Debug Output
+```
+[2026-04-15 12:34:56] [TEC-SUITE] Cache expired/miss for /mnt/tecsuite-out - starting full scan
+[2026-04-15 12:34:56] [TEC-SUITE] Scanning year directory: /mnt/tecsuite-out/2025
+[2026-04-15 12:34:56] [TEC-SUITE] Scanning day directory: /mnt/tecsuite-out/2025/001
+[2026-04-15 12:34:56] [TEC-SUITE] Found site with .dat files: SITE001
+[2026-04-15 12:34:56] [TEC-SUITE] Found site with .dat files: SITE002
+[2026-04-15 12:34:57] Completed TEC-suite indexing for path: /mnt/tecsuite-out - found 1 years
+[2026-04-15 12:35:01] [PARQUET-SAT] Cache HIT for /mnt/abstec-parquet-out (age: 5.1s, TTL: 300.0s)
+```
+
 ## Endpoints
 
 All endpoints accept a `root` query parameter specifying the data directory path and return XML responses. If no `root` parameter is provided, the service uses the default container paths from environment variables.
