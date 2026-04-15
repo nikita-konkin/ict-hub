@@ -209,7 +209,7 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
 
 
 def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
-    """
+    """  
     Return discovered RINEX server structure under host_root.
 
     Results are cached and reused as long as the directory file list hasn't
@@ -247,6 +247,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         if not YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
+        logger.debug(f"[RINEX] Scanning year directory: {year_dir}")
         days: list[DayInfo] = []
 
         for top_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
@@ -254,6 +255,8 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                 continue
             if not DAY_DIR_RE.fullmatch(top_dir.name):
                 continue
+            
+            logger.debug(f"[RINEX] Scanning day/month directory: {top_dir}")
 
             # Layout A: YYYY_original/DOY/<station>.zip (DOY can be 2 or 3 digits)
             direct_zips = sum(
@@ -262,6 +265,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                 if entry.is_file() and entry.suffix.lower() == ".zip"
             )
             if direct_zips:
+                logger.debug(f"[RINEX] Found {direct_zips} zip files in {top_dir}")
                 days.append({"day": top_dir.name, "stations": direct_zips})
                 continue
 
@@ -279,11 +283,13 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                 if not 1 <= day_num <= 31:
                     continue
 
+                logger.debug(f"[RINEX] Scanning nested day directory: {day_dir}")
                 stations = sum(
                     1
                     for entry in day_dir.iterdir()
                     if entry.is_file() and entry.suffix.lower() == ".zip"
                 )
+                logger.debug(f"[RINEX] Found {stations} zip files in {day_dir}")
                 days.append({"day": f"{top_dir.name}/{day_dir.name}", "stations": stations})
 
         days.sort(key=lambda item: _day_sort_key(item["day"]))
@@ -313,9 +319,11 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     now = time.monotonic()
     cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+        cache_age = now - cached_time
+        logger.debug(f"[TEC-SUITE] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
         return cached_result  # type: ignore[return-value]
 
-    logger.info(f"Starting TEC-suite indexing for path: {host_root}")
+    logger.info(f"[TEC-SUITE] Cache expired/miss for {host_root} - starting full scan")
     scan_root = root / "in" if (root / "in").is_dir() else root
     result = _scan_tecsuite(scan_root)
     logger.info(f"Completed TEC-suite indexing for path: {host_root} - found {len(result)} years")
@@ -343,9 +351,11 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     now = time.monotonic()
     cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+        cache_age = now - cached_time
+        logger.debug(f"[PARQUET] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
         return cached_result  # type: ignore[return-value]
 
-    logger.info(f"Starting Parquet indexing for path: {host_root}")
+    logger.info(f"[PARQUET] Cache expired/miss for {host_root} - starting full scan")
     result = _scan_parquet(root)
     logger.info(f"Completed Parquet indexing for path: {host_root} - found {len(result)} years")
     _parquet_cache[host_root] = (now, result)
@@ -373,9 +383,11 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     now = time.monotonic()
     cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
+        cache_age = now - cached_time
+        logger.debug(f"[PARQUET-SAT] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
         return cached_result  # type: ignore[return-value]
 
-    logger.info(f"Starting Parquet satellite indexing for path: {host_root}")
+    logger.info(f"[PARQUET-SAT] Cache expired/miss for {host_root} - starting full scan")
     result = _scan_parquet_satellites(root)
     logger.info(f"Completed Parquet satellite indexing for path: {host_root} - found {len(result)} years")
     _parquet_sat_cache[host_root] = (now, result)
@@ -391,10 +403,12 @@ def _scan_parquet(root: Path) -> list[dict[str, object]]:
         if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
+        logger.debug(f"[PARQUET] Scanning year directory: {year_dir}")
         days: list[str] = []
         for day_dir in year_dir.iterdir():
             if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
                 continue
+            logger.debug(f"[PARQUET] Scanning day directory: {day_dir}")
             days.append(day_dir.name.zfill(3))
 
         if days:
@@ -413,11 +427,13 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
         if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
+        logger.debug(f"[PARQUET-SAT] Scanning year directory: {year_dir}")
         days: list[dict[str, object]] = []
         for day_dir in year_dir.iterdir():
             if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
                 continue
 
+            logger.debug(f"[PARQUET-SAT] Scanning day directory: {day_dir}")
             stations: set[str] = set()
             satellites: set[str] = set()
 
@@ -434,14 +450,17 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
                     flat_pq.append(entry)
 
             if stations:
+                logger.debug(f"[PARQUET-SAT] Found {len(stations)} stations: {sorted(stations)[:5]}{'...' if len(stations) > 5 else ''}")
                 # Sample the alphabetically first station dir for satellite IDs.
                 # Satellite sets are uniform across stations on the same day.
                 sample_dir = day_dir / min(stations)
+                logger.debug(f"[PARQUET-SAT] Sampling satellites from: {sample_dir}")
                 for pq_file in sample_dir.glob("*.parquet"):
                     stem = pq_file.stem.upper()
                     for match in SATELLITE_RE.findall(stem):
                         satellites.add(match)
             else:
+                logger.debug(f"[PARQUET-SAT] Using flat layout with {len(flat_pq)} parquet files")
                 # Flat layout: parquet files live directly under day_dir.
                 for pq_file in flat_pq:
                     stem = pq_file.stem.upper()
@@ -451,6 +470,7 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
             if not stations and not satellites:
                 continue
 
+            logger.debug(f"[PARQUET-SAT] Day {day_dir.name} has {len(stations)} stations, {len(satellites)} satellites")
             days.append(
                 {
                     "day": day_dir.name.zfill(3),
@@ -475,11 +495,13 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
         if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
             continue
 
+        logger.debug(f"[TEC-SUITE] Scanning year directory: {year_dir}")
         days: list[AbsTecDayInfo] = []
         for day_dir in year_dir.iterdir():
             if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
                 continue
 
+            logger.debug(f"[TEC-SUITE] Scanning day directory: {day_dir}")
             sites: list[str] = []
             # Layout A: YYYY/DDD/SITE_DIR/*.dat  (site as subdirectory)
             for site_dir in day_dir.iterdir():
@@ -490,6 +512,7 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
                     for entry in site_dir.rglob("*")
                 )
                 if has_dat:
+                    logger.debug(f"[TEC-SUITE] Found site with .dat files: {site_dir.name}")
                     sites.append(site_dir.name)
 
             # Layout B: YYYY/DDD/SITE.dat  (flat – site name = file stem)
@@ -499,6 +522,8 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
                     for entry in day_dir.iterdir()
                     if entry.is_file() and entry.suffix.lower() == ".dat"
                 ]
+                if sites:
+                    logger.debug(f"[TEC-SUITE] Found flat layout .dat files: {sites}")
 
             if sites:
                 sites.sort()
