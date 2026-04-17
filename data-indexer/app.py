@@ -30,6 +30,7 @@ from data_indexer import (
     list_tecsuite_output_structure,
     list_parquet_output_structure,
     list_parquet_satellite_structure,
+    stop_all_watchers,
 )
 
 # Configure logging to show DEBUG messages
@@ -87,6 +88,12 @@ async def startup_event():
 
         # Run indexing in background to not block startup
         asyncio.create_task(index_all())
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop filesystem watchers cleanly on service shutdown."""
+    stop_all_watchers()
 
 @app.get('/health')
 def health():

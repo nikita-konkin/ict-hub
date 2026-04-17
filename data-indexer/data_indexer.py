@@ -54,6 +54,7 @@ _refresh_in_progress: set[str] = set()
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
 _parquet_sat_cache: dict[str, tuple[float, list]] = {}
+_watch_lock = threading.Lock()
 
 
 def _init_cache_db():
@@ -198,6 +199,78 @@ class AbsTecYearInfo(TypedDict):
     days: list[AbsTecDayInfo]
 
 
+if WATCHDOG_AVAILABLE:
+    class _RootChangeHandler(FileSystemEventHandler):
+        """Invalidate a watched root when filesystem events arrive."""
+
+        def __init__(self, host_root: str):
+            self.host_root = host_root
+
+        def on_any_event(self, event):
+            _cache_invalidated[self.host_root] = True
+            logger.info(
+                "[WATCHER] Change detected for %s via %s on %s",
+                self.host_root,
+                event.event_type,
+                event.src_path,
+            )
+
+
+def _ensure_watcher(host_root: str, root: Path) -> None:
+    """Start a watchdog observer for a root if watchdog is available."""
+    if not WATCHDOG_AVAILABLE:
+        return
+
+    with _watch_lock:
+        if host_root in _observers:
+            return
+
+        observer = Observer()
+        observer.schedule(_RootChangeHandler(host_root), str(root), recursive=True)
+        observer.start()
+        _observers[host_root] = observer
+        _cache_invalidated.setdefault(host_root, False)
+        logger.info("[WATCHER] Started observer for %s", host_root)
+
+
+def stop_all_watchers() -> None:
+    """Stop all filesystem observers during service shutdown."""
+    if not WATCHDOG_AVAILABLE:
+        return
+
+    with _watch_lock:
+        observers = list(_observers.items())
+        _observers.clear()
+
+    for host_root, observer in observers:
+        try:
+            observer.stop()
+            observer.join(timeout=5)
+            logger.info("[WATCHER] Stopped observer for %s", host_root)
+        except Exception as exc:
+            logger.warning("[WATCHER] Failed to stop observer for %s: %s", host_root, exc)
+
+
+def _refresh_invalidated_cache(
+    cache_type: str,
+    host_root: str,
+    root: Path,
+    scan_fn,
+    cache_dict: dict,
+):
+    """Refresh a cache synchronously after a filesystem event invalidates it."""
+    if not _cache_invalidated.get(host_root):
+        return None
+
+    logger.info("[%s] Cache invalidated for %s - rescanning now", cache_type.upper(), host_root)
+    result = scan_fn(root)
+    ts = time.monotonic()
+    cache_dict[host_root] = (ts, result)
+    _save_cache_to_db(cache_type, host_root, (ts, result))
+    _cache_invalidated[host_root] = False
+    return result
+
+
 def _day_sort_key(name: str) -> tuple[int, int, str]:
     """Sort days numerically. For MM/DD format, sort by month then day. For DOY, sort numerically."""
     if '/' in name:
@@ -300,6 +373,11 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
     if not root.exists() or not root.is_dir():
         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
         return []
+
+    _ensure_watcher(host_root, root)
+    invalidated_result = _refresh_invalidated_cache('rinex', host_root, root, _scan_rinex, _rinex_cache)
+    if invalidated_result is not None:
+        return invalidated_result
 
     now = time.monotonic()
     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
@@ -591,6 +669,12 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     if not root.exists() or not root.is_dir():
         return []
 
+    _ensure_watcher(host_root, root)
+    scan_root = root / "in" if (root / "in").is_dir() else root
+    invalidated_result = _refresh_invalidated_cache('tecsuite', host_root, scan_root, _scan_tecsuite, _tecsuite_cache)
+    if invalidated_result is not None:
+        return invalidated_result
+
     now = time.monotonic()
     cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
 
@@ -601,13 +685,11 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
             return cached_result
 
         logger.info(f"[TEC-SUITE] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        scan_root = root / "in" if (root / "in").is_dir() else root
         _trigger_background_refresh('tecsuite', host_root, scan_root, _scan_tecsuite, _tecsuite_cache)
         return cached_result
 
     # Cold start
     logger.info(f"[TEC-SUITE] Cold start scan for {host_root}")
-    scan_root = root / "in" if (root / "in").is_dir() else root
     result = _scan_tecsuite(scan_root)
     ts = time.monotonic()
     _tecsuite_cache[host_root] = (ts, result)
@@ -650,6 +732,11 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
     root = Path(host_root)
     if not root.exists() or not root.is_dir():
         return []
+
+    _ensure_watcher(host_root, root)
+    invalidated_result = _refresh_invalidated_cache('parquet', host_root, root, _scan_parquet, _parquet_cache)
+    if invalidated_result is not None:
+        return invalidated_result
 
     now = time.monotonic()
     cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
@@ -709,6 +796,11 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
     root = Path(host_root)
     if not root.exists() or not root.is_dir():
         return []
+
+    _ensure_watcher(host_root, root)
+    invalidated_result = _refresh_invalidated_cache('parquet_sat', host_root, root, _scan_parquet_satellites, _parquet_sat_cache)
+    if invalidated_result is not None:
+        return invalidated_result
 
     now = time.monotonic()
     cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
