@@ -48,6 +48,13 @@
     color: var(--text);
     font-weight: 500;
   }
+  #data-query-url,
+  #plot-query-url {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+  }
 </style>
 
 <div class="grid-2" style="align-items:start;">
@@ -196,6 +203,7 @@
               <option value="plots/cb/multi-station">GET /plots/cb/multi-station — Plot Cb Multi Station</option>
               <option value="plots/cb/vs-tec">GET /plots/cb/vs-tec — Plot Cb vs Tec</option>
               <option value="plots/cb/per-station-averages">GET /plots/cb/per-station-averages/{doy} — Plot Cb Per Station Avg</option>
+              <option value="plots/cb/raw/day-by-day">GET /plots/cb/raw/day-by-day - Plot Cb Raw Day By Day</option>
             </optgroup>
           </select>
         </div>
@@ -267,7 +275,11 @@
         <div class="divider" style="margin:4px 0 0;"></div>
         <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">{{ t('analysis_plot_options') }}</div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="plot-alpha">{{ t('analysis_label_alpha') }}</label>
+            <input id="plot-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+          </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-show-ci">{{ t('analysis_label_show_ci') }}</label>
             <select id="plot-show-ci" class="form-select">
@@ -345,6 +357,7 @@
           <button type="submit" class="btn btn-primary">{{ t('analysis_render_plot') }}</button>
           <button type="button" id="plot-open-new" class="btn btn-ghost">{{ t('analysis_open_new_tab') }}</button>
         </div>
+        <div id="plot-fetch-msg" style="margin-top:8px; font-size:12px; color:var(--text-muted);"></div>
       </form>
 
       <div id="plot-requirements-msg" class="param-hint"></div>
@@ -412,6 +425,7 @@
       rows: [],
       lastDataUrl: "",
       lastPlotUrl: "",
+      lastPlotObjectUrl: "",
       lastPlotPayload: {},
       indexOptions: {
         absoltec: { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} },
@@ -509,7 +523,7 @@
     const plotEndpointRules = {
       "plots/absoltec/average": {
         required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
-        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/absoltec/day": {
         required: ["plot-year", "plot-doy", "plot-station"],
@@ -521,7 +535,7 @@
       },
       "plots/absoltec/per-station-averages": {
         required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
-        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/tec/satellite": {
         required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
@@ -529,27 +543,31 @@
       },
       "plots/cb/average": {
         required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
-        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/cb/day": {
         required: ["plot-year", "plot-doy", "plot-station"],
-        relevant: ["plot-year", "plot-doy", "plot-station", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        relevant: ["plot-year", "plot-doy", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/cb/multi-station": {
-        required: ["plot-year", "plot-doy", "plot-stations"],
-        relevant: ["plot-year", "plot-doy", "plot-stations", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/cb/vs-tec": {
-        required: ["plot-year", "plot-doy", "plot-station"],
-        relevant: ["plot-year", "plot-doy", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/cb/per-station-averages": {
         required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
-        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+        relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/absoltec/raw/day-by-day": {
         required: ["plot-year", "plot-doy-start", "plot-doy-end"],
         relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-columns", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/raw/day-by-day": {
+        required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/tec/sky-track": {
         required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
@@ -583,6 +601,7 @@
       "plot-stations": "stations",
       "plot-columns": "columns",
       "plot-satellite": "satellite",
+      "plot-alpha": "alpha",
       "plot-format": "format",
       "plot-show-ci": "show_ci",
       "plot-show-var": "show_var",
@@ -649,6 +668,36 @@
         return;
       }
       el.style.color = "var(--text-muted)";
+    }
+
+    function setPlotFetchStatus(kind, text) {
+      const el = document.getElementById("plot-fetch-msg");
+      if (!el) return;
+      el.textContent = text || "";
+      if (!text) {
+        el.style.color = "var(--text-muted)";
+        return;
+      }
+      if (kind === "error") {
+        el.style.color = "var(--danger-text)";
+        return;
+      }
+      if (kind === "success") {
+        el.style.color = "var(--success-text)";
+        return;
+      }
+      el.style.color = "var(--text-muted)";
+    }
+
+    function formatBackendError(payload, fallbackStatus) {
+      if (payload && Array.isArray(payload.detail) && payload.detail.length) {
+        return payload.detail.map(function (item) {
+          const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
+          const msg = clean(item.msg) || clean(item.type) || "Request error";
+          return loc ? (loc + ": " + msg) : msg;
+        }).join(" | ");
+      }
+      return "Request failed" + (fallbackStatus ? ": " + fallbackStatus : "");
     }
 
     function fillSelect(selectId, values, selectedValue) {
@@ -824,7 +873,7 @@
 
       const msg = document.getElementById("plot-requirements-msg");
       const requiredNames = rule.required.map((id) => plotFieldLabels[id]).join(", ");
-      const note = endpoint === "plots/absoltec/per-station-averages"
+      const note = endpoint === "plots/absoltec/per-station-averages" || endpoint === "plots/cb/per-station-averages"
         ? " (path doy uses DOY field)"
         : "";
       msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>" + note;
@@ -878,7 +927,7 @@
     function buildPlotUrl() {
       const endpointName = document.getElementById("plot-endpoint").value;
       const doyPath = clean(document.getElementById("plot-doy").value) || "1";
-      const endpoint = endpointName === "plots/absoltec/per-station-averages"
+      const endpoint = (endpointName === "plots/absoltec/per-station-averages" || endpointName === "plots/cb/per-station-averages")
         ? endpointName + "/" + encodeURIComponent(doyPath)
         : endpointName;
       const params = new URLSearchParams();
@@ -894,7 +943,7 @@
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
-        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
         qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
         qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
       } else if (endpointName === "plots/absoltec/day") {
@@ -911,7 +960,7 @@
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppendCsvArray(params, "stations", stations);
-        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
         qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
         qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
       } else if (endpointName === "plots/absoltec/raw/day-by-day") {
@@ -924,29 +973,33 @@
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
-        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
         qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
         qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
       } else if (endpointName === "plots/cb/day") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
-        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
-        qpAppend(params, "poly", document.getElementById("plot-poly").value);
       } else if (endpointName === "plots/cb/multi-station") {
-        qpAppend(params, "doy", doy);
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
         qpAppendCsvArray(params, "stations", stations);
-        qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
-        qpAppend(params, "poly", document.getElementById("plot-poly").value);
       } else if (endpointName === "plots/cb/vs-tec") {
-        qpAppend(params, "doy", doy);
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
       } else if (endpointName === "plots/cb/per-station-averages") {
         qpAppend(params, "doy_start", doyStart);
         qpAppend(params, "doy_end", doyEnd);
         qpAppendCsvArray(params, "stations", stations);
-        qpAppend(params, "alpha", document.getElementById("data-alpha").value);
+        qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
         qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
         qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+      } else if (endpointName === "plots/cb/raw/day-by-day") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", stations);
       } else if (endpointName === "plots/tec/satellite") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
@@ -959,7 +1012,6 @@
         qpAppend(params, "satellite", satellite);
         qpAppend(params, "color_by_tec", document.getElementById("plot-color-by-tec").value);
         qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
-        qpAppend(params, "size_px", document.getElementById("plot-size-px").value);
       } else if (endpointName === "plots/tec/all-satellites") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
@@ -967,9 +1019,20 @@
         qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
       }
 
-      qpAppend(params, "width_px", document.getElementById("plot-width-px").value);
-      qpAppend(params, "height_px", document.getElementById("plot-height-px").value);
-      qpAppend(params, "dpi", document.getElementById("plot-dpi").value);
+      const rule = plotEndpointRules[endpointName] || { relevant: [] };
+      const relevant = new Set(rule.relevant || []);
+      if (relevant.has("plot-width-px")) {
+        qpAppend(params, "width_px", document.getElementById("plot-width-px").value);
+      }
+      if (relevant.has("plot-height-px")) {
+        qpAppend(params, "height_px", document.getElementById("plot-height-px").value);
+      }
+      if (relevant.has("plot-size-px")) {
+        qpAppend(params, "size_px", document.getElementById("plot-size-px").value);
+      }
+      if (relevant.has("plot-dpi")) {
+        qpAppend(params, "dpi", document.getElementById("plot-dpi").value);
+      }
       qpAppend(params, "format", document.getElementById("plot-format").value);
       return "/analysis/api/" + endpoint + "?" + params.toString();
     }
@@ -1487,6 +1550,7 @@
       const url = buildPlotUrl();
       state.lastPlotUrl = url;
       document.getElementById("plot-query-url").textContent = url;
+      setPlotFetchStatus("info", "Fetching...");
 
       const viewer = document.getElementById("plot-viewer");
       const empty = document.getElementById("plot-empty");
@@ -1497,6 +1561,7 @@
 
       if (format === "script") {
         window.open(url, "_blank");
+        setPlotFetchStatus("info", "Opened in new tab.");
         return;
       }
 
@@ -1510,19 +1575,36 @@
         window.Plotly.purge(plotlyChart);
       }
 
-      if (format === "png") {
-        img.src = url + "&_t=" + Date.now();
-        img.style.display = "block";
-        return;
-      }
-
       try {
-        const res = await fetch(url, { credentials: "same-origin" });
+        const res = await fetch(url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
         if (!res.ok) {
-          pre.textContent = "Request failed: " + res.status;
+          const responseText = await res.text();
+          let payload = null;
+          try {
+            payload = JSON.parse(responseText);
+          } catch (_) {
+            payload = null;
+          }
+          const errorText = payload ? formatBackendError(payload, res.status) : ("Request failed: " + res.status);
+          setPlotFetchStatus("error", errorText);
+          pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
           pre.style.display = "block";
           return;
         }
+
+        if (format === "png") {
+          const blob = await res.blob();
+          if (state.lastPlotObjectUrl) {
+            URL.revokeObjectURL(state.lastPlotObjectUrl);
+          }
+          const objectUrl = URL.createObjectURL(blob);
+          state.lastPlotObjectUrl = objectUrl;
+          img.src = objectUrl;
+          img.style.display = "block";
+          setPlotFetchStatus("success", "OK (Fetched)");
+          return;
+        }
+
         const responseText = await res.text();
         let payload = null;
         try {
@@ -1544,6 +1626,7 @@
         if (!payload) {
           pre.textContent = responseText;
           pre.style.display = "block";
+          setPlotFetchStatus("success", "OK (Fetched)");
           return;
         }
 
@@ -1571,9 +1654,11 @@
             pre.style.display = "block";
           }
         }
+        setPlotFetchStatus("success", "OK (Fetched)");
       } catch (err) {
         pre.textContent = "Error: " + err;
         pre.style.display = "block";
+        setPlotFetchStatus("error", "Error: " + err);
       }
     }
 
@@ -1694,6 +1779,14 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/satellite</span> — Plot Tec Satellite</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/sky-track</span> — Plot Tec Sky</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/tec/all-satellites</span> — Plot Tec All Satellites</div>
+
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/average</span> - Plot Cb Average</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/day</span> - Plot Cb Day</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/multi-station</span> - Plot Cb Multi Station</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/vs-tec</span> - Plot Cb vs Tec</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/per-station-averages/{doy}</span> - Plot Cb Per Station Avg</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/raw/day-by-day</span> - Plot Cb Raw Day By Day</div>
+
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Stations</div>

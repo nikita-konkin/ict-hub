@@ -120,3 +120,34 @@ def test_analysis_proxy_forwards_api_request(client: TestClient, monkeypatch):
         assert response.headers["cache-control"] == "no-store"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        response = client.get("/analysis")
+        assert response.status_code == 200
+
+        html = response.text
+        assert 'value="plots/cb/raw/day-by-day"' in html
+        assert 'id="plot-alpha"' in html
+        assert 'id="plot-fetch-msg"' in html
+        assert '"plots/cb/multi-station": {' in html
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end"]' in html
+        assert '"plots/cb/vs-tec": {' in html
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in html
+        assert 'endpointName === "plots/cb/raw/day-by-day"' in html
+        assert 'endpointName === "plots/cb/per-station-averages")' in html
+        assert 'function formatBackendError(payload, fallbackStatus)' in html
+        assert 'setPlotFetchStatus("success", "OK (Fetched)")' in html
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
