@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_indexed_data') }} — {{ t('app_name') }}{% endblock %}
+
+{% macro tree_empty_message(enabled, root) -%}
+  {% if not enabled %}
+    {{ t('indexed_data_disabled') }}
+  {% elif not root %}
+    {{ t('nav_indexed_data_not_configured') }}
+  {% else %}
+    {{ t('indexed_data_empty') }}
+  {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ t('nav_indexed_data') }}</h1>
+  <p class="page-subtitle">{{ t('indexed_data_subtitle') }}</p>
+</div>
+
+{% if not data_indexer_enabled %}
+  <div class="card" style="margin-bottom:18px;">
+    <div style="font-size:13px; color:var(--text-muted);">
+      {{ t('indexed_data_disabled_detail') }}
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="card">
+    <div class="flex-between" style="margin-bottom:10px;">
+      <div style="font-family:var(--font-display); font-size:18px; color:var(--text);">RINEX</div>
+      <div class="badge badge-muted">{{ roots.rinex if roots.rinex else t('nav_indexed_data_not_configured') }}</div>
+    </div>
+    {% if rinex_tree %}
+      <div style="max-height:420px; overflow:auto; padding-right:6px;">
+        {% for year in rinex_tree %}
+          <details style="margin-bottom:8px;">
+            <summary class="td-mono" style="cursor:pointer;">{{ year.year }}</summary>
+            <div style="margin-top:8px;">
+              {% if year.days %}
+                <ul style="margin:0; padding-left:18px;">
+                  {% for day in year.days %}
+                    <li class="td-mono" style="color:var(--text-muted); font-size:12px;">
+                      {{ day.day }} <span style="color:var(--text-dim);">({{ day.stations }} stations)</span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <div style="font-size:12px; color:var(--text-muted);">{{ t('indexed_data_no_days') }}</div>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">{{ tree_empty_message(data_indexer_enabled, roots.rinex) }}</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="flex-between" style="margin-bottom:10px;">
+      <div style="font-family:var(--font-display); font-size:18px; color:var(--text);">TEC-suite</div>
+      <div class="badge badge-muted">{{ roots.tecsuite if roots.tecsuite else t('nav_indexed_data_not_configured') }}</div>
+    </div>
+    {% if tecsuite_tree %}
+      <div style="max-height:420px; overflow:auto; padding-right:6px;">
+        {% for year in tecsuite_tree %}
+          <details style="margin-bottom:8px;">
+            <summary class="td-mono" style="cursor:pointer;">{{ year.year }}</summary>
+            <div style="margin-top:8px;">
+              {% if year.days %}
+                {% for day in year.days %}
+                  <details style="margin-bottom:6px; margin-left:10px;">
+                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;">
+                      {{ day.day }} <span style="color:var(--text-dim);">({{ (day.sites|length) if day.sites else 0 }} sites)</span>
+                    </summary>
+                    {% if day.sites %}
+                      <div style="margin-top:6px;">
+                        <div class="td-mono" style="color:var(--text-muted); font-size:12px; line-height:1.4; word-break:break-word;">
+                          {{ day.sites|join(', ') }}
+                        </div>
+                      </div>
+                    {% endif %}
+                  </details>
+                {% endfor %}
+              {% else %}
+                <div style="font-size:12px; color:var(--text-muted);">{{ t('indexed_data_no_days') }}</div>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">{{ tree_empty_message(data_indexer_enabled, roots.tecsuite) }}</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="flex-between" style="margin-bottom:10px;">
+      <div style="font-family:var(--font-display); font-size:18px; color:var(--text);">AbsTEC</div>
+      <div class="badge badge-muted">{{ roots.abstec if roots.abstec else t('nav_indexed_data_not_configured') }}</div>
+    </div>
+    {% if abstec_tree %}
+      <div style="max-height:420px; overflow:auto; padding-right:6px;">
+        {% for year in abstec_tree %}
+          <details style="margin-bottom:8px;">
+            <summary class="td-mono" style="cursor:pointer;">{{ year.year }}</summary>
+            <div style="margin-top:8px;">
+              {% if year.days %}
+                {% for day in year.days %}
+                  <details style="margin-bottom:6px; margin-left:10px;">
+                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;">
+                      {{ day.day }} <span style="color:var(--text-dim);">({{ (day.sites|length) if day.sites else 0 }} sites)</span>
+                    </summary>
+                    {% if day.sites %}
+                      <div style="margin-top:6px;">
+                        <div class="td-mono" style="color:var(--text-muted); font-size:12px; line-height:1.4; word-break:break-word;">
+                          {{ day.sites|join(', ') }}
+                        </div>
+                      </div>
+                    {% endif %}
+                  </details>
+                {% endfor %}
+              {% else %}
+                <div style="font-size:12px; color:var(--text-muted);">{{ t('indexed_data_no_days') }}</div>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">{{ tree_empty_message(data_indexer_enabled, roots.abstec) }}</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div style="font-family:var(--font-display); font-size:18px; color:var(--text); margin-bottom:10px;">Parquet</div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px; color:var(--text); margin-bottom:4px;">TEC-suite</div>
+      <div class="badge badge-muted" style="margin-bottom:10px; display:inline-block;">{{ roots.parquet_tecsuite if roots.parquet_tecsuite else t('nav_indexed_data_not_configured') }}</div>
+      {% if parquet_tecsuite_tree %}
+        <div style="max-height:180px; overflow:auto; padding-right:6px;">
+          {% for year in parquet_tecsuite_tree %}
+            <details style="margin-bottom:6px;">
+              <summary class="td-mono" style="cursor:pointer;">{{ year.year }}</summary>
+              {% if year.days %}
+                <div class="td-mono" style="color:var(--text-muted); font-size:12px; margin-top:6px; word-break:break-word;">
+                  {{ year.days|join(', ') }}
+                </div>
+              {% endif %}
+            </details>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+          {{ tree_empty_message(data_indexer_enabled, roots.parquet_tecsuite) }}
+        </div>
+      {% endif %}
+    </div>
+
+    <div>
+      <div style="font-size:12px; color:var(--text); margin-bottom:4px;">AbsTEC</div>
+      <div class="badge badge-muted" style="margin-bottom:10px; display:inline-block;">{{ roots.parquet_abstec if roots.parquet_abstec else t('nav_indexed_data_not_configured') }}</div>
+      {% if parquet_abstec_tree %}
+        <div style="max-height:180px; overflow:auto; padding-right:6px;">
+          {% for year in parquet_abstec_tree %}
+            <details style="margin-bottom:6px;">
+              <summary class="td-mono" style="cursor:pointer;">{{ year.year }}</summary>
+              {% if year.days %}
+                <div class="td-mono" style="color:var(--text-muted); font-size:12px; margin-top:6px; word-break:break-word;">
+                  {{ year.days|join(', ') }}
+                </div>
+              {% endif %}
+            </details>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div style="font-size:12px; color:var(--text-muted);">
+          {{ tree_empty_message(data_indexer_enabled, roots.parquet_abstec) }}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+

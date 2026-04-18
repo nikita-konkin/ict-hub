@@ -244,6 +244,19 @@ async def list_tecsuite_output_structure_async(host_root: str) -> list[dict[str,
     return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
 
 
+async def list_abstec_output_structure_async(host_root: str) -> list[dict[str, object]]:
+    """Async AbsTEC variant of list_tecsuite_output_structure_async (same structure)."""
+    cache_key = ("abstec", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
+
+    root = await _fetch_xml_async("abstec", host_root)
+    if root is None:
+        return []
+
+    return _set_cache("abstec", host_root, _parse_tecsuite_root(root))
+
+
 async def list_parquet_output_structure_async(host_root: str) -> list[dict[str, object]]:
     cache_key = ("parquet", host_root)
     if cache_key in _cache:
@@ -280,6 +293,19 @@ def list_tecsuite_output_structure(host_root: str) -> list[dict[str, object]]:
         return []
 
     return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
+
+
+def list_abstec_output_structure(host_root: str) -> list[dict[str, object]]:
+    """Return AbsTEC tree from data-indexer /abstec endpoint (same structure as tecsuite)."""
+    cache_key = ("abstec", host_root)
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    root = _fetch_xml("abstec", host_root)
+    if root is None:
+        return []
+
+    return _set_cache("abstec", host_root, _parse_tecsuite_root(root))
 
 
 def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:

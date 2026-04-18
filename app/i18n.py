@@ -7,6 +7,8 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import Response
 
+from app import config as cfg
+
 DEFAULT_LANG = "en"
 SUPPORTED_LANGS = {"en", "ru"}
 COOKIE_NAME = "ch_lang"
@@ -19,6 +21,14 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_dashboard": "Dashboard",
         "nav_history": "History",
         "nav_analysis": "Data Analysis",
+        "nav_indexed_data": "Indexed data",
+        "nav_indexed_data_roots": "Indexed roots",
+        "nav_indexed_data_not_configured": "Not configured",
+        "indexed_data_subtitle": "Browse which folder trees were indexed for RINEX, TEC-suite, AbsTEC, and Parquet outputs.",
+        "indexed_data_disabled": "Data indexer not configured",
+        "indexed_data_disabled_detail": "DATA_INDEXER_URL is not configured, so indexed folder trees cannot be displayed.",
+        "indexed_data_empty": "No indexed entries returned (yet).",
+        "indexed_data_no_days": "No days found.",
         "nav_converters": "Converters",
         "nav_admin": "Admin",
         "nav_users": "Users",
@@ -130,12 +140,20 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "flag_help_day_to": "Optional inclusive end day-of-year filter (1..366).",
     },
     "ru": {
+        "nav_indexed_data_roots": "Корневые пути",
+        "indexed_data_subtitle": "Просмотр дерева папок, которое было проиндексировано для RINEX, TEC-suite, AbsTEC и Parquet-выходов.",
+        "indexed_data_disabled": "Индексатор данных не настроен",
+        "indexed_data_disabled_detail": "Переменная DATA_INDEXER_URL не настроена, поэтому дерево индексированных папок показать нельзя.",
+        "indexed_data_empty": "Индексатор пока не вернул записи.",
+        "indexed_data_no_days": "Дни не найдены.",
         "app_name": "ИоноПоток",
         "app_subtitle": "Пакет обработки данных",
         "nav_overview": "Обзор",
         "nav_dashboard": "Панель",
         "nav_history": "История",
         "nav_analysis": "Аналитика данных",
+        "nav_indexed_data": "Индексированные данные",
+        "nav_indexed_data_not_configured": "Не настроено",
         "nav_converters": "Конвертеры",
         "nav_admin": "Администрирование",
         "nav_users": "Пользователи",
@@ -286,6 +304,14 @@ def template_context(request: Request, context: Mapping[str, Any] | None = None,
     if context:
         merged.update(dict(context))
     merged.update(kwargs)
+
+    merged["indexed_data_paths"] = {
+        "rinex": cfg.RINEX_DATA_PATH_HOST.strip(),
+        "tecsuite": cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip(),
+        "abstec": cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip(),
+        "parquet_tecsuite": cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip(),
+        "parquet_abstec": cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip(),
+    }
 
     def _t(key: str, **fmt_kwargs: Any) -> str:
         return translate(lang, key, **fmt_kwargs)

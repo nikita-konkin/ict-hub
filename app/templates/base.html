@@ -243,6 +243,43 @@
       font-size: 12px;
     }
 
+    /* Indexed data (sidebar Overview section) */
+    .indexed-data-list {
+      padding: 0 24px 12px;
+    }
+
+    .indexed-data-item {
+      margin-bottom: 10px;
+    }
+
+    .indexed-data-name {
+      font-size: 11px;
+      color: var(--text);
+      letter-spacing: 0.01em;
+      margin-bottom: 3px;
+    }
+
+    .indexed-data-path {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      word-break: break-all;
+      line-height: 1.25;
+    }
+
+    .indexed-data-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.25;
+      margin-top: 3px;
+      word-break: break-all;
+    }
+
+    .indexed-data-sub-label {
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+    }
+
     .sidebar-footer {
       padding: 20px 24px;
       border-top: 1px solid var(--border);
@@ -878,6 +915,43 @@
         </svg>
         {{ t('nav_analysis') }}
       </a>
+      <a href="/indexed-data" class="nav-link {% if '/indexed-data' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 5.5h12v8H2z"/><path d="M2 5.5l2-2h4l2 2"/>
+        </svg>
+        {{ t('nav_indexed_data') }}
+      </a>
+
+      {% set idx = indexed_data_paths if indexed_data_paths is defined else {} %}
+      {% set not_cfg = t('nav_indexed_data_not_configured') %}
+      <div class="nav-section-label">{{ t('nav_indexed_data_roots') }}</div>
+      <div class="indexed-data-list">
+        <div class="indexed-data-item">
+          <div class="indexed-data-name">RINEX</div>
+          <div class="indexed-data-path" title="{{ idx.rinex if idx.rinex else not_cfg }}">{{ idx.rinex if idx.rinex else not_cfg }}</div>
+        </div>
+        <div class="indexed-data-item">
+          <div class="indexed-data-name">TEC-suite</div>
+          <div class="indexed-data-path" title="{{ idx.tecsuite if idx.tecsuite else not_cfg }}">{{ idx.tecsuite if idx.tecsuite else not_cfg }}</div>
+        </div>
+        <div class="indexed-data-item">
+          <div class="indexed-data-name">AbsTEC</div>
+          <div class="indexed-data-path" title="{{ idx.abstec if idx.abstec else not_cfg }}">{{ idx.abstec if idx.abstec else not_cfg }}</div>
+        </div>
+        <div class="indexed-data-item">
+          <div class="indexed-data-name">Parquet</div>
+          {% if idx.parquet_tecsuite or idx.parquet_abstec %}
+            {% if idx.parquet_tecsuite %}
+              <div class="indexed-data-sub" title="{{ idx.parquet_tecsuite }}"><span class="indexed-data-sub-label">TEC-suite:</span> {{ idx.parquet_tecsuite }}</div>
+            {% endif %}
+            {% if idx.parquet_abstec %}
+              <div class="indexed-data-sub" title="{{ idx.parquet_abstec }}"><span class="indexed-data-sub-label">AbsTEC:</span> {{ idx.parquet_abstec }}</div>
+            {% endif %}
+          {% else %}
+            <div class="indexed-data-path">{{ not_cfg }}</div>
+          {% endif %}
+        </div>
+      </div>
 
       <div class="nav-section-label">{{ t('nav_converters') }}</div>
       {% for name, conv in converters.items() %}

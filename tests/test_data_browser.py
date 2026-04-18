@@ -62,6 +62,24 @@ def test_tecsuite_xml_parsing(monkeypatch) -> None:
     assert result == [{"year": "2026", "days": [{"day": "003", "sites": ["aksu", "alex"]}]}]
 
 
+def test_abstec_xml_parsing(monkeypatch) -> None:
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8" ?>'
+        '<abstec_structure>'
+        '<item><year>2026</year><days>'
+        '<item><day>010</day><sites><item>abcd</item></sites></item>'
+        '</days></item>'
+        '</abstec_structure>'
+    )
+
+    monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
+    monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _MockResponse(xml))
+
+    result = client.list_abstec_output_structure("/mnt/abstec-out")
+
+    assert result == [{"year": "2026", "days": [{"day": "010", "sites": ["abcd"]}]}]
+
+
 def test_parquet_xml_parsing(monkeypatch) -> None:
     xml = (
         '<?xml version="1.0" encoding="UTF-8" ?>'
