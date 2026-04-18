@@ -52,6 +52,7 @@ _CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
 _rinex_cache: dict[str, tuple[float, list]] = {}
 _refresh_in_progress: set[str] = set()
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
+_abstec_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
 _parquet_sat_cache: dict[str, tuple[float, list]] = {}
 _watch_lock = threading.Lock()
@@ -100,6 +101,7 @@ def _load_cache_from_db():
         for cache_type, cache_dict in [
             ('rinex', _rinex_cache),
             ('tecsuite', _tecsuite_cache),
+            ('abstec', _abstec_cache),
             ('parquet', _parquet_cache),
             ('parquet_sat', _parquet_sat_cache)
         ]:
@@ -117,7 +119,9 @@ def _load_cache_from_db():
                     continue  # Skip corrupted entries
 
         conn.close()
-        print(f"Loaded {sum(len(c) for c in [_rinex_cache, _tecsuite_cache, _parquet_cache, _parquet_sat_cache])} cache entries from database")
+        print(
+            f"Loaded {sum(len(c) for c in [_rinex_cache, _tecsuite_cache, _abstec_cache, _parquet_cache, _parquet_sat_cache])} cache entries from database"
+        )
 
     except Exception as e:
         print(f"Warning: Failed to load cache from database: {e}")
@@ -696,6 +700,48 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     _save_cache_to_db('tecsuite', host_root, (ts, result))
     return result
 
+
+def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
+    """
+    Return AbsTEC output structure under host_root.
+
+    Expected layout:
+      <root>/YYYY/DDD/SITE/...
+
+    AbsTEC output does not necessarily contain `.dat` files, so we treat any
+    non-empty SITE directory as indexed.
+    """
+    if not host_root:
+        return []
+    root = Path(host_root)
+    if not root.exists() or not root.is_dir():
+        return []
+
+    _ensure_watcher(host_root, root)
+    invalidated_result = _refresh_invalidated_cache('abstec', host_root, root, _scan_abstec_output, _abstec_cache)
+    if invalidated_result is not None:
+        return invalidated_result
+
+    now = time.monotonic()
+    cached_time, cached_result = _abstec_cache.get(host_root, (None, None))
+
+    if cached_time is not None:
+        cache_age = now - cached_time
+        if cache_age < _CACHE_TTL_SEC:
+            logger.debug(f"[ABSTEC] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
+            return cached_result
+
+        logger.info(f"[ABSTEC] Cache STALE (age: {cache_age:.1f}s) â€” serving old result, refreshing in background")
+        _trigger_background_refresh('abstec', host_root, root, _scan_abstec_output, _abstec_cache)
+        return cached_result
+
+    logger.info(f"[ABSTEC] Cold start scan for {host_root}")
+    result = _scan_abstec_output(root)
+    ts = time.monotonic()
+    _abstec_cache[host_root] = (ts, result)
+    _save_cache_to_db('abstec', host_root, (ts, result))
+    return result
+
 # def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
 #     """
 #     Return parquet output structure under host_root for the year/day UI.
@@ -956,6 +1002,42 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
                 ]
                 if sites:
                     logger.debug(f"[TEC-SUITE] Found flat layout .dat files: {sites}")
+
+            if sites:
+                sites.sort()
+                days.append({"day": day_dir.name.zfill(3), "sites": sites})
+
+        days.sort(key=lambda item: _abstec_day_sort_key(item["day"]))
+        if days:
+            years.append({"year": year_dir.name, "days": days})
+
+    years.sort(key=lambda item: int(item["year"]), reverse=True)
+    return years
+
+
+def _scan_abstec_output(scan_root: Path) -> list[AbsTecYearInfo]:
+    """Scan AbsTEC output roots (YYYY/DDD/SITE/...) without assuming `.dat` files."""
+    years: list[AbsTecYearInfo] = []
+
+    for year_dir in scan_root.iterdir():
+        if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
+            continue
+
+        days: list[AbsTecDayInfo] = []
+        for day_dir in year_dir.iterdir():
+            if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
+                continue
+
+            sites: list[str] = []
+            for site_dir in day_dir.iterdir():
+                if not site_dir.is_dir():
+                    continue
+                try:
+                    has_any = any(True for _ in os.scandir(site_dir))
+                except OSError:
+                    has_any = False
+                if has_any:
+                    sites.append(site_dir.name)
 
             if sites:
                 sites.sort()

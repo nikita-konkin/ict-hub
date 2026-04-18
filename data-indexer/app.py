@@ -28,6 +28,7 @@ import logging
 from data_indexer import (
     list_rinex_server_structure,
     list_tecsuite_output_structure,
+    list_abstec_output_structure,
     list_parquet_output_structure,
     list_parquet_satellite_structure,
     stop_all_watchers,
@@ -78,6 +79,7 @@ async def startup_event():
                 # Index all data types to warm up caches
                 list_rinex_server_structure(DEFAULT_PATHS['rinex'])
                 list_tecsuite_output_structure(DEFAULT_PATHS['tecsuite'])
+                list_abstec_output_structure(DEFAULT_PATHS['abstec'])
                 list_parquet_output_structure(DEFAULT_PATHS['parquet_tecsuite'])
                 list_parquet_satellite_structure(DEFAULT_PATHS['parquet_tecsuite'])
                 list_parquet_output_structure(DEFAULT_PATHS['parquet_abstec'])
@@ -106,7 +108,7 @@ def indexer_status():
     import time
     from data_indexer import (
         _CACHE_TTL_SEC,
-        _rinex_cache, _tecsuite_cache, _parquet_cache, _parquet_sat_cache
+        _rinex_cache, _tecsuite_cache, _abstec_cache, _parquet_cache, _parquet_sat_cache
     )
 
     now = time.monotonic()
@@ -117,6 +119,10 @@ def indexer_status():
         },
         "tecsuite": {
             "entries": len(_tecsuite_cache),
+            "ttl_seconds": _CACHE_TTL_SEC
+        },
+        "abstec": {
+            "entries": len(_abstec_cache),
             "ttl_seconds": _CACHE_TTL_SEC
         },
         "parquet": {
@@ -153,8 +159,8 @@ def tecsuite_index(root: str = Query(default=DEFAULT_PATHS['tecsuite'])):
 
 @app.get('/abstec')
 def abstec_index(root: str = Query(default=DEFAULT_PATHS['abstec'])):
-    """Get AbsTEC output structure as XML (same as tecsuite for now)."""
-    data = list_tecsuite_output_structure(root)
+    """Get AbsTEC output structure as XML."""
+    data = list_abstec_output_structure(root)
     return dict_to_xml_response(data, "abstec_structure")
 
 @app.get('/parquet')
