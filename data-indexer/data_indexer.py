@@ -44,6 +44,19 @@ logger.debug("[MODULE] Debug logging test")
 # Minimum seconds between full re-scans
 _CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
 
+# Max workers used during filesystem scans (I/O bound).
+def _scan_workers() -> int:
+    raw = os.getenv("DATA_INDEXER_SCAN_WORKERS", "").strip()
+    if not raw:
+        cpu = os.cpu_count() or 4
+        return max(1, min(8, cpu))
+    try:
+        value = int(raw)
+    except ValueError:
+        cpu = os.cpu_count() or 4
+        return max(1, min(8, cpu))
+    return max(1, min(32, value))
+
 # Persistent cache database path
 _CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
 
@@ -627,7 +640,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         return {"year": year_entry.name, "days": days}  # ← uses its OWN year_entry
 
     # Step 3: run all year scans in parallel
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=_scan_workers()) as executor:
         results = list(executor.map(scan_year, year_entries))
 
     years = [r for r in results if r is not None]
@@ -675,7 +688,7 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
 
     _ensure_watcher(host_root, root)
     scan_root = root / "in" if (root / "in").is_dir() else root
-    invalidated_result = _refresh_invalidated_cache('tecsuite', host_root, scan_root, _scan_tecsuite, _tecsuite_cache)
+    invalidated_result = _refresh_invalidated_cache('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
     if invalidated_result is not None:
         return invalidated_result
 
@@ -689,12 +702,12 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
             return cached_result
 
         logger.info(f"[TEC-SUITE] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('tecsuite', host_root, scan_root, _scan_tecsuite, _tecsuite_cache)
+        _trigger_background_refresh('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
         return cached_result
 
     # Cold start
     logger.info(f"[TEC-SUITE] Cold start scan for {host_root}")
-    result = _scan_tecsuite(scan_root)
+    result = _scan_tecsuite_parallel(scan_root)
     ts = time.monotonic()
     _tecsuite_cache[host_root] = (ts, result)
     _save_cache_to_db('tecsuite', host_root, (ts, result))
@@ -718,7 +731,7 @@ def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
         return []
 
     _ensure_watcher(host_root, root)
-    invalidated_result = _refresh_invalidated_cache('abstec', host_root, root, _scan_abstec_output, _abstec_cache)
+    invalidated_result = _refresh_invalidated_cache('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
     if invalidated_result is not None:
         return invalidated_result
 
@@ -732,11 +745,11 @@ def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
             return cached_result
 
         logger.info(f"[ABSTEC] Cache STALE (age: {cache_age:.1f}s) â€” serving old result, refreshing in background")
-        _trigger_background_refresh('abstec', host_root, root, _scan_abstec_output, _abstec_cache)
+        _trigger_background_refresh('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
         return cached_result
 
     logger.info(f"[ABSTEC] Cold start scan for {host_root}")
-    result = _scan_abstec_output(root)
+    result = _scan_abstec_output_parallel(root)
     ts = time.monotonic()
     _abstec_cache[host_root] = (ts, result)
     _save_cache_to_db('abstec', host_root, (ts, result))
@@ -844,7 +857,7 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
         return []
 
     _ensure_watcher(host_root, root)
-    invalidated_result = _refresh_invalidated_cache('parquet_sat', host_root, root, _scan_parquet_satellites, _parquet_sat_cache)
+    invalidated_result = _refresh_invalidated_cache('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
     if invalidated_result is not None:
         return invalidated_result
 
@@ -858,12 +871,12 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
             return cached_result
 
         logger.info(f"[PARQUET-SAT] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('parquet_sat', host_root, root, _scan_parquet_satellites, _parquet_sat_cache)
+        _trigger_background_refresh('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
         return cached_result
 
     # Cold start
     logger.info(f"[PARQUET-SAT] Cold start scan for {host_root}")
-    result = _scan_parquet_satellites(root)
+    result = _scan_parquet_satellites_parallel(root)
     ts = time.monotonic()
     _parquet_sat_cache[host_root] = (ts, result)
     _save_cache_to_db('parquet_sat', host_root, (ts, result))
@@ -871,25 +884,77 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
 
 def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""
-    years: list[dict[str, object]] = []
+    with os.scandir(root) as it:
+        year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
 
-    for year_dir in root.iterdir():
-        if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
-            continue
-
+    def scan_year(year_dir: Path) -> dict[str, object] | None:
         logger.debug(f"[PARQUET] Scanning year directory: {year_dir}")
         days: list[str] = []
-        for day_dir in year_dir.iterdir():
-            if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
-                continue
-            logger.debug(f"[PARQUET] Scanning day directory: {day_dir}")
-            days.append(day_dir.name.zfill(3))
+        try:
+            with os.scandir(year_dir) as it2:
+                for entry in it2:
+                    if entry.is_dir() and ABSTEC_DAY_DIR_RE.fullmatch(entry.name):
+                        days.append(entry.name.zfill(3))
+        except OSError:
+            return None
 
-        if days:
-            days.sort(key=lambda d: _abstec_day_sort_key(d))
-            years.append({"year": year_dir.name, "days": days})
+        if not days:
+            return None
+        days.sort(key=lambda d: _abstec_day_sort_key(d))
+        return {"year": year_dir.name, "days": days}
 
+    with ThreadPoolExecutor(max_workers=_scan_workers()) as executor:
+        results = list(executor.map(scan_year, year_dirs))
+
+    years = [r for r in results if r is not None]
     years.sort(key=lambda item: int(str(item["year"])), reverse=True)
+    return years
+
+
+def _scan_abstec_output_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
+    """Parallel scan variant for AbsTEC output roots (YYYY/DDD/SITE/...)."""
+    with os.scandir(scan_root) as it:
+        year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+
+    def scan_year(year_dir: Path) -> AbsTecYearInfo | None:
+        days: list[AbsTecDayInfo] = []
+        try:
+            with os.scandir(year_dir) as it2:
+                day_dirs = [Path(e.path) for e in it2 if e.is_dir() and ABSTEC_DAY_DIR_RE.fullmatch(e.name)]
+        except OSError:
+            return None
+
+        for day_dir in day_dirs:
+            sites: list[str] = []
+            try:
+                with os.scandir(day_dir) as it3:
+                    site_entries = [e for e in it3 if e.is_dir()]
+            except OSError:
+                continue
+
+            for entry in site_entries:
+                try:
+                    has_any = any(True for _ in os.scandir(entry.path))
+                except OSError:
+                    has_any = False
+                if has_any:
+                    sites.append(entry.name)
+
+            if sites:
+                sites.sort()
+                days.append({"day": day_dir.name.zfill(3), "sites": sites})
+
+        if not days:
+            return None
+
+        days.sort(key=lambda item: _abstec_day_sort_key(item["day"]))
+        return {"year": year_dir.name, "days": days}
+
+    with ThreadPoolExecutor(max_workers=_scan_workers()) as executor:
+        results = list(executor.map(scan_year, year_dirs))
+
+    years = [r for r in results if r is not None]
+    years.sort(key=lambda item: int(item["year"]), reverse=True)
     return years
 
 
@@ -961,7 +1026,183 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
     return years
 
 
+def _scan_parquet_satellites_parallel(root: Path) -> list[dict[str, object]]:
+    """Parallel scan variant for parquet roots with station/satellite extraction."""
+    with os.scandir(root) as it:
+        year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+
+    def scan_year(year_dir: Path) -> dict[str, object] | None:
+        days: list[dict[str, object]] = []
+        try:
+            with os.scandir(year_dir) as it2:
+                day_dirs = [Path(e.path) for e in it2 if e.is_dir() and ABSTEC_DAY_DIR_RE.fullmatch(e.name)]
+        except OSError:
+            return None
+
+        for day_dir in day_dirs:
+            stations: set[str] = set()
+            satellites: set[str] = set()
+            flat_pq: list[Path] = []
+
+            try:
+                with os.scandir(day_dir) as it3:
+                    for entry in it3:
+                        if entry.is_dir():
+                            stations.add(entry.name)
+                        elif entry.is_file() and entry.name.lower().endswith(".parquet"):
+                            flat_pq.append(Path(entry.path))
+            except OSError:
+                continue
+
+            if stations:
+                sample_dir = day_dir / min(stations)
+                try:
+                    with os.scandir(sample_dir) as it4:
+                        for entry in it4:
+                            if entry.is_file() and entry.name.lower().endswith(".parquet"):
+                                stem = Path(entry.name).stem.upper()
+                                for match in SATELLITE_RE.findall(stem):
+                                    satellites.add(match)
+                except OSError:
+                    pass
+            else:
+                for pq_file in flat_pq:
+                    stem = pq_file.stem.upper()
+                    for match in SATELLITE_RE.findall(stem):
+                        satellites.add(match)
+
+            if not stations and not satellites:
+                continue
+
+            days.append(
+                {
+                    "day": day_dir.name.zfill(3),
+                    "stations": sorted(stations),
+                    "satellites": sorted(satellites),
+                }
+            )
+
+        if not days:
+            return None
+
+        days.sort(key=lambda item: _abstec_day_sort_key(str(item["day"])))
+        return {"year": year_dir.name, "days": days}
+
+    with ThreadPoolExecutor(max_workers=_scan_workers()) as executor:
+        results = list(executor.map(scan_year, year_dirs))
+
+    years = [r for r in results if r is not None]
+    years.sort(key=lambda item: int(str(item["year"])), reverse=True)
+    return years
+
+
 def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
+    """Full filesystem scan — called only when cache is cold or stale."""
+    years: list[AbsTecYearInfo] = []
+
+    for year_dir in scan_root.iterdir():
+        if not year_dir.is_dir() or not ABSTEC_YEAR_DIR_RE.fullmatch(year_dir.name):
+            continue
+
+        logger.debug(f"[TEC-SUITE] Scanning year directory: {year_dir}")
+        days: list[AbsTecDayInfo] = []
+        for day_dir in year_dir.iterdir():
+            if not day_dir.is_dir() or not ABSTEC_DAY_DIR_RE.fullmatch(day_dir.name):
+                continue
+
+            logger.debug(f"[TEC-SUITE] Scanning day directory: {day_dir}")
+            sites: list[str] = []
+            # Layout A: YYYY/DDD/SITE_DIR/*.dat  (site as subdirectory)
+            for site_dir in day_dir.iterdir():
+                if not site_dir.is_dir():
+                    continue
+                has_dat = any(
+                    e.is_file() and e.name.lower().endswith('.dat')
+                    for e in os.scandir(site_dir)
+                )
+                if has_dat:
+                    logger.debug(f"[TEC-SUITE] Found site with .dat files: {site_dir.name}")
+                    sites.append(site_dir.name)
+
+            # Layout B: YYYY/DDD/SITE.dat  (flat – site name = file stem)
+            if not sites:
+                sites = [
+                    entry.stem
+                    for entry in day_dir.iterdir()
+                    if entry.is_file() and entry.suffix.lower() == ".dat"
+                ]
+                if sites:
+                    logger.debug(f"[TEC-SUITE] Found flat layout .dat files: {sites}")
+
+            if sites:
+                sites.sort()
+                days.append({"day": day_dir.name.zfill(3), "sites": sites})
+
+        days.sort(key=lambda item: _abstec_day_sort_key(item["day"]))
+        if days:
+            years.append({"year": year_dir.name, "days": days})
+
+    years.sort(key=lambda item: int(item["year"]), reverse=True)
+    return years
+
+
+def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
+    """Parallel scan variant for TEC-suite DAT output roots."""
+    with os.scandir(scan_root) as it:
+        year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+
+    def scan_year(year_dir: Path) -> AbsTecYearInfo | None:
+        days: list[AbsTecDayInfo] = []
+        try:
+            with os.scandir(year_dir) as it2:
+                day_dirs = [Path(e.path) for e in it2 if e.is_dir() and ABSTEC_DAY_DIR_RE.fullmatch(e.name)]
+        except OSError:
+            return None
+
+        for day_dir in day_dirs:
+            sites: list[str] = []
+            try:
+                with os.scandir(day_dir) as it3:
+                    day_entries = list(it3)
+            except OSError:
+                continue
+
+            for entry in day_entries:
+                if not entry.is_dir():
+                    continue
+                try:
+                    has_dat = any(
+                        e.is_file() and e.name.lower().endswith('.dat')
+                        for e in os.scandir(entry.path)
+                    )
+                except OSError:
+                    has_dat = False
+                if has_dat:
+                    sites.append(entry.name)
+
+            if not sites:
+                sites = [
+                    Path(entry.name).stem
+                    for entry in day_entries
+                    if entry.is_file() and entry.name.lower().endswith(".dat")
+                ]
+
+            if sites:
+                sites.sort()
+                days.append({"day": day_dir.name.zfill(3), "sites": sites})
+
+        if not days:
+            return None
+
+        days.sort(key=lambda item: _abstec_day_sort_key(item["day"]))
+        return {"year": year_dir.name, "days": days}
+
+    with ThreadPoolExecutor(max_workers=_scan_workers()) as executor:
+        results = list(executor.map(scan_year, year_dirs))
+
+    years = [r for r in results if r is not None]
+    years.sort(key=lambda item: int(item["year"]), reverse=True)
+    return years
     """Full filesystem scan — called only when cache is cold or stale."""
     years: list[AbsTecYearInfo] = []
 
