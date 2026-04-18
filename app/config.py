@@ -70,6 +70,20 @@ LOG_EMIT_INTERVAL_SEC: float = float(os.getenv("LOG_EMIT_INTERVAL_SEC", "0.5"))
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
 
+# Enable the background job runtime that tails container logs and reconciles
+# finished containers into durable job events. Tests can disable this.
+JOB_RUNTIME_ENABLED: bool = os.getenv("JOB_RUNTIME_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+
+# Polling interval for running-job reconciliation and producer restart checks.
+JOB_MONITOR_INTERVAL_SEC: float = float(os.getenv("JOB_MONITOR_INTERVAL_SEC", "3"))
+
+# Polling interval for SSE consumers reading persisted job events.
+JOB_EVENT_POLL_INTERVAL_SEC: float = float(os.getenv("JOB_EVENT_POLL_INTERVAL_SEC", "0.5"))
+
+# Maximum time to wait for the durable job-event producer to emit its first
+# event before the SSE endpoint falls back to direct container log streaming.
+JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC: float = float(os.getenv("JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC", "1.5"))
+
 # External data-analysis API integration (TEC backend)
 ANALYSIS_API_BASE_URL: str = os.getenv("ANALYSIS_API_BASE_URL", "")
 ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "45"))

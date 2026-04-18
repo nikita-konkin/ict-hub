@@ -355,7 +355,7 @@
             {% if job.status != 'running' %}hidden{% endif %}
           >—</span>
           <a
-            href="/run/{{ converter_name }}?job_id={{ job.id }}&resume=1"
+            href="/run/{{ converter_name }}?job_id={{ job.id }}"
             class="btn btn-ghost"
             style="padding:4px 10px; font-size:10px;"
           >Open</a>

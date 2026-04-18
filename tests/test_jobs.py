@@ -8,7 +8,7 @@ with the right arguments and handle both success and failure paths.
 import json
 from urllib.parse import parse_qs, urlparse
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +68,20 @@ class TestRunPage:
         )
         assert response.status_code == 200
         assert b"No job running" in response.content
+
+    def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db):
+        completed_job.status = "running"
+        completed_job.finished_at = None
+        completed_job.exit_code = None
+        db.commit()
+
+        response = operator_client.get(
+            f"/run/tec-suite?job_id={completed_job.id}&resume=1",
+            follow_redirects=True,
+        )
+
+        assert response.status_code == 200
+        assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail=all"'.encode() in response.content
 
     # -- async indexer integration -------------------------------------------------
 
@@ -222,6 +236,26 @@ class TestStartJob:
         assert job is not None
         assert job.container_id == "container123abc"
         assert job.status == "running"
+
+    @patch("app.jobs.start_container", return_value="container_bootstrap")
+    def test_successful_job_start_bootstraps_event_producer(
+        self,
+        mock_start,
+        operator_client,
+        monkeypatch,
+    ):
+        producer_mock = AsyncMock()
+        monkeypatch.setattr("app.jobs.ensure_job_producer", producer_mock)
+
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 200
+        producer_mock.assert_awaited_once()
 
     @patch("app.jobs.start_container", return_value="container_rm")
     def test_start_job_passes_auto_remove_when_checked(self, mock_start, operator_client):
@@ -799,3 +833,148 @@ class TestStopJob:
         )
         # Admin should be allowed; 403 only for mismatched operators
         assert response.status_code in (302, 303, 200)
+
+
+class TestOpenJob:
+    """Tests for GET /jobs/{id}/open."""
+
+    def test_open_job_redirects_to_converter_run_page(self, operator_client, completed_job):
+        response = operator_client.get(
+            f"/jobs/{completed_job.id}/open",
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers.get("location") == f"/run/{completed_job.converter}?job_id={completed_job.id}"
+
+
+class TestDurableJobEvents:
+    """Tests for persisted SSE replay and detached container reconciliation."""
+
+    def test_stream_replays_persisted_events_with_ids(self, operator_client, completed_job, db, monkeypatch):
+        from app.models import JobEvent
+        import app.jobs as jobs_module
+
+        first = JobEvent(
+            job_id=completed_job.id,
+            event_type="log",
+            payload_xml="<log><message>line one</message><level>info</level></log>",
+        )
+        second = JobEvent(
+            job_id=completed_job.id,
+            event_type="done",
+            payload_xml="<done><status>success</status><exit_code>0</exit_code></done>",
+        )
+        db.add_all([first, second])
+        db.commit()
+        db.refresh(first)
+        db.refresh(second)
+        first_id = first.id
+        second_id = second.id
+        monkeypatch.setattr(jobs_module, "SessionLocal", lambda: db)
+
+        with operator_client.stream("GET", f"/jobs/{completed_job.id}/stream") as response:
+            body = "".join(response.iter_text())
+        assert response.status_code == 200
+        assert f"id: {first_id}" in body
+        assert "event: log" in body
+        assert f"id: {second_id}" in body
+        assert "event: done" in body
+
+    def test_stream_resumes_after_event_id(self, operator_client, completed_job, db, monkeypatch):
+        from app.models import JobEvent
+        import app.jobs as jobs_module
+
+        first = JobEvent(
+            job_id=completed_job.id,
+            event_type="log",
+            payload_xml="<log><message>line one</message><level>info</level></log>",
+        )
+        second = JobEvent(
+            job_id=completed_job.id,
+            event_type="done",
+            payload_xml="<done><status>success</status><exit_code>0</exit_code></done>",
+        )
+        db.add_all([first, second])
+        db.commit()
+        db.refresh(first)
+        db.refresh(second)
+        first_id = first.id
+        second_id = second.id
+        monkeypatch.setattr(jobs_module, "SessionLocal", lambda: db)
+
+        with operator_client.stream(
+            "GET",
+            f"/jobs/{completed_job.id}/stream?after_event_id={first_id}",
+        ) as response:
+            body = "".join(response.iter_text())
+        assert response.status_code == 200
+        assert f"id: {first_id}" not in body
+        assert f"id: {second_id}" in body
+        assert "event: done" in body
+
+    def test_stream_falls_back_to_direct_container_logs(
+        self,
+        operator_client,
+        completed_job,
+        db,
+        monkeypatch,
+    ):
+        import app.jobs as jobs_module
+
+        completed_job.status = "running"
+        completed_job.finished_at = None
+        completed_job.exit_code = None
+        completed_job.container_id = "live123container"
+        db.commit()
+        job_id = completed_job.id
+
+        async def fake_stream_logs(*args, **kwargs):
+            yield ("log", "Processing year=2026 day=001 site=alex0010 (3/238)")
+            yield ("progress", 1)
+            yield ("done", 0)
+
+        monkeypatch.setattr(jobs_module, "SessionLocal", lambda: db)
+        monkeypatch.setattr(jobs_module, "stream_logs", fake_stream_logs)
+        monkeypatch.setattr(jobs_module.cfg, "JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC", 0.0)
+
+        with operator_client.stream("GET", f"/jobs/{job_id}/stream") as response:
+            body = "".join(response.iter_text())
+
+        assert response.status_code == 200
+        assert "event: log" in body
+        assert "Processing year=2026 day=001 site=alex0010 (3/238)" in body
+        assert "event: progress" in body
+        assert "event: done" in body
+
+        from app.models import JobRun
+
+        refreshed_job = db.query(JobRun).filter(JobRun.id == job_id).first()
+        assert refreshed_job is not None
+        assert refreshed_job.status == "success"
+        assert refreshed_job.exit_code == 0
+
+    @patch("app.job_runtime.get_container_state")
+    def test_reconcile_job_state_persists_done_event(self, mock_state, completed_job, db):
+        from app.job_runtime import reconcile_job_state
+        from app.models import JobEvent
+
+        completed_job.status = "running"
+        completed_job.finished_at = None
+        completed_job.exit_code = None
+        completed_job.container_id = "abc123def456"
+        db.commit()
+
+        mock_state.return_value = {"status": "exited", "running": False, "exit_code": 0}
+
+        assert reconcile_job_state(completed_job.id, db=db) is True
+        db.refresh(completed_job)
+        assert completed_job.status == "success"
+        assert completed_job.exit_code == 0
+
+        done_event = (
+            db.query(JobEvent)
+            .filter(JobEvent.job_id == completed_job.id, JobEvent.event_type == "done")
+            .first()
+        )
+        assert done_event is not None
+        assert "<status>success</status>" in done_event.payload_xml

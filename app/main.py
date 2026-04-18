@@ -19,6 +19,7 @@ from app import analysis, auth, jobs
 from app.auth import hash_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
 from app.database import SessionLocal, engine
+from app.job_runtime import start_job_runtime, stop_job_runtime
 from app.models import Base, User
 
 logging.basicConfig(
@@ -62,8 +63,10 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    await start_job_runtime()
     yield  # Application runs
 
+    await stop_job_runtime()
     logger.info("Shutting down.")
 
 

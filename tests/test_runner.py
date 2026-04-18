@@ -447,7 +447,7 @@ class TestStreamLogs:
     @pytest.mark.asyncio
     @patch("app.runner._get_exit_code_only", return_value=0)
     @patch("app.runner.docker.from_env")
-    async def test_emits_only_logs_matching_progress_patterns(self, mock_from_env, mock_exit_code):
+    async def test_emits_all_logs_and_parses_progress_independently(self, mock_from_env, mock_exit_code):
         from app.runner import stream_logs
 
         mock_client = MagicMock()
@@ -470,8 +470,10 @@ class TestStreamLogs:
                 break
 
         log_events = [payload for event_type, payload in events if event_type == "log"]
-        assert len(log_events) == 2
+        progress_events = [payload for event_type, payload in events if event_type == "progress"]
+        assert len(log_events) == 4
         assert any("Completed 101/132" in msg for msg in log_events)
         assert any("Completed 102/132" in msg for msg in log_events)
-        assert not any("Unzipping" in msg for msg in log_events)
-        assert not any("Deleted temporary config" in msg for msg in log_events)
+        assert any("Unzipping" in msg for msg in log_events)
+        assert any("Deleted temporary config" in msg for msg in log_events)
+        assert progress_events == [76, 77]

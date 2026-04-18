@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 
 import docker.errors
@@ -24,16 +25,23 @@ from sqlalchemy.orm import Session
 
 from app import config as cfg
 from app.auth import get_admin_user, get_current_user
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
-from app.models import JobRun, User
+from app.job_runtime import (
+    ensure_job_producer,
+    persist_job_finished,
+    reconcile_job_state,
+    sse_event,
+    xml_payload,
+)
+from app.models import JobEvent, JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
 from app.data_indexer_client import (
     list_parquet_output_structure_async,
     list_rinex_server_structure_async,
     list_tecsuite_output_structure_async,
 )
-from app.runner import parse_progress, start_container, stop_container, stream_logs
+from app.runner import start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -164,6 +172,94 @@ def _is_truthy_checkbox(value: object) -> bool:
     return str(value).strip().lower() in {"on", "true", "1", "yes"}
 
 
+def _reconcile_running_jobs(
+    db: Session,
+    current_user: User,
+    *,
+    converter_name: str | None = None,
+) -> None:
+    """Refresh visible running jobs from Docker before rendering pages."""
+    query = db.query(JobRun.id).filter(JobRun.status == "running")
+    if not current_user.is_admin:
+        query = query.filter(JobRun.user_id == current_user.id)
+    if converter_name:
+        query = query.filter(JobRun.converter == converter_name)
+
+    for (job_id,) in query.all():
+        try:
+            reconcile_job_state(job_id, db=db)
+        except Exception:
+            logger.exception("Failed to reconcile job %s before page render", job_id)
+
+
+def _job_auto_remove_enabled(job: JobRun) -> bool:
+    """Read the persisted auto-remove flag from a job record."""
+    try:
+        flags = json.loads(job.flags_json or "{}")
+    except Exception:
+        return False
+    return _is_truthy_checkbox(flags.get("auto_remove", False))
+
+
+async def _stream_job_logs_direct(job: JobRun, db: Session) -> asyncio.AsyncGenerator[str, None]:
+    """
+    Fallback path for live log delivery when durable job events are not being
+    produced yet. This keeps the UI usable even if the background runtime is
+    unhealthy for a specific job.
+    """
+    conv = get_converter(job.converter)
+    progress_patterns = conv.get("progress_patterns", []) if conv else []
+    auto_remove = _job_auto_remove_enabled(job)
+
+    async for event_type, payload in stream_logs(
+        job.container_id,
+        progress_patterns,
+        log_emit_interval_sec=0.0,
+        auto_remove=auto_remove,
+        tail="all",
+    ):
+        if event_type == "heartbeat":
+            yield ": heartbeat\n\n"
+            continue
+
+        if event_type == "log":
+            yield sse_event(
+                "log",
+                xml_payload("log", message=str(payload), level="info"),
+            )
+            continue
+
+        if event_type == "progress":
+            yield sse_event(
+                "progress",
+                xml_payload("progress", value=int(payload)),
+            )
+            continue
+
+        if event_type == "error":
+            message = str(payload)
+            yield sse_event(
+                "job_error",
+                xml_payload("job_error", message=message),
+            )
+            break
+
+        if event_type == "done":
+            db.expire_all()
+            db_job = db.query(JobRun).filter(JobRun.id == job.id).first()
+            if db_job is not None:
+                persist_job_finished(db, db_job, int(payload))
+            yield sse_event(
+                "done",
+                xml_payload(
+                    "done",
+                    status="success" if int(payload) == 0 else "failed",
+                    exit_code=int(payload),
+                ),
+            )
+            return
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +274,7 @@ async def dashboard(
     Main landing page. Shows each registered converter as a card alongside
     the user's 5 most recent jobs so they have immediate context on activity.
     """
+    _reconcile_running_jobs(db, current_user)
     recent_jobs = (
         db.query(JobRun)
         .filter(JobRun.user_id == current_user.id)
@@ -210,6 +307,7 @@ async def run_page(
     current_user: User = Depends(get_current_user),
 ):
     """Render the flag form for a specific converter."""
+    _reconcile_running_jobs(db, current_user, converter_name=converter_name)
     conv = get_converter(converter_name)
     if not conv:
         raise HTTPException(status_code=404, detail=f"Converter '{converter_name}' not found")
@@ -233,7 +331,6 @@ async def run_page(
         "dat-to-parquet": {"tecsuite": [], "abstec": []},
         "parquet-to-dat": {"tecsuite": [], "abstec": []},
     }
-    resume_mode = request.query_params.get("resume", "0") == "1"
     if job_id is not None:
         candidate = (
             db.query(JobRun)
@@ -245,10 +342,6 @@ async def run_page(
             and (current_user.is_admin or candidate.user_id == current_user.id)
         ):
             active_job = candidate
-            if resume_mode and candidate.status == "running":
-                # When reopening a running job from Recent runs, don't replay
-                # the entire log from the beginning.
-                active_stream_tail = "0"
 
     if converter_name == "tec-suite":
         tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
@@ -517,6 +610,10 @@ async def start_job(
         )
         job.container_id = container_id
         db.commit()
+        try:
+            await ensure_job_producer(job.id)
+        except Exception:
+            logger.exception("Failed to bootstrap job producer for job %s", job.id)
     except docker.errors.DockerException as exc:
         logger.error("Docker error starting job %s: %s", job.id, exc)
         job.status = "error"
@@ -578,89 +675,120 @@ async def stream_job_logs(
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid tail parameter")
 
-    conv = get_converter(job.converter)
-    progress_patterns = conv.get("progress_patterns", []) if conv else []
-    log_emit_interval_sec = conv.get("log_emit_interval_sec", cfg.LOG_EMIT_INTERVAL_SEC) if conv else cfg.LOG_EMIT_INTERVAL_SEC
-    auto_remove = False
-    if job.flags_json:
+    after_event_id_raw = request.query_params.get("after_event_id", "").strip()
+    if not after_event_id_raw:
+        after_event_id_raw = request.headers.get("Last-Event-ID", "").strip()
+    after_event_id: int | None = None
+    if after_event_id_raw:
         try:
-            flags = json.loads(job.flags_json)
-            auto_remove = _is_truthy_checkbox(flags.get("auto_remove", False))
-        except Exception:
-            logger.warning("Failed to parse flags_json for job %s", job_id)
+            after_event_id = max(0, int(after_event_id_raw))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid after_event_id")
 
-    def sse_event(event_name: str, payload: str | int) -> str:
-        """Encode one SSE event, supporting multi-line payloads correctly."""
-        text = str(payload).replace("\r\n", "\n").replace("\r", "\n")
-        data_lines = text.split("\n")
-        encoded = f"event: {event_name}\n"
-        for line in data_lines:
-            encoded += f"data: {line}\n"
-        return encoded + "\n"
+    if job.status == "running":
+        await ensure_job_producer(job_id)
 
+    def _initial_cursor(gen_db: Session) -> int:
+        if after_event_id is not None:
+            return after_event_id
+
+        max_existing_id = (
+            gen_db.query(JobEvent.id)
+            .filter(JobEvent.job_id == job_id)
+            .order_by(JobEvent.id.desc())
+            .limit(1)
+            .scalar()
+        )
+        if max_existing_id is None:
+            return 0
+        if stream_tail == "all":
+            return 0
+        if isinstance(stream_tail, int) and stream_tail <= 0:
+            return int(max_existing_id)
+        if isinstance(stream_tail, int):
+            recent_ids = [
+                row[0]
+                for row in (
+                    gen_db.query(JobEvent.id)
+                    .filter(JobEvent.job_id == job_id)
+                    .order_by(JobEvent.id.desc())
+                    .limit(stream_tail)
+                    .all()
+                )
+            ]
+            if recent_ids:
+                return max(0, min(recent_ids) - 1)
+        return 0
     async def generate():
         """
-        Async generator that bridges runner.stream_logs() → SSE wire format.
-
-        SSE wire format for each event:
-            event: <name>\ndata: <payload>\n\n
-
-        Named events consumed by the HTMX SSE extension on the frontend:
-          - log      → a line of container output (HTML-escaped)
-          - progress → integer 0–100
-          - done     → exit code integer
-          - error    → error message string
-          - heartbeat→ empty comment to keep the TCP connection alive
+        Replay durable events from the database and then poll for newly
+        persisted events. Producers write to JobEvent independently of any
+        active SSE client, so reconnects can resume via Last-Event-ID.
         """
-        # Use a fresh DB session inside the generator since the request session
-        # may be reused across async yield boundaries
-        from app.database import SessionLocal
         gen_db = SessionLocal()
+        last_sent_id = _initial_cursor(gen_db)
+        heartbeat_at = time.monotonic()
+        first_event_deadline = time.monotonic() + max(0.25, float(cfg.JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC))
+        saw_durable_event = False
 
         try:
-            async for event_type, payload in stream_logs(
-                job.container_id,
-                progress_patterns,
-                log_emit_interval_sec=float(log_emit_interval_sec),
-                auto_remove=auto_remove,
-                tail=stream_tail,
-            ):
-                if event_type == "heartbeat":
-                    # SSE comment — not dispatched as an event, just keeps the
-                    # connection alive through proxies and load balancers
+            while True:
+                gen_db.expire_all()
+                pending_events = (
+                    gen_db.query(JobEvent)
+                    .filter(JobEvent.job_id == job_id, JobEvent.id > last_sent_id)
+                    .order_by(JobEvent.id.asc())
+                    .limit(200)
+                    .all()
+                )
+
+                if pending_events:
+                    saw_durable_event = True
+                    for event in pending_events:
+                        yield sse_event(event.event_type, event.payload_xml, event_id=event.id)
+                        last_sent_id = event.id
+                        heartbeat_at = time.monotonic()
+                        if event.event_type == "done":
+                            return
+                    continue
+
+                db_job = gen_db.query(JobRun).filter(JobRun.id == job_id).first()
+                if db_job is None:
+                    return
+
+                if db_job.status == "running":
+                    await ensure_job_producer(job_id)
+                    if (
+                        not saw_durable_event
+                        and last_sent_id == 0
+                        and time.monotonic() >= first_event_deadline
+                    ):
+                        logger.warning(
+                            "Falling back to direct log streaming for job %s after %.2fs without durable events",
+                            job_id,
+                            float(cfg.JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC),
+                        )
+                        async for chunk in _stream_job_logs_direct(db_job, gen_db):
+                            yield chunk
+                        return
+                else:
+                    if db_job.exit_code is not None:
+                        persist_job_finished(gen_db, db_job, int(db_job.exit_code))
+                        continue
+                    return
+
+                if (time.monotonic() - heartbeat_at) >= float(cfg.SSE_HEARTBEAT_INTERVAL):
                     yield ": heartbeat\n\n"
+                    heartbeat_at = time.monotonic()
 
-                elif event_type == "log":
-                    yield sse_event("log", f'<span class="log-line">{payload}</span>')
-
-                elif event_type == "progress":
-                    yield sse_event("progress", int(payload))
-
-                elif event_type == "error":
-                    yield sse_event("error", f'<span class="badge badge-danger">Error</span>')
-                    yield sse_event("log", f'<span class="log-line log-line-error">{payload}</span>')
-
-                elif event_type == "done":
-                    exit_code = int(payload)
-                    # Persist the job outcome to the database
-                    db_job = gen_db.query(JobRun).filter(JobRun.id == job_id).first()
-                    if db_job:
-                        db_job.finished_at = datetime.now(timezone.utc)
-                        db_job.exit_code = exit_code
-                        db_job.status = "success" if exit_code == 0 else "failed"
-                        gen_db.commit()
-                    done_badge = (
-                        '<span class="badge badge-success">Success</span>'
-                        if exit_code == 0
-                        else f'<span class="badge badge-danger">Failed ({exit_code})</span>'
-                    )
-                    yield sse_event("done", done_badge)
-                    break  # end the generator — browser closes the SSE connection
+                await asyncio.sleep(max(0.1, float(cfg.JOB_EVENT_POLL_INTERVAL_SEC)))
 
         except Exception as exc:
             logger.exception("Unexpected error in SSE stream for job %s", job_id)
-            yield sse_event("error", '<span class="badge badge-danger">Error</span>')
-            yield sse_event("log", f'<span class="log-line log-line-error">Unexpected error: {exc}</span>')
+            yield sse_event(
+                "job_error",
+                f"<job_error><message>Unexpected stream error: {exc}</message></job_error>",
+            )
         finally:
             gen_db.close()
 
@@ -677,6 +805,23 @@ async def stream_job_logs(
 # ─────────────────────────────────────────────────────────────────────────────
 # Stop a job
 # ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/jobs/{job_id}/open")
+async def open_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Redirect to the correct /run/{converter} page for a given job id."""
+    job = db.query(JobRun).filter(JobRun.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not current_user.is_admin and job.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return RedirectResponse(url=f"/run/{job.converter}?job_id={job.id}", status_code=303)
+
 
 @router.post("/jobs/{job_id}/stop")
 async def stop_job(
@@ -695,10 +840,7 @@ async def stop_job(
 
     if job.container_id and job.status == "running":
         stop_container(job.container_id)
-        job.status = "failed"
-        job.finished_at = datetime.now(timezone.utc)
-        job.exit_code = -2  # sentinel for "stopped by user"
-        db.commit()
+        persist_job_finished(db, job, -2)  # sentinel for "stopped by user"
 
     return RedirectResponse(f"/run/{job.converter}", status_code=302)
 
@@ -719,6 +861,7 @@ async def history(
     Paginated audit log of job runs.
     Admins see all users' jobs; operators only see their own.
     """
+    _reconcile_running_jobs(db, current_user)
     query = db.query(JobRun)
     if not current_user.is_admin:
         query = query.filter(JobRun.user_id == current_user.id)

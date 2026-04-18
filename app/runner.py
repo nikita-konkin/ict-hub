@@ -14,12 +14,10 @@ so they don't block FastAPI's event loop.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import queue
 import re
 import threading
-import time
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -131,7 +129,6 @@ async def stream_logs(
 
     loop = asyncio.get_event_loop()
     stream_exit_code: int | None = None
-    last_log_emit_at = 0.0
     last_progress: int | None = None
 
     while True:
@@ -153,15 +150,13 @@ async def stream_logs(
             except (TypeError, ValueError):
                 pass
         elif event_type == "error":
-            yield ("error", html.escape(str(payload)))
+            yield ("error", str(payload))
             break
         else:
             line = str(payload)
-            if _line_matches_progress_patterns(line, progress_patterns):
-                now = time.monotonic()
-                if log_emit_interval_sec <= 0 or (now - last_log_emit_at) >= log_emit_interval_sec:
-                    yield ("log", html.escape(line))
-                    last_log_emit_at = now
+            # Stream every log line; progress extraction is independent so
+            # UI log visibility does not depend on regex matches.
+            yield ("log", line)
 
             progress = parse_progress(line, progress_patterns)
             if progress is not None:
@@ -196,6 +191,45 @@ def stop_container(container_id: str) -> None:
         pass  # already gone
     except Exception as exc:
         logger.warning("Error stopping container %s: %s", container_id[:12], exc)
+
+
+def get_container_state(container_id: str) -> dict[str, object]:
+    """
+    Return best-effort container state for reconciliation logic.
+
+    Shape:
+      {
+        "status": "running" | "exited" | "dead" | "not_found" | "unknown",
+        "running": bool,
+        "exit_code": int | None,
+      }
+    """
+    client = docker.from_env()
+    try:
+        container = client.containers.get(container_id)
+        container.reload()
+        state = container.attrs.get("State", {}) or {}
+        status = str(state.get("Status", "unknown") or "unknown")
+        running = bool(state.get("Running", False))
+        exit_code = state.get("ExitCode")
+        return {
+            "status": status,
+            "running": running,
+            "exit_code": int(exit_code) if isinstance(exit_code, int) else None,
+        }
+    except docker.errors.NotFound:
+        return {
+            "status": "not_found",
+            "running": False,
+            "exit_code": None,
+        }
+    except Exception as exc:
+        logger.warning("Error reading container state for %s: %s", container_id[:12], exc)
+        return {
+            "status": "unknown",
+            "running": False,
+            "exit_code": None,
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -234,16 +268,6 @@ def parse_progress(line: str, patterns: list[str]) -> int | None:
     return None
 
 
-def _line_matches_progress_patterns(line: str, patterns: list[str]) -> bool:
-    """Return True if a log line matches at least one configured progress pattern."""
-    if not patterns:
-        return True
-    for pattern in patterns:
-        if re.search(pattern, line, re.IGNORECASE):
-            return True
-    return False
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -267,4 +291,3 @@ def _get_exit_code_only(container_id: str) -> int:
     except Exception as exc:
         logger.warning("Error reading exit code for %s: %s", container_id[:12], exc)
         return -1
-

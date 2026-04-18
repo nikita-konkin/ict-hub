@@ -852,7 +852,7 @@
   {% if current_user is defined and current_user %}
   <nav class="sidebar">
     <div class="sidebar-logo">
-      <div class="sidebar-logo-mark">ConverterHub</div>
+      <div class="sidebar-logo-mark">{{ t('app_name') }}</div>
       <div class="sidebar-logo-sub">{{ t('app_subtitle') }}</div>
     </div>
 
@@ -1060,7 +1060,7 @@
           '<span data-local-datetime="' + (startedAtIso || "") + '">' + timeText + '</span>' +
           '<span class="badge badge-running" data-recent-job-status>running</span>' +
           '<span data-recent-job-progress style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">—</span>' +
-          '<a href="' + window.location.pathname + '?job_id=' + jobId + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Open</a>';
+          '<a href="/jobs/' + jobId + '/open" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Open</a>';
         body.insertAdjacentElement("afterbegin", row);
       }
 
@@ -1073,40 +1073,64 @@
         recentRunTrackers.delete(jobId);
       }
 
-      function startRecentRunTracker(jobId) {
+      function startRecentRunTracker(jobId, afterEventId) {
         if (!jobId || recentRunTrackers.has(jobId)) return;
         if (document.querySelector('#job-panel-' + jobId)) return;
 
         let source;
+        let lastEventId = afterEventId || "";
         try {
-          source = new EventSource('/jobs/' + jobId + '/stream');
+          source = new EventSource(buildSseUrl('/jobs/' + jobId + '/stream', lastEventId), {
+            withCredentials: true,
+          });
         } catch (_) {
           return;
         }
         recentRunTrackers.set(jobId, source);
 
         source.addEventListener('progress', function (event) {
-          const pct = parseInt(event.data, 10);
-          if (!Number.isNaN(pct)) {
+          if (event.lastEventId) {
+            lastEventId = event.lastEventId;
+          }
+          const payload = parseSseXml(event.data);
+          const pct = readXmlInt(payload, 'value');
+          if (pct !== null) {
+            const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+            if (row && lastEventId) row.setAttribute('data-recent-last-event-id', lastEventId);
             updateRecentRunProgress(jobId, pct);
           }
         });
 
         source.addEventListener('done', function (event) {
-          const isSuccess = typeof event.data === 'string' && event.data.indexOf('badge-success') !== -1;
+          if (event.lastEventId) {
+            lastEventId = event.lastEventId;
+          }
+          const payload = parseSseXml(event.data);
+          const isSuccess = readXmlText(payload, 'status') === 'success';
           updateRecentRunStatus(jobId, isSuccess);
           stopRecentRunTracker(jobId);
         });
 
-        source.addEventListener('error', function () {
+        source.addEventListener('job_error', function (event) {
+          if (event.lastEventId) {
+            lastEventId = event.lastEventId;
+            const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
+            if (row) row.setAttribute('data-recent-last-event-id', lastEventId);
+          }
+        });
+
+        source.onerror = function () {
           // Reconnect tracker for running jobs after transient SSE errors.
           const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
           const isRunning = row && row.getAttribute('data-recent-job-running') === '1';
+          const resumeFrom = row && row.getAttribute('data-recent-last-event-id')
+            ? row.getAttribute('data-recent-last-event-id')
+            : lastEventId;
           stopRecentRunTracker(jobId);
           if (isRunning && !document.querySelector('#job-panel-' + jobId)) {
-            setTimeout(function () { startRecentRunTracker(jobId); }, 800);
+            setTimeout(function () { startRecentRunTracker(jobId, resumeFrom); }, 800);
           }
-        });
+        };
       }
 
       function initializeRecentRunTrackers(root) {
@@ -1181,13 +1205,46 @@
 
       // ── Core panel initialiser ─────────────────────────────────────────────
 
+      function parseSseXml(payload) {
+        if (typeof payload !== "string" || !payload.trim()) return null;
+        const doc = new DOMParser().parseFromString(payload, "application/xml");
+        if (!doc || doc.querySelector("parsererror")) return null;
+        return doc.documentElement;
+      }
+
+      function readXmlText(node, tagName) {
+        if (!node) return "";
+        const child = node.querySelector(tagName);
+        return child && typeof child.textContent === "string" ? child.textContent : "";
+      }
+
+      function readXmlInt(node, tagName) {
+        const value = parseInt(readXmlText(node, tagName), 10);
+        return Number.isNaN(value) ? null : value;
+      }
+
+      function buildStatusBadgeMarkup(status, exitCode) {
+        if (status === "success") {
+          return '<span class="badge badge-success">Success</span>';
+        }
+        if (status === "failed") {
+          const suffix = typeof exitCode === "number" ? " (" + exitCode + ")" : "";
+          return '<span class="badge badge-danger">Failed' + suffix + '</span>';
+        }
+        return '<span class="badge badge-danger">Error</span>';
+      }
+
+      function buildSseUrl(baseUrl, afterEventId) {
+        const url = new URL(baseUrl, window.location.origin);
+        if (afterEventId) {
+          url.searchParams.set("after_event_id", String(afterEventId));
+        }
+        return url.pathname + url.search;
+      }
+
       function initializeJobPanel(panel) {
         if (!panel || panel.dataset.sseInit === "1") return;
         const isRunning = panel.dataset.jobRunning === "1";
-        if (!isRunning) {
-          panel.dataset.sseInit = "1";
-          return;
-        }
         const streamUrl = panel.dataset.streamUrl;
         if (!streamUrl) return;
 
@@ -1213,65 +1270,198 @@
         // Panel stream is the source of truth while open.
         stopRecentRunTracker(jobId);
 
-        function appendLog(html) {
-          if (!logLines) return;
-          logLines.insertAdjacentHTML("beforeend", html);
-          logLines.scrollTop = logLines.scrollHeight;
+        let hasRealLogs = false;
+        let pendingLogs = [];
+        let flushScheduled = false;
+
+        function flushLogBuffer() {
+          flushScheduled = false;
+          if (!logLines || !pendingLogs.length) return;
+
+          if (!hasRealLogs) {
+            logLines.textContent = "";
+            hasRealLogs = true;
+          }
+
+          const shouldStickToBottom =
+            (logLines.scrollTop + logLines.clientHeight) >= (logLines.scrollHeight - 24);
+          const fragment = document.createDocumentFragment();
+
+          pendingLogs.forEach(function (entry) {
+            const line = document.createElement("span");
+            line.className = entry.level === "error" ? "log-line log-line-error" : "log-line";
+            line.textContent = entry.message;
+            fragment.appendChild(line);
+          });
+
+          pendingLogs = [];
+          logLines.appendChild(fragment);
+          if (shouldStickToBottom) {
+            logLines.scrollTop = logLines.scrollHeight;
+          }
+        }
+
+        function queueLog(message, level) {
+          pendingLogs.push({
+            message: typeof message === "string" ? message : String(message || ""),
+            level: level === "error" ? "error" : "info",
+          });
+          if (!flushScheduled) {
+            flushScheduled = true;
+            window.requestAnimationFrame(flushLogBuffer);
+          }
         }
 
         let source;
-        try {
-          source = new EventSource(streamUrl);
-          panel._sseSource = source;
-        } catch (err) {
-          appendLog('<span class="log-line log-line-error">Failed to open log stream.</span>');
-          return;
+        let reconnectTimer = null;
+        let lastEventId = panel.dataset.lastEventId || "";
+        let lastStreamErrorAt = 0;
+
+        function clearReconnectTimer() {
+          if (reconnectTimer) {
+            window.clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
         }
 
-        source.addEventListener("log", function (event) {
-          appendLog(event.data);
-        });
-
-        source.addEventListener("progress", function (event) {
-          const pct = parseInt(event.data, 10);
-          if (Number.isNaN(pct)) return;
-          if (progressLabel) progressLabel.textContent = pct + "%";
-          if (progressFill) {
-            progressFill.innerHTML = '<div class="progress-fill" style="width:' + pct + '%"></div>';
+        function rememberEventId(event) {
+          if (event && event.lastEventId) {
+            lastEventId = event.lastEventId;
+            panel.dataset.lastEventId = lastEventId;
           }
-          // Mirror progress into the Recent runs row
-          updateRecentRunProgress(jobId, pct);
-        });
+        }
 
-        source.addEventListener("error", function (event) {
-          const msg = event && typeof event.data === "string" ? event.data : "Stream error";
-          if (statusEl) statusEl.innerHTML = '<span class="badge badge-danger">Error</span>';
-          appendLog('<span class="log-line log-line-error">' + msg + '</span>');
-          updateRecentRunStatus(jobId, false);
-          source.close();
-        });
-
-        source.addEventListener("done", function (event) {
-          const isSuccess = typeof event.data === "string" && event.data.indexOf("badge-success") !== -1;
-
-          if (statusEl) statusEl.innerHTML = event.data;
-          if (isSuccess && progressFill) {
-            progressFill.innerHTML = '<div class="progress-fill" style="width:100%"></div>';
-          }
-          if (isSuccess && progressLabel) progressLabel.textContent = "100%";
-
-          updateRecentRunStatus(jobId, isSuccess);
-          source.close();
-
-          // Strip ?job_id= from the URL if present
+        function openSource(afterEventId) {
+          clearReconnectTimer();
           try {
-            const url = new URL(window.location.href);
-            if (url.searchParams.has("job_id")) {
-              url.searchParams.delete("job_id");
-              window.history.replaceState({}, "", url.toString());
+            const url = buildSseUrl(streamUrl, afterEventId);
+            try {
+              source = new EventSource(url, { withCredentials: true });
+            } catch (_) {
+              source = new EventSource(url);
             }
-          } catch (_) {}
-        });
+            panel._sseSource = source;
+          } catch (err) {
+            queueLog("Failed to open log stream.", "error");
+            return;
+          }
+
+          source.addEventListener("log", function (event) {
+            rememberEventId(event);
+            const payload = parseSseXml(event.data);
+            if (!payload) {
+              markStreamActive("Connected to container. Waiting for output...");
+              queueLog(event.data || "<empty log payload>", "info");
+              return;
+            }
+            const message = readXmlText(payload, "message");
+            if (!message) {
+              markStreamActive("Connected to container. Waiting for output...");
+              queueLog(event.data, "info");
+              return;
+            }
+            queueLog(message, readXmlText(payload, "level"));
+          });
+
+          function markStreamActive(message) {
+            if (!hasRealLogs && logLines) {
+              logLines.textContent = "";
+              hasRealLogs = true;
+              if (message) {
+                queueLog(message, "info");
+              }
+            }
+          }
+
+          source.addEventListener("progress", function (event) {
+            rememberEventId(event);
+            markStreamActive("Connected to container. Waiting for output...");
+            const payload = parseSseXml(event.data);
+            const pct = readXmlInt(payload, "value");
+            if (pct === null) {
+              queueLog(event.data || "<invalid progress payload>", "error");
+              return;
+            }
+            if (progressLabel) progressLabel.textContent = pct + "%";
+            if (progressFill) {
+              progressFill.innerHTML = '<div class="progress-fill" style="width:' + pct + '%"></div>';
+            }
+            updateRecentRunProgress(jobId, pct);
+          });
+
+          source.addEventListener("job_error", function (event) {
+            rememberEventId(event);
+            markStreamActive();
+            const payload = parseSseXml(event.data);
+            const msg = payload ? readXmlText(payload, "message") : event.data;
+            queueLog(msg || "Job error", "error");
+          });
+
+          source.addEventListener("done", function (event) {
+            rememberEventId(event);
+            panel.dataset.jobRunning = "0";
+            markStreamActive("Job finished without captured log output.");
+            const payload = parseSseXml(event.data);
+            const status = payload ? readXmlText(payload, "status") : "failed";
+            const exitCode = payload ? readXmlInt(payload, "exit_code") : null;
+            const isSuccess = status === "success";
+
+            if (statusEl) statusEl.innerHTML = buildStatusBadgeMarkup(status, exitCode);
+            if (isSuccess && progressFill) {
+              progressFill.innerHTML = '<div class="progress-fill" style="width:100%"></div>';
+            }
+            if (isSuccess && progressLabel) progressLabel.textContent = "100%";
+
+            updateRecentRunStatus(jobId, isSuccess);
+            flushLogBuffer();
+            clearReconnectTimer();
+            source.close();
+
+            try {
+              const url = new URL(window.location.href);
+              if (url.searchParams.has("job_id")) {
+                url.searchParams.delete("job_id");
+                window.history.replaceState({}, "", url.toString());
+              }
+            } catch (_) {}
+          });
+
+          source.onopen = function () {
+            if (isRunning) {
+              markStreamActive("Connected to container. Waiting for output...");
+            } else {
+              markStreamActive("Loading log history...");
+            }
+          };
+
+          source.onerror = function () {
+            if (!panel.isConnected) return;
+
+            const isStillRunning = panel.dataset.jobRunning === "1";
+            if (!isStillRunning) {
+              queueLog("Failed to load log history.", "error");
+              flushLogBuffer();
+              try { source.close(); } catch (_) {}
+              return;
+            }
+
+            const now = Date.now();
+            if ((now - lastStreamErrorAt) > 3000) {
+              queueLog("Log stream interrupted. Waiting for reconnect...", "error");
+              flushLogBuffer();
+              lastStreamErrorAt = now;
+            }
+
+            if (source.readyState === EventSource.CLOSED) {
+              clearReconnectTimer();
+              reconnectTimer = window.setTimeout(function () {
+                openSource(lastEventId);
+              }, 800);
+            }
+          };
+        }
+
+        openSource(lastEventId);
       }
 
       function initializeAllJobPanels(root) {

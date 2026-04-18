@@ -52,8 +52,8 @@
             class="btn btn-ghost"
             style="padding:6px 10px; font-size:13px; line-height:1;"
             title="Dismiss panel"
-            onclick="if(window.dismissJobPanel){window.dismissJobPanel(this.closest('[id^=job-panel-]'))}"
-          >×</button>
+            onclick="(function(btn){const panel=btn.closest('[id^=job-panel-]');if(!panel)return;try{if(panel._sseSource&&typeof panel._sseSource.close==='function'){panel._sseSource.close();}}catch(_){}if(window.dismissJobPanel){window.dismissJobPanel(panel);return;}panel.remove();})(this)"
+          >&times;</button>
         </div>
       </div>
 

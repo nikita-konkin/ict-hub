@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Set test database BEFORE importing app modules
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["JOB_RUNTIME_ENABLED"] = "0"
 
 from app.auth import hash_password
 from app.database import Base, get_db

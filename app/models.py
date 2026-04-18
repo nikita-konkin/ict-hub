@@ -68,6 +68,12 @@ class JobRun(Base):
 
     # Relationship back to user
     user: Mapped["User"] = relationship("User", back_populates="job_runs")
+    events: Mapped[list["JobEvent"]] = relationship(
+        "JobEvent",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="JobEvent.id",
+    )
 
     @property
     def flags(self) -> dict:
@@ -93,3 +99,15 @@ class JobRun(Base):
             "failed": "danger",
             "error": "danger",
         }.get(self.status, "muted")
+
+
+class JobEvent(Base):
+    __tablename__ = "job_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(Integer, ForeignKey("job_runs.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_xml: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+
+    job: Mapped["JobRun"] = relationship("JobRun", back_populates="events")
