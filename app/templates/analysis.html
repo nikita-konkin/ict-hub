@@ -204,6 +204,7 @@
               <option value="plots/cb/vs-tec">GET /plots/cb/vs-tec — Plot Cb vs Tec</option>
               <option value="plots/cb/per-station-averages">GET /plots/cb/per-station-averages/{doy} — Plot Cb Per Station Avg</option>
               <option value="plots/cb/raw/day-by-day">GET /plots/cb/raw/day-by-day - Plot Cb Raw Day By Day</option>
+              <option value="plots/cb/with-absoltec/day-by-day">GET /plots/cb/with-absoltec/day-by-day - Plot Tec + Cb Day By Day</option>
             </optgroup>
           </select>
         </div>
@@ -566,6 +567,10 @@
         relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-columns", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
       "plots/cb/raw/day-by-day": {
+        required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+        relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+      },
+      "plots/cb/with-absoltec/day-by-day": {
         required: ["plot-year", "plot-doy-start", "plot-doy-end"],
         relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
       },
@@ -1000,6 +1005,11 @@
         qpAppend(params, "doy_end", doyEnd);
         qpAppend(params, "station", station);
         qpAppendCsvArray(params, "stations", stations);
+      } else if (endpointName === "plots/cb/with-absoltec/day-by-day") {
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", stations);
       } else if (endpointName === "plots/tec/satellite") {
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
@@ -1297,6 +1307,68 @@
       };
     }
 
+    function doyToUtcMs(year, doy) {
+      const y = Number(year);
+      const d = Number(doy);
+      if (!Number.isFinite(y) || !Number.isFinite(d)) return null;
+      // Jan 1 is doy=1
+      const start = Date.UTC(y, 0, 1);
+      return start + (d - 1) * 24 * 60 * 60 * 1000;
+    }
+
+    function parseIsoDateToUtcMs(isoDate) {
+      // Expects "YYYY-MM-DD"
+      if (typeof isoDate !== "string") return null;
+      const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const y = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const d = Number(m[3]);
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+      return Date.UTC(y, mo, d);
+    }
+
+    function isTimeAxisPayload(payload) {
+      const xlabel = String(payload && payload.xlabel ? payload.xlabel : "").toLowerCase();
+      return xlabel.includes("ut") || xlabel.includes("utc") || xlabel.includes("time");
+    }
+
+    function traceNameToUtcBaseMs(traceName, meta) {
+      const fromName = parseIsoDateToUtcMs(traceName);
+      if (fromName != null) return fromName;
+      if (!meta || typeof meta !== "object") return null;
+      if (meta.year && meta.doy) return doyToUtcMs(meta.year, meta.doy);
+      if (meta.year && meta.doy_start) return doyToUtcMs(meta.year, meta.doy_start);
+      return null;
+    }
+
+    function convertTimeAxisTraces(traces, payload) {
+      if (!Array.isArray(traces) || !payload || typeof payload !== "object") return traces;
+      if (!isTimeAxisPayload(payload)) return traces;
+
+      const meta = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+      let convertedAny = false;
+
+      const converted = traces.map((trace) => {
+        if (!trace || typeof trace !== "object") return trace;
+        const xVals = Array.isArray(trace.x) ? trace.x : [];
+        if (!xVals.length) return trace;
+        if (!xVals.every((v) => typeof v === "number" && Number.isFinite(v))) return trace;
+
+        const baseMs = traceNameToUtcBaseMs(trace.name, meta);
+        if (baseMs == null) return trace;
+
+        convertedAny = true;
+        return {
+          ...trace,
+          x: xVals.map((hours) => new Date(baseMs + Number(hours) * 60 * 60 * 1000)),
+        };
+      });
+
+      if (!convertedAny) return traces;
+      return converted;
+    }
+
     async function renderPlotlyChart(payload, chartEl) {
       if (!chartEl || !window.Plotly || !payload || typeof payload !== "object") return false;
 
@@ -1343,8 +1415,10 @@
         return trace;
       });
 
+      traces = convertTimeAxisTraces(traces, payload);
+
       const baseLayout = {
-        font: { color: themeTokens.text },
+        font: { color: themeTokens.text, family: "Times New Roman, Times, serif", size: 14 },
         title: {
           text: payload.title || "Interactive Plot",
           x: 0.5,
@@ -2031,6 +2105,7 @@
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/vs-tec</span> - Plot Cb vs Tec</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/per-station-averages/{doy}</span> - Plot Cb Per Station Avg</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/raw/day-by-day</span> - Plot Cb Raw Day By Day</div>
+    <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/cb/with-absoltec/day-by-day</span> - Plot Tec + Cb Day By Day</div>
 
 
     <div class="divider" style="margin:12px 0;"></div>
