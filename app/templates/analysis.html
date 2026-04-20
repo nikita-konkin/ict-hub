@@ -1201,9 +1201,50 @@
       return firstArrayKey || null;
     }
 
-    function toPlotlyTraces(series) {
+    function readCssVar(name, fallback) {
+      try {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        return trimmed || fallback;
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    function getPlotThemeTokens() {
+      const theme = (document.documentElement.getAttribute("data-theme") || "dark") === "light" ? "light" : "dark";
+
+      const text = readCssVar("--text", theme === "light" ? "#2B251E" : "#fff8e3");
+      const textMuted = readCssVar("--text-muted", theme === "light" ? "#655A4A" : "#cfc6b5");
+      const border = readCssVar("--border", theme === "light" ? "#D9CFBF" : "#242220");
+      const borderLight = readCssVar("--border-light", theme === "light" ? "#C9BEAC" : "#2E2C28");
+      const surface2 = readCssVar("--surface-2", theme === "light" ? "#F3EEE5" : "#161512");
+      const accent = readCssVar("--accent", theme === "light" ? "#8A6A3D" : "#C4A87A");
+
+      // More saturated + darker palette for light mode to avoid low-contrast lines.
+      const palette =
+        theme === "light"
+          ? ["#1B4F72", "#B03A2E", "#196F3D", "#7D3C98", "#B9770E", "#2E86C1", "#CB4335", "#148F77", "#6C3483", "#AF601A"]
+          : ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574", "#B39DDB", "#FF8A65", "#81C784", "#4DD0E1", "#FFD54F"];
+
+      return {
+        theme,
+        text,
+        textMuted,
+        border,
+        borderLight,
+        surface2,
+        accent,
+        palette,
+        hoverBg: theme === "light" ? "rgba(255,255,255,0.94)" : "rgba(0,0,0,0.85)",
+        hoverBorder: theme === "light" ? borderLight : "#fff8e3",
+      };
+    }
+
+    function toPlotlyTraces(series, palette) {
       if (!series || typeof series !== "object") return [];
-      const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+      const defaultColors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+      const colors = Array.isArray(palette) && palette.length ? palette : defaultColors;
       const keys = Object.keys(series);
       if (!keys.length) return [];
 
@@ -1259,6 +1300,8 @@
     async function renderPlotlyChart(payload, chartEl) {
       if (!chartEl || !window.Plotly || !payload || typeof payload !== "object") return false;
 
+      const themeTokens = getPlotThemeTokens();
+
       let traces = [];
       // Case 1: backend already returns Plotly-like figure JSON.
       if (Array.isArray(payload.data) && payload.data.length > 0) {
@@ -1267,7 +1310,7 @@
 
       // Case 2: existing ConverterHub structure with payload.series.
       if (!traces.length) {
-        traces = toPlotlyTraces(payload.series);
+        traces = toPlotlyTraces(payload.series, themeTokens.palette);
       }
 
       // Case 3: root-level {x: [...], y: [...]}.
@@ -1278,13 +1321,30 @@
 
       // Case 4: flat/nested series provided at root level.
       if (!traces.length) {
-        traces = toPlotlyTraces(payload);
+        traces = toPlotlyTraces(payload, themeTokens.palette);
       }
 
       if (!traces.length) return false;
 
+      traces = traces.map((trace, idx) => {
+        if (!trace || typeof trace !== "object") return trace;
+        const mode = typeof trace.mode === "string" ? trace.mode : "";
+        if (trace.type === "scatter" && mode.includes("lines")) {
+          const existingLine = trace.line && typeof trace.line === "object" ? trace.line : {};
+          return {
+            ...trace,
+            line: {
+              ...existingLine,
+              width: typeof existingLine.width === "number" ? existingLine.width : 2,
+              color: existingLine.color || themeTokens.palette[idx % themeTokens.palette.length],
+            },
+          };
+        }
+        return trace;
+      });
+
       const baseLayout = {
-        font: { color: "#fff8e3" },
+        font: { color: themeTokens.text },
         title: {
           text: payload.title || "Interactive Plot",
           x: 0.5,
@@ -1293,32 +1353,32 @@
           yanchor: "top",
           pad: { b: 20 },
         },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
+        paper_bgcolor: themeTokens.surface2,
+        plot_bgcolor: themeTokens.surface2,
         hovermode: "x unified",
         hoverlabel: {
-          bgcolor: "rgba(0,0,0,0.85)",
-          bordercolor: "#fff8e3",
-          font: { color: "#fff8e3" },
+          bgcolor: themeTokens.hoverBg,
+          bordercolor: themeTokens.hoverBorder,
+          font: { color: themeTokens.text },
         },
         margin: { l: 64, r: 24, t: 72, b: 56 },
         xaxis: {
           title: payload.xlabel || "X",
-          gridcolor: "#ffbd00",
-          zerolinecolor: "#ffbd00",
+          gridcolor: themeTokens.borderLight,
+          zerolinecolor: themeTokens.border,
           showline: true,
-          linecolor: "#a98a37",
-          tickfont: { color: "#fff8e3" },
-          titlefont: { color: "#fff8e3" },
+          linecolor: themeTokens.textMuted,
+          tickfont: { color: themeTokens.text },
+          titlefont: { color: themeTokens.text },
         },
         yaxis: {
           title: payload.ylabel || "Value",
-          gridcolor: "#ffbd00",
-          zerolinecolor: "#ffbd00",
+          gridcolor: themeTokens.borderLight,
+          zerolinecolor: themeTokens.border,
           showline: true,
-          linecolor: "#a98a37",
-          tickfont: { color: "#fff8e3" },
-          titlefont: { color: "#fff8e3" },
+          linecolor: themeTokens.textMuted,
+          tickfont: { color: themeTokens.text },
+          titlefont: { color: themeTokens.text },
         },
         legend: {
           orientation: "h",
@@ -1326,8 +1386,9 @@
           y: 1.02,
           xanchor: "left",
           x: 0,
-          font: { color: "#fff8e3" },
+          font: { color: themeTokens.text },
         },
+        colorway: themeTokens.palette,
       };
 
       const payloadLayout = payload.layout && typeof payload.layout === "object" ? payload.layout : {};
@@ -1349,12 +1410,14 @@
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      const themeTokens = getPlotThemeTokens();
+
       // Support two data structures:
       // 1. Flat: { ut/hour/time/x: [...], column1: [...], column2: [...] }
       // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
 
       let seriesList = [];
-      const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+      const colors = themeTokens.palette;
 
       // Detect data structure
       const firstKey = Object.keys(series)[0];
@@ -1403,6 +1466,8 @@
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
       const w = canvas.width;
       const h = canvas.height;
@@ -1412,10 +1477,10 @@
       canvasState = { seriesList, globalYMin, globalYMax, w, h, pad, hoveredPoints: [] };
 
       // Draw grid
-      const gridColor = "#ffbd00";
+      const gridColor = themeTokens.borderLight;
       ctx.strokeStyle = gridColor;
       ctx.lineWidth = 0.5;
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = themeTokens.theme === "light" ? 0.6 : 0.3;
 
       // Vertical grid lines
       const verticalGridLines = 10;
@@ -1439,7 +1504,7 @@
       ctx.globalAlpha = 1;
 
       // Draw axis frame
-      ctx.strokeStyle = "#333";
+      ctx.strokeStyle = themeTokens.textMuted;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.rect(pad, pad, w - pad * 2 - pad, h - pad * 2);
@@ -1451,7 +1516,7 @@
         if (!x.length || !y.length) continue;
 
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = themeTokens.theme === "light" ? 2.5 : 2;
         ctx.beginPath();
 
         for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
@@ -1466,7 +1531,7 @@
       }
 
       // Draw Y-axis labels
-      ctx.fillStyle = "#fff8e3";
+      ctx.fillStyle = themeTokens.text;
       ctx.font = "11px monospace";
       ctx.textAlign = "right";
       ctx.fillText(globalYMax.toFixed(2), pad - 8, pad + 5);
@@ -1477,14 +1542,14 @@
       ctx.translate(12, h / 2);
       ctx.rotate(-Math.PI / 2);
       ctx.textAlign = "center";
-      ctx.fillStyle = "#fff8e3";
+      ctx.fillStyle = themeTokens.text;
       ctx.font = "11px monospace";
       ctx.fillText("Value", 0, 0);
       ctx.restore();
 
       // Draw X-axis name
       ctx.textAlign = "center";
-      ctx.fillStyle = "#fff8e3";
+      ctx.fillStyle = themeTokens.text;
       ctx.font = "11px monospace";
       ctx.fillText("Index", w / 2, h - 12);
     }
@@ -1545,8 +1610,104 @@
       }
     }
 
+    function removeQueryParam(relativeUrl, key) {
+      try {
+        const u = new URL(relativeUrl, window.location.origin);
+        u.searchParams.delete(key);
+        return u.pathname + u.search;
+      } catch (_) {
+        return relativeUrl;
+      }
+    }
+
+    function setQueryParam(relativeUrl, key, value) {
+      try {
+        const u = new URL(relativeUrl, window.location.origin);
+        u.searchParams.set(key, value);
+        return u.pathname + u.search;
+      } catch (_) {
+        return relativeUrl;
+      }
+    }
+
+    async function fallbackRenderCbFromAbsoltecRawDayByDay(view) {
+      const doyStart = document.getElementById("plot-doy-start").value;
+      const doyEnd = document.getElementById("plot-doy-end").value;
+      const stations = getMultiSelectedValues("plot-stations");
+      const station = document.getElementById("plot-station").value;
+
+      if (!doyStart || !doyEnd) return false;
+
+      const params = new URLSearchParams();
+      qpAppend(params, "year", document.getElementById("plot-year").value);
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppendCsvArray(params, "stations", stations);
+      if ((!stations || stations.length === 0) && station) {
+        qpAppend(params, "station", station);
+      }
+      qpAppendCsvArray(params, "columns", "tec");
+      qpAppend(params, "width_px", document.getElementById("plot-width-px").value);
+      qpAppend(params, "height_px", document.getElementById("plot-height-px").value);
+      qpAppend(params, "dpi", document.getElementById("plot-dpi").value);
+      qpAppend(params, "format", "json");
+
+      const absUrl = "/analysis/api/plots/absoltec/raw/day-by-day?" + params.toString();
+      const res = await fetch(absUrl + (absUrl.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+      if (!res.ok) return false;
+
+      let absPayload = null;
+      try {
+        absPayload = await res.json();
+      } catch (_) {
+        absPayload = null;
+      }
+      if (!absPayload || typeof absPayload !== "object" || !absPayload.series || typeof absPayload.series !== "object") return false;
+
+      // CB is derived from AbsolTEC tec values.
+      const cbConstant =
+        Math.sqrt(4 * 3e8 * 1e27) /
+        Math.sqrt(80.5 * Math.PI * 1e16);
+
+      const seriesOut = {};
+      for (const key of Object.keys(absPayload.series)) {
+        const entry = absPayload.series[key];
+        if (!entry || typeof entry !== "object" || !Array.isArray(entry.x) || !Array.isArray(entry.y)) continue;
+
+        const stationName = String(key).split(":")[0] || key;
+        const cbY = entry.y.map((v) => {
+          const tec = Number(v);
+          if (!Number.isFinite(tec) || tec <= 0) return null;
+          return cbConstant / Math.sqrt(tec);
+        });
+        seriesOut[stationName] = { x: entry.x, y: cbY };
+      }
+
+      if (!Object.keys(seriesOut).length) return false;
+
+      const computedPayload = {
+        title: "CB (computed from AbsolTEC)",
+        xlabel: (absPayload.xlabel || "concat_ut"),
+        ylabel: "CB",
+        series: seriesOut,
+      };
+
+      view.state.lastPlotPayload = computedPayload;
+
+      const rendered = await renderPlotlyChart(computedPayload, view.plotlyChart);
+      if (rendered) {
+        view.plotlyChart.style.display = "block";
+      } else {
+        view.canvas.style.display = "block";
+        drawSeriesOnCanvas(computedPayload.series, view.canvas);
+      }
+
+      return true;
+    }
+
     async function runPlotQuery() {
       const format = document.getElementById("plot-format").value;
+      const endpointName = document.getElementById("plot-endpoint").value;
       const url = buildPlotUrl();
       state.lastPlotUrl = url;
       document.getElementById("plot-query-url").textContent = url;
@@ -1576,8 +1737,57 @@
       }
 
       try {
-        const res = await fetch(url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+        let effectiveUrl = url;
+        let res = await fetch(effectiveUrl + (effectiveUrl.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+
+        // Some backend versions treat `station` + repeated `stations` as an error for CB endpoints.
+        if (!res.ok && res.status === 404 && endpointName.startsWith("plots/cb/") && effectiveUrl.includes("station=") && effectiveUrl.includes("stations=")) {
+          effectiveUrl = removeQueryParam(effectiveUrl, "station");
+          state.lastPlotUrl = effectiveUrl;
+          document.getElementById("plot-query-url").textContent = effectiveUrl;
+          res = await fetch(effectiveUrl + (effectiveUrl.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+        }
+
         if (!res.ok) {
+          if (res.status === 404 && endpointName === "plots/cb/raw/day-by-day") {
+            // If PNG fails, try JSON rendering of the same endpoint first (backend may not support PNG/agg in some builds).
+            const jsonUrl = setQueryParam(effectiveUrl, "format", "json");
+            const jsonRes = await fetch(jsonUrl + (jsonUrl.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+            if (jsonRes.ok) {
+              let jsonPayload = null;
+              try { jsonPayload = await jsonRes.json(); } catch (_) { jsonPayload = null; }
+              if (jsonPayload) {
+                state.lastPlotUrl = jsonUrl;
+                document.getElementById("plot-query-url").textContent = jsonUrl;
+                state.lastPlotPayload = jsonPayload;
+                const rendered = await renderPlotlyChart(jsonPayload, plotlyChart);
+                if (rendered) {
+                  plotlyChart.style.display = "block";
+                } else {
+                  const fallbackSeries =
+                    jsonPayload.series && typeof jsonPayload.series === "object"
+                      ? jsonPayload.series
+                      : jsonPayload;
+                  canvas.style.display = "block";
+                  drawSeriesOnCanvas(fallbackSeries, canvas);
+                }
+                setPlotFetchStatus("info", "CB PNG failed — rendered JSON instead.");
+                return;
+              }
+            }
+
+            const ok = await fallbackRenderCbFromAbsoltecRawDayByDay({ state, plotlyChart, canvas });
+            if (ok) {
+              const msg = "CB endpoint returned 404 — rendered CB computed from AbsolTEC instead.";
+              setPlotFetchStatus("info", msg);
+              if (format === "json") {
+                pre.textContent = JSON.stringify(state.lastPlotPayload, null, 2);
+                pre.style.display = "block";
+              }
+              return;
+            }
+          }
+
           const responseText = await res.text();
           let payload = null;
           try {
@@ -1705,8 +1915,12 @@
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (state.lastPlotPayload && state.lastPlotPayload.series) {
-          drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
+        if (state.lastPlotPayload) {
+          const fallbackSeries =
+            state.lastPlotPayload.series && typeof state.lastPlotPayload.series === "object"
+              ? state.lastPlotPayload.series
+              : state.lastPlotPayload;
+          drawSeriesOnCanvas(fallbackSeries, canvas);
         }
         if (points.length > 0) {
           drawHoverLabels(canvas, points);
@@ -1719,12 +1933,43 @@
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          if (state.lastPlotPayload.series) {
-            drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
-          }
+          const fallbackSeries =
+            state.lastPlotPayload.series && typeof state.lastPlotPayload.series === "object"
+              ? state.lastPlotPayload.series
+              : state.lastPlotPayload;
+          drawSeriesOnCanvas(fallbackSeries, canvas);
         }
       }
     });
+
+    (function watchThemeChanges() {
+      if (!window.MutationObserver) return;
+      const root = document.documentElement;
+      const plotlyChart = document.getElementById("plotly-chart");
+      const canvasEl = document.getElementById("plot-canvas");
+      if (!root || (!plotlyChart && !canvasEl)) return;
+
+      const observer = new MutationObserver(function (mutations) {
+        for (const m of mutations) {
+          if (m.type !== "attributes" || m.attributeName !== "data-theme") continue;
+          if (!state.lastPlotPayload || typeof state.lastPlotPayload !== "object" || !Object.keys(state.lastPlotPayload).length) return;
+
+          if (plotlyChart && plotlyChart.style.display !== "none" && window.Plotly) {
+            renderPlotlyChart(state.lastPlotPayload, plotlyChart);
+          }
+
+          if (canvasEl && canvasEl.style.display !== "none") {
+            const fallbackSeries =
+              state.lastPlotPayload.series && typeof state.lastPlotPayload.series === "object"
+                ? state.lastPlotPayload.series
+                : state.lastPlotPayload;
+            drawSeriesOnCanvas(fallbackSeries, canvasEl);
+          }
+          return;
+        }
+      });
+      observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    })();
 
     loadIndexOptions().finally(function () {
       updateDataFieldHighlights();

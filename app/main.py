@@ -108,36 +108,6 @@ app.include_router(indexed_data.router)
 # API proxy routes for external services
 # ─────────────────────────────────────────────────────────────────────────────
 
-from fastapi.responses import JSONResponse
-import httpx
-from app.config import DATA_INDEXER_URL, DATA_INDEXER_TIMEOUT_SEC
-
-@app.get("/api/data-indexer/status")
-async def proxy_data_indexer_status():
-    """Proxy status requests to the data-indexer service."""
-    if not DATA_INDEXER_URL:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Data indexer service not configured"}
-        )
-
-    try:
-        base = DATA_INDEXER_URL.rstrip("/")
-        url = f"{base}/status"
-        async with httpx.AsyncClient(trust_env=False) as client:
-            response = await client.get(url, timeout=DATA_INDEXER_TIMEOUT_SEC)
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.json() if response.status_code < 400 else {"error": "Data indexer service unavailable"}
-            )
-    except Exception as exc:
-        logger.warning("Data-indexer status proxy failed: %s", exc)
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Data indexer service unavailable"}
-        )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Global exception handler for 303 redirects issued by get_current_user()
 # ─────────────────────────────────────────────────────────────────────────────

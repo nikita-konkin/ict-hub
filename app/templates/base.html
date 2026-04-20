@@ -971,28 +971,6 @@
       {% endif %}
     </div>
 
-    <!-- Data Indexer Status -->
-    <div class="sidebar-status" id="data-indexer-status">
-      <div class="status-indicator">
-        <div class="status-dot" id="status-dot"></div>
-        <span class="status-text">{{ t('data_indexer_status') }}</span>
-      </div>
-      <div class="status-details" id="status-details">
-        <div class="status-item">
-          <span>RINEX:</span>
-          <span id="rinex-count">-</span>
-        </div>
-        <div class="status-item">
-          <span>TEC-suite:</span>
-          <span id="tecsuite-count">-</span>
-        </div>
-        <div class="status-item">
-          <span>Parquet:</span>
-          <span id="parquet-count">-</span>
-        </div>
-      </div>
-    </div>
-
     <div class="sidebar-footer">
       <div class="user-pill">
         <div class="user-avatar">{{ current_user.username[0].upper() }}</div>
@@ -1555,8 +1533,6 @@
         initializeTheme();
         initializeLanguage();
 
-        // Initialize data indexer status
-        initializeDataIndexerStatus();
       });
 
       document.body.addEventListener("htmx:afterSwap", function (evt) {
@@ -1566,41 +1542,6 @@
       });
 
       // ── Data Indexer Status ───────────────────────────────────────────────
-      function initializeDataIndexerStatus() {
-        const statusDot = document.getElementById('status-dot');
-        const rinexCount = document.getElementById('rinex-count');
-        const tecsuiteCount = document.getElementById('tecsuite-count');
-        const parquetCount = document.getElementById('parquet-count');
-
-        if (!statusDot || !rinexCount || !tecsuiteCount || !parquetCount) return;
-
-        async function updateStatus() {
-          try {
-            const response = await fetch('/api/data-indexer/status');
-            if (response.ok) {
-              const data = await response.json();
-              statusDot.classList.add('active');
-              rinexCount.textContent = data.cache_info.rinex.entries;
-              tecsuiteCount.textContent = data.cache_info.tecsuite.entries;
-              parquetCount.textContent = data.cache_info.parquet.entries;
-            } else {
-              statusDot.classList.remove('active');
-              rinexCount.textContent = '-';
-              tecsuiteCount.textContent = '-';
-              parquetCount.textContent = '-';
-            }
-          } catch (error) {
-            statusDot.classList.remove('active');
-            rinexCount.textContent = '-';
-            tecsuiteCount.textContent = '-';
-            parquetCount.textContent = '-';
-          }
-        }
-
-        // Update status immediately and then every 30 seconds
-        updateStatus();
-        setInterval(updateStatus, 30000);
-      }
     })();
   </script>
 
