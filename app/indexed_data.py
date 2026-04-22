@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
-from app.auth import get_current_user
+from app.auth import get_current_user, require_page_access
 from app.data_indexer_client import (
     clear_cache as clear_data_indexer_cache,
     list_abstec_output_structure_async,
@@ -42,7 +42,7 @@ def _scan_root(*paths: str) -> str:
 @router.get("/indexed-data", response_class=HTMLResponse)
 async def indexed_data_page(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("indexed_data")),
 ):
     clear_data_indexer_cache()
 
@@ -89,4 +89,3 @@ async def indexed_data_page(
         ),
     )
     return apply_lang_cookie(request, response)
-

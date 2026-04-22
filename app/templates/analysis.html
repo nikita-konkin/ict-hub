@@ -408,6 +408,10 @@
       <img id="plot-image" alt="Plot preview" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:none;">
       <div id="plotly-chart" style="width:100%; height:420px; border:1px solid var(--border); border-radius:var(--radius); display:none; background:var(--surface-2);"></div>
       <canvas id="plot-canvas" width="1000" height="300" style="width:100%; height:300px; border:1px solid var(--border); border-radius:var(--radius); display:none; background:var(--surface-2);"></canvas>
+      <div id="plot-json-tools" style="display:none; margin-top:10px; align-items:center; gap:10px;">
+        <button id="plot-json-copy" type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:12px;">Copy JSON</button>
+        <span id="plot-json-copy-msg" style="font-size:12px; color:var(--text-muted);"></span>
+      </div>
       <pre id="plot-json" style="display:none; margin-top:10px; max-height:220px; overflow:auto; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; color:var(--text-muted); font-size:11px;"></pre>
     </div>
   </div>
@@ -1790,6 +1794,8 @@
       const viewer = document.getElementById("plot-viewer");
       const empty = document.getElementById("plot-empty");
       const img = document.getElementById("plot-image");
+      const jsonTools = document.getElementById("plot-json-tools");
+      const jsonCopyMsg = document.getElementById("plot-json-copy-msg");
       const pre = document.getElementById("plot-json");
       const canvas = document.getElementById("plot-canvas");
       const plotlyChart = document.getElementById("plotly-chart");
@@ -1803,6 +1809,8 @@
       viewer.style.display = "block";
       empty.style.display = "none";
       img.style.display = "none";
+      jsonTools.style.display = "none";
+      jsonCopyMsg.textContent = "";
       pre.style.display = "none";
       canvas.style.display = "none";
       plotlyChart.style.display = "none";
@@ -1854,13 +1862,14 @@
             if (ok) {
               const msg = "CB endpoint returned 404 — rendered CB computed from AbsolTEC instead.";
               setPlotFetchStatus("info", msg);
-              if (format === "json") {
-                pre.textContent = JSON.stringify(state.lastPlotPayload, null, 2);
-                pre.style.display = "block";
+                if (format === "json") {
+                  pre.textContent = JSON.stringify(state.lastPlotPayload, null, 2);
+                  pre.style.display = "block";
+                  jsonTools.style.display = "flex";
+                }
+                return;
               }
-              return;
             }
-          }
 
           const responseText = await res.text();
           let payload = null;
@@ -1870,11 +1879,12 @@
             payload = null;
           }
           const errorText = payload ? formatBackendError(payload, res.status) : ("Request failed: " + res.status);
-          setPlotFetchStatus("error", errorText);
-          pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
-          pre.style.display = "block";
-          return;
-        }
+           setPlotFetchStatus("error", errorText);
+           pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
+           pre.style.display = "block";
+           jsonTools.style.display = "flex";
+           return;
+         }
 
         if (format === "png") {
           const blob = await res.blob();
@@ -1902,6 +1912,7 @@
         if (format === "json") {
           pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
           pre.style.display = "block";
+          jsonTools.style.display = "flex";
           if (payload) {
             state.lastPlotPayload = payload;
           }
@@ -1910,6 +1921,7 @@
         if (!payload) {
           pre.textContent = responseText;
           pre.style.display = "block";
+          jsonTools.style.display = "flex";
           setPlotFetchStatus("success", "OK (Fetched)");
           return;
         }
@@ -1919,6 +1931,7 @@
         if (format === "json") {
           pre.textContent = JSON.stringify(payload, null, 2);
           pre.style.display = "block";
+          jsonTools.style.display = "flex";
         }
 
         const rendered = await renderPlotlyChart(payload, plotlyChart);
@@ -1933,18 +1946,20 @@
           canvas.style.display = "block";
           drawSeriesOnCanvas(fallbackSeries, canvas);
           // If nothing drawable was found, keep JSON visible for troubleshooting.
-          if (canvasState.seriesList.length === 0) {
-            pre.textContent = JSON.stringify(payload, null, 2);
-            pre.style.display = "block";
-          }
-        }
-        setPlotFetchStatus("success", "OK (Fetched)");
-      } catch (err) {
-        pre.textContent = "Error: " + err;
-        pre.style.display = "block";
-        setPlotFetchStatus("error", "Error: " + err);
-      }
-    }
+           if (canvasState.seriesList.length === 0) {
+             pre.textContent = JSON.stringify(payload, null, 2);
+             pre.style.display = "block";
+             jsonTools.style.display = "flex";
+           }
+         }
+         setPlotFetchStatus("success", "OK (Fetched)");
+       } catch (err) {
+         pre.textContent = "Error: " + err;
+         pre.style.display = "block";
+         jsonTools.style.display = "flex";
+         setPlotFetchStatus("error", "Error: " + err);
+       }
+     }
 
     document.getElementById("analysis-data-form").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -1974,6 +1989,42 @@
     document.getElementById("plot-open-new").addEventListener("click", function () {
       const url = state.lastPlotUrl || buildPlotUrl();
       window.open(url, "_blank");
+    });
+
+    async function copyTextToClipboard(text) {
+      if (typeof text !== "string" || !text.length) return false;
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (_) {
+          // fall through
+        }
+      }
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "true");
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.left = "-1000px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand && document.execCommand("copy");
+        document.body.removeChild(ta);
+        return !!ok;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    document.getElementById("plot-json-copy").addEventListener("click", async function () {
+      const pre = document.getElementById("plot-json");
+      const msg = document.getElementById("plot-json-copy-msg");
+      const text = (pre && typeof pre.textContent === "string") ? pre.textContent : "";
+      const ok = await copyTextToClipboard(text);
+      msg.textContent = ok ? "Copied." : "Copy failed (browser permissions).";
+      setTimeout(() => { msg.textContent = ""; }, 1800);
     });
     document.getElementById("pivot-run").addEventListener("click", runPivot);
 

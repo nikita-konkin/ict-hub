@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+import json
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -33,6 +34,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 templates = Jinja2Templates(directory="app/templates")
+
+
+def new_account_permissions(
+    *,
+    allow_tec_suite: bool = False,
+    allow_dat_parquet: bool = False,
+    allow_abstec_suite: bool = False,
+) -> dict:
+    """
+    Default rules for newly created (non-admin) accounts.
+
+    Rule set requested:
+      1) Access only to Overview pages: Data analysis and Indexed data
+      2) Distinct access toggles to TEC-Suite, DAT <-> Parquet, AbsTEC Suite
+    """
+    return {
+        "pages": {
+            "dashboard": False,
+            "history": False,
+            "analysis": True,
+            "indexed_data": True,
+        },
+        "converters": {
+            "tec-suite": bool(allow_tec_suite),
+            "dat-parquet-handler": bool(allow_dat_parquet),
+            "abstec-suite": bool(allow_abstec_suite),
+        },
+    }
+
+
+def require_page_access(page: str):
+    def _dep(current_user: User = Depends(get_current_user)) -> User:
+        if getattr(current_user, "is_admin", False):
+            return current_user
+        if hasattr(current_user, "can_access_page") and current_user.can_access_page(page):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+        )
+
+    return _dep
+
+
+def require_converter_access():
+    def _dep(
+        converter_name: str,
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if getattr(current_user, "is_admin", False):
+            return current_user
+        if hasattr(current_user, "can_access_converter") and current_user.can_access_converter(converter_name):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+        )
+
+    return _dep
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +206,7 @@ async def login_submit(
     db.commit()
     logger.info("User %r logged in", username)
 
-    return RedirectResponse("/", status_code=302)
+    return RedirectResponse(user.default_landing_path(), status_code=302)
 
 
 @router.get("/logout")
@@ -177,6 +237,9 @@ async def create_user(
     username: str = Form(...),
     password: str = Form(...),
     role: str = Form("operator"),
+    allow_tec_suite: str | None = Form(None),
+    allow_dat_parquet: str | None = Form(None),
+    allow_abstec_suite: str | None = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
 ):
@@ -200,10 +263,20 @@ async def create_user(
     if role not in ("admin", "operator"):
         role = "operator"
 
+    permissions_json = ""
+    if role != "admin":
+        perms = new_account_permissions(
+            allow_tec_suite=bool(allow_tec_suite),
+            allow_dat_parquet=bool(allow_dat_parquet),
+            allow_abstec_suite=bool(allow_abstec_suite),
+        )
+        permissions_json = json.dumps(perms, ensure_ascii=False)
+
     new_user = User(
         username=username,
         hashed_pw=hash_password(password),
         role=role,
+        permissions_json=permissions_json,
     )
     db.add(new_user)
     db.commit()

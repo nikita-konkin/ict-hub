@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app import config as cfg
-from app.auth import get_admin_user, get_current_user
+from app.auth import get_admin_user, get_current_user, require_converter_access, require_page_access
 from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
 from app.job_runtime import (
@@ -268,7 +268,7 @@ async def _stream_job_logs_direct(job: JobRun, db: Session) -> asyncio.AsyncGene
 async def dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("dashboard")),
 ):
     """
     Main landing page. Shows each registered converter as a card alongside
@@ -304,7 +304,7 @@ async def run_page(
     converter_name: str,
     job_id: int | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_converter_access()),
 ):
     """Render the flag form for a specific converter."""
     _reconcile_running_jobs(db, current_user, converter_name=converter_name)
@@ -458,6 +458,14 @@ async def start_job(
             f'<div class="alert alert-danger">Unknown converter: {converter_name}</div>',
             status_code=400,
         )
+
+    if not current_user.can_access_converter(converter_name):
+        if is_htmx_request:
+            return HTMLResponse(
+                '<div class="alert alert-danger">Access denied for this converter.</div>',
+                status_code=403,
+            )
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Convert form data to a regular dict for processing
     form_dict = {k: v for k, v in form.items() if k != "converter_name"}
@@ -820,6 +828,9 @@ async def open_job(
     if not current_user.is_admin and job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if not current_user.can_access_converter(job.converter):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     return RedirectResponse(url=f"/run/{job.converter}?job_id={job.id}", status_code=303)
 
 
@@ -838,6 +849,9 @@ async def stop_job(
     if not current_user.is_admin and job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if not current_user.can_access_converter(job.converter):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     if job.container_id and job.status == "running":
         stop_container(job.container_id)
         persist_job_finished(db, job, -2)  # sentinel for "stopped by user"
@@ -853,7 +867,7 @@ async def stop_job(
 async def history(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("history")),
     page: int = 1,
     per_page: int = 25,
 ):

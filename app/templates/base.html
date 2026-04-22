@@ -895,6 +895,7 @@
 
     <div class="sidebar-nav">
       <div class="nav-section-label">{{ t('nav_overview') }}</div>
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('dashboard')) %}
       <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <rect x="1.5" y="1.5" width="5" height="5" rx="0.5"/><rect x="9.5" y="1.5" width="5" height="5" rx="0.5"/>
@@ -902,12 +903,16 @@
         </svg>
         {{ t('nav_dashboard') }}
       </a>
+      {% endif %}
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('history')) %}
       <a href="/history" class="nav-link {% if '/history' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="8" cy="8" r="6"/><path d="M8 5v3.5l2 1.5"/>
         </svg>
         {{ t('nav_history') }}
       </a>
+      {% endif %}
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('analysis')) %}
       <a href="/analysis" class="nav-link {% if '/analysis' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M2 13.5h12"/>
@@ -915,12 +920,15 @@
         </svg>
         {{ t('nav_analysis') }}
       </a>
+      {% endif %}
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('indexed_data')) %}
       <a href="/indexed-data" class="nav-link {% if '/indexed-data' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M2 5.5h12v8H2z"/><path d="M2 5.5l2-2h4l2 2"/>
         </svg>
         {{ t('nav_indexed_data') }}
       </a>
+      {% endif %}
 
       {% set idx = indexed_data_paths if indexed_data_paths is defined else {} %}
       {% set not_cfg = t('nav_indexed_data_not_configured') %}
@@ -954,11 +962,20 @@
       </div>
 
       <div class="nav-section-label">{{ t('nav_converters') }}</div>
+      {% set has_converters = false %}
       {% for name, conv in converters.items() %}
-      <a href="/run/{{ name }}" class="nav-link nav-link-converter {% if '/run/' + name in request.url.path %}active{% endif %}">
-        {{ conv.label }}
-      </a>
+        {% if current_user.is_admin or (current_user.can_access_converter is defined and current_user.can_access_converter(name)) %}
+          {% set has_converters = true %}
+          <a href="/run/{{ name }}" class="nav-link nav-link-converter {% if '/run/' + name in request.url.path %}active{% endif %}">
+            {{ conv.label }}
+          </a>
+        {% endif %}
       {% endfor %}
+      {% if not has_converters %}
+        <div class="nav-link nav-link-converter" style="color:var(--text-dim); cursor:default;">
+          {{ t('nav_converters_none') }}
+        </div>
+      {% endif %}
 
       {% if current_user.is_admin %}
       <div class="nav-section-label">{{ t('nav_admin') }}</div>

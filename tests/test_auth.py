@@ -136,6 +136,39 @@ class TestUserManagement:
         user = db.query(User).filter(User.username == "newuser").first()
         assert user is not None
         assert user.role == "operator"
+        assert user.permissions_json
+        assert user.can_access_page("analysis") is True
+        assert user.can_access_page("indexed_data") is True
+        assert user.can_access_converter("tec-suite") is False
+
+    def test_new_operator_redirects_to_analysis_and_cannot_open_converters(self, client, admin_client):
+        admin_client.post(
+            "/users",
+            data={"username": "restricted", "password": "restpass", "role": "operator"},
+            follow_redirects=True,
+        )
+
+        # Switch session from admin to the new operator
+        client.get("/logout", follow_redirects=True)
+
+        login = client.post(
+            "/login",
+            data={"username": "restricted", "password": "restpass"},
+            follow_redirects=False,
+        )
+        assert login.status_code in (302, 303)
+        assert login.headers.get("location", "").endswith("/analysis")
+
+        # Overview pages work
+        assert client.get("/analysis", follow_redirects=True).status_code == 200
+        assert client.get("/indexed-data", follow_redirects=True).status_code == 200
+
+        # Dashboard/history are denied (redirect away)
+        assert client.get("/", follow_redirects=False).status_code in (302, 303)
+        assert client.get("/history", follow_redirects=False).status_code in (302, 303)
+
+        # Converter tabs are denied by default
+        assert client.get("/run/tec-suite", follow_redirects=False).status_code in (302, 303)
 
     def test_duplicate_username_returns_error(self, admin_client, admin_user):
         """Attempting to create a user with an existing username should fail gracefully."""

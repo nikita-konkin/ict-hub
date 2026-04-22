@@ -98,6 +98,32 @@
           </select>
         </div>
 
+        <div class="form-group" style="margin-bottom:18px;">
+          <label class="form-label">{{ t('users_access_rules') }}</label>
+          <div class="form-hint">{{ t('users_access_rules_hint') }}</div>
+
+          <div class="checkbox-group">
+            <input class="checkbox-input" type="checkbox" id="allow-tec-suite" name="allow_tec_suite">
+            <div class="checkbox-label-wrap">
+              <label class="checkbox-label" for="allow-tec-suite">{{ t('users_allow_tec_suite') }}</label>
+            </div>
+          </div>
+
+          <div class="checkbox-group">
+            <input class="checkbox-input" type="checkbox" id="allow-dat-parquet" name="allow_dat_parquet">
+            <div class="checkbox-label-wrap">
+              <label class="checkbox-label" for="allow-dat-parquet">{{ t('users_allow_dat_parquet') }}</label>
+            </div>
+          </div>
+
+          <div class="checkbox-group" style="padding-bottom:0;">
+            <input class="checkbox-input" type="checkbox" id="allow-abstec-suite" name="allow_abstec_suite">
+            <div class="checkbox-label-wrap">
+              <label class="checkbox-label" for="allow-abstec-suite">{{ t('users_allow_abstec_suite') }}</label>
+            </div>
+          </div>
+        </div>
+
         <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">
           {{ t('users_create_account') }}
         </button>

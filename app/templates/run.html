@@ -7,7 +7,7 @@
     <h1 class="page-title">{{ converter.label }}</h1>
     <p class="page-subtitle">{{ t('run_page_subtitle') }}</p>
   </div>
-  <a href="/" class="btn btn-ghost">← {{ t('run_back') }}</a>
+<a href="{{ current_user.default_landing_path() if current_user.default_landing_path is defined else '/' }}" class="btn btn-ghost">← {{ t('run_back') }}</a>
 </div>
 
 <!-- ── Two-column layout: form left, output right ─────────────────── -->

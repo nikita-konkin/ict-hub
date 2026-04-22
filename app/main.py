@@ -42,6 +42,18 @@ async def lifespan(app: FastAPI):
     logger.info("Creating database tables if they don't exist…")
     Base.metadata.create_all(bind=engine)
 
+    # Lightweight schema migration: add users.permissions_json if missing.
+    # This project intentionally avoids Alembic; we keep migrations minimal.
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        try:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)")).all()]
+        except Exception:
+            cols = []
+        if "permissions_json" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT ''"))
+
     # If no users exist at all, create a default admin so the system is usable
     # immediately after first boot. The admin can then create other accounts.
     db = SessionLocal()

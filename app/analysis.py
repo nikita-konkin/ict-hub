@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
-from app.auth import get_current_user
+from app.auth import get_current_user, require_page_access
 from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure_async
 from app.i18n import apply_lang_cookie, template_context
 from app.models import User
@@ -30,7 +30,7 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/analysis", response_class=HTMLResponse)
 async def analysis_home(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("analysis")),
 ):
     """Analysis landing page for TEC data exploration and exports."""
     response = templates.TemplateResponse(
@@ -48,7 +48,7 @@ async def analysis_home(
 
 @router.get("/analysis/index-options")
 async def analysis_index_options(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("analysis")),
 ):
     """Return endpoint-aware options from parquet-only data-indexer APIs."""
     _ = current_user  # explicit auth guard via dependency
@@ -163,7 +163,7 @@ def _filter_incoming_headers(headers: dict[str, str]) -> dict[str, str]:
 async def analysis_proxy(
     api_path: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page_access("analysis")),
     tail: int | None = Query(default=None, ge=0),
 ):
     """

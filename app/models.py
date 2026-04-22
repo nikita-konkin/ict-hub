@@ -16,6 +16,21 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+def _safe_json_loads(raw: str | None) -> dict | None:
+    value = (raw or "").strip()
+    if not value:
+        return None
+    try:
+        loaded = json.loads(value)
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _boolish(value: object) -> bool:
+    return bool(value) is True
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -26,6 +41,8 @@ class User(Base):
     # "operator" can run jobs and see their own history
     # "admin" can manage users and see everyone's history
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # JSON-encoded access control rules. Empty string => legacy "allow all".
+    permissions_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -35,6 +52,60 @@ class User(Base):
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    @property
+    def permissions(self) -> dict | None:
+        """
+        Return parsed permission dict or None.
+
+        None means "legacy / unrestricted" access so existing deployments
+        are not locked out when the column is introduced.
+        """
+        if self.is_admin:
+            return None
+        return _safe_json_loads(self.permissions_json)
+
+    def can_access_page(self, page: str) -> bool:
+        if self.is_admin:
+            return True
+        perms = self.permissions
+        if perms is None:
+            return True
+        pages = perms.get("pages", {})
+        return _boolish(pages.get(page, False))
+
+    def can_access_converter(self, converter_name: str) -> bool:
+        if self.is_admin:
+            return True
+        perms = self.permissions
+        if perms is None:
+            return True
+        converters = perms.get("converters", {})
+        return _boolish(converters.get(converter_name, False))
+
+    def default_landing_path(self) -> str:
+        """
+        Pick a safe post-login landing page based on granted permissions.
+
+        Order matters: we prefer "overview" pages so restricted accounts land
+        somewhere meaningful.
+        """
+        if self.is_admin:
+            return "/"
+
+        if self.can_access_page("analysis"):
+            return "/analysis"
+        if self.can_access_page("indexed_data"):
+            return "/indexed-data"
+        if self.can_access_page("dashboard"):
+            return "/"
+        # If no pages are allowed but a converter is, fall back to it.
+        perms = self.permissions or {}
+        converters = perms.get("converters", {}) if isinstance(perms, dict) else {}
+        for name, allowed in converters.items():
+            if _boolish(allowed):
+                return f"/run/{name}"
+        return "/login"
 
 
 class JobRun(Base):
