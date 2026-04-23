@@ -1,5 +1,5 @@
-<!--
-  job_panel.html — HTMX fragment (not a full page).
+﻿<!--
+  job_panel.html â€” HTMX fragment (not a full page).
 
   Multiple panels can be active simultaneously; all IDs are scoped to job.id
   so they never collide. Each panel manages its own EventSource independently.
@@ -26,7 +26,7 @@
         </div>
 
         <div class="flex-center gap-sm">
-          <!-- Status badge — updated by JS on SSE "done" event -->
+          <!-- Status badge â€” updated by JS on SSE "done" event -->
           <div id="job-status-{{ job.id }}">
             {% if job.status == "running" %}
             <span class="badge badge-running">{{ t('badge_running') }}</span>
@@ -64,7 +64,7 @@
             Progress
           </span>
           <span id="progress-label-{{ job.id }}" style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">
-            —
+            â€”
           </span>
         </div>
         <div class="progress-track">
@@ -88,15 +88,16 @@
         class="btn btn-ghost"
         style="padding:3px 10px; font-size:10px;"
       >
-        ↓ Scroll to bottom
+        â†“ Scroll to bottom
       </button>
     </div>
 
     <div
       id="log-lines-{{ job.id }}"
       class="log-panel"
+      data-max-lines="{{ log_max_lines }}"
     >
-      <span class="log-line" style="color:var(--text-dim);">Connecting to container…</span>
+      <span class="log-line" style="color:var(--text-dim);">Connecting to containerâ€¦</span>
     </div>
   </div>
 

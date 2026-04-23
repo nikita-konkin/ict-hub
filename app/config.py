@@ -67,6 +67,14 @@ PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: str = os.getenv("PARQUET_OUTPUT_ABSTE
 # Minimum time between emitted SSE log lines (seconds)
 LOG_EMIT_INTERVAL_SEC: float = float(os.getenv("LOG_EMIT_INTERVAL_SEC", "0.5"))
 
+# Max number of log lines kept in the browser UI per running job panel.
+# Older lines are trimmed as new ones arrive.
+try:
+    LOG_MAX_LINES: int = int(os.getenv("LOG_MAX_LINES", "2000"))
+except ValueError:
+    LOG_MAX_LINES = 2000
+LOG_MAX_LINES = max(1, LOG_MAX_LINES)
+
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
 

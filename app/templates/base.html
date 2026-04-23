@@ -1342,6 +1342,42 @@
         let hasRealLogs = false;
         let pendingLogs = [];
         let flushScheduled = false;
+        const maxLogLines = (function () {
+          if (!logLines) return 2000;
+          const raw = (logLines.dataset && logLines.dataset.maxLines) ? String(logLines.dataset.maxLines) : "";
+          const parsed = parseInt(raw, 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 2000;
+        })();
+        const maxPendingLogs = Math.max(maxLogLines * 2, 1000);
+
+        function enforceLogLimit(shouldStickToBottom) {
+          if (!logLines) return;
+
+          const existingCount = logLines.childNodes.length;
+          const incomingCount = pendingLogs.length;
+          const excess = (existingCount + incomingCount) - maxLogLines;
+          if (excess <= 0) return;
+
+          const prevScrollTop = logLines.scrollTop;
+          const prevScrollHeight = logLines.scrollHeight;
+
+          const removeFromExisting = Math.min(existingCount, excess);
+          for (let i = 0; i < removeFromExisting; i++) {
+            if (!logLines.firstChild) break;
+            logLines.removeChild(logLines.firstChild);
+          }
+
+          const remainingExcess = excess - removeFromExisting;
+          if (remainingExcess > 0) {
+            pendingLogs = pendingLogs.slice(remainingExcess);
+          }
+
+          if (!shouldStickToBottom && removeFromExisting > 0) {
+            const afterRemovalScrollHeight = logLines.scrollHeight;
+            const removedHeight = prevScrollHeight - afterRemovalScrollHeight;
+            logLines.scrollTop = Math.max(0, prevScrollTop - removedHeight);
+          }
+        }
 
         function flushLogBuffer() {
           flushScheduled = false;
@@ -1354,6 +1390,7 @@
 
           const shouldStickToBottom =
             (logLines.scrollTop + logLines.clientHeight) >= (logLines.scrollHeight - 24);
+          enforceLogLimit(shouldStickToBottom);
           const fragment = document.createDocumentFragment();
 
           pendingLogs.forEach(function (entry) {
@@ -1375,6 +1412,9 @@
             message: typeof message === "string" ? message : String(message || ""),
             level: level === "error" ? "error" : "info",
           });
+          if (pendingLogs.length > maxPendingLogs) {
+            pendingLogs = pendingLogs.slice(pendingLogs.length - maxPendingLogs);
+          }
           if (!flushScheduled) {
             flushScheduled = true;
             window.requestAnimationFrame(flushLogBuffer);

@@ -324,6 +324,7 @@ def template_context(request: Request, context: Mapping[str, Any] | None = None,
         "parquet_tecsuite": cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip(),
         "parquet_abstec": cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip(),
     }
+    merged["log_max_lines"] = cfg.LOG_MAX_LINES
 
     def _t(key: str, **fmt_kwargs: Any) -> str:
         return translate(lang, key, **fmt_kwargs)
