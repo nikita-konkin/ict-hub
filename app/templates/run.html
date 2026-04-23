@@ -435,10 +435,39 @@
         return;
       }
 
+      function computeDoy(yearName, dayName) {
+        const yearInt = parseInt(String(yearName).slice(0, 4), 10);
+        if (!Number.isFinite(yearInt)) return null;
+
+        const raw = String(dayName || "").trim();
+        if (!raw) return null;
+
+        // Expected folder format: "MM/DD" (e.g. "04/21").
+        const parts = raw.split("/");
+        if (parts.length === 2) {
+          const month = parseInt(parts[0], 10);
+          const day = parseInt(parts[1], 10);
+          if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+          const dateUtc = new Date(Date.UTC(yearInt, month - 1, day));
+          if (!Number.isFinite(dateUtc.getTime())) return null;
+          const jan1 = new Date(Date.UTC(yearInt, 0, 1));
+          return Math.floor((dateUtc - jan1) / 86400000) + 1;
+        }
+
+        // Fallback: numeric day-of-year folder ("111").
+        if (/^\\d{1,3}$/.test(raw)) {
+          const doy = parseInt(raw, 10);
+          return doy >= 1 && doy <= 366 ? doy : null;
+        }
+
+        return null;
+      }
+
       for (const dayItem of yearItem.days) {
         const option = document.createElement("option");
         option.value = dayItem.day;
-        option.textContent = dayItem.day + " (" + dayItem.stations + " {{ t('run_unit_stations') }})";
+        const doy = computeDoy(year, dayItem.day);
+        option.textContent = dayItem.day + " (" + dayItem.stations + " {{ t('run_unit_stations') }}" + (doy ? (", doy " + doy) : "") + ")";
         daySelect.appendChild(option);
       }
       daySelect.disabled = false;
