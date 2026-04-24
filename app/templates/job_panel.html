@@ -9,6 +9,7 @@
      data-job-id="{{ job.id }}"
   data-job-running="{{ '1' if job.status == 'running' else '0' }}"
      data-started-at="{{ job.started_at.isoformat() }}"
+     data-job-range="{{ job.data_range or '' }}"
      data-converter-label="{{ converter.label }}"
      style="margin-bottom:16px;">
 

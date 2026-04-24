@@ -344,10 +344,25 @@
           <span class="td-mono" style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">
             #{{ job.id }}
           </span>
-          <span
-            class="recent-started-at"
-            data-local-datetime="{{ job.started_at.isoformat() }}"
-          >{{ job.started_at.strftime('%d %b, %H:%M') }}</span>
+          <div style="display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;">
+            <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+              <span style="white-space:nowrap; color:var(--text-dim);">
+                Start:
+                <span class="recent-started-at" data-local-datetime="{{ job.started_at.isoformat() }}">{{ job.started_at.strftime('%d %b, %H:%M') }}</span>
+              </span>
+              <span style="white-space:nowrap; color:var(--text-dim);">
+                Stop:
+                <span class="recent-finished-at" {% if job.finished_at %}data-local-datetime="{{ job.finished_at.isoformat() }}"{% endif %}>{{ job.finished_at.strftime('%d %b, %H:%M') if job.finished_at else '—' }}</span>
+              </span>
+            </div>
+            <div
+              class="td-mono"
+              style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+              title="{{ job.data_range or '' }}"
+            >
+              Range: {{ job.data_range or '—' }}
+            </div>
+          </div>
           <span class="badge badge-{{ job.status_class }}" data-recent-job-status>{{ job.status }}</span>
           <span
             data-recent-job-progress

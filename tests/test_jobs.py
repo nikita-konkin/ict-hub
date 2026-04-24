@@ -383,6 +383,11 @@ class TestStartJob:
         flags = json.loads(job.flags_json)
         assert flags.get("dat_path") == "/data/tecs-out"
         assert flags.get("output_dir") == "/data/abstec-out"
+        assert flags.get("workdir") == "/data/workdir"
+        assert flags.get("elevation_cutoff") == 10
+        assert flags.get("time_step_hours") == "0.5"
+        assert flags.get("correction_coefficient") == "0.97"
+        assert flags.get("runner") == "auto"
 
     def test_abstec_missing_env_dat_root_returns_400(self, operator_client, monkeypatch):
         monkeypatch.setattr("app.jobs.cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST", "")
@@ -726,7 +731,7 @@ class TestStartJob:
         assert mock_start.called
 
     @patch("app.jobs.start_container", return_value="container_tec_jobs_default")
-    def test_tec_suite_jobs_default_is_1(self, mock_start, operator_client):
+    def test_tec_suite_jobs_default_is_1(self, mock_start, operator_client, db):
         """TEC-Suite default --jobs should be 1 (not 4)."""
         response = operator_client.post(
             "/jobs/start",
@@ -736,6 +741,12 @@ class TestStartJob:
         )
         assert response.status_code == 200
         assert mock_start.called
+
+        from app.models import JobRun
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job is not None
+        flags = json.loads(job.flags_json)
+        assert flags.get("jobs") == 1
 
 
 class TestJobHistory:

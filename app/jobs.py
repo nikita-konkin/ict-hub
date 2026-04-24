@@ -172,6 +172,51 @@ def _is_truthy_checkbox(value: object) -> bool:
     return str(value).strip().lower() in {"on", "true", "1", "yes"}
 
 
+def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> dict[str, object]:
+    """
+    Ensure stored job flags are complete and reproducible.
+
+    - Adds missing converter flags with their registry defaults
+    - Normalizes checkbox to bool and number to int where possible
+    - Preserves explicitly-submitted empty strings for text/select fields
+    """
+    resolved: dict[str, object] = dict(form_dict)
+    for flag in conv.get("flags", []):
+        key = str(flag.get("long", "")).lstrip("-").replace("-", "_")
+        if not key:
+            continue
+
+        flag_type = flag.get("type")
+        default = flag.get("default", "")
+        raw_value = resolved.get(key, None)
+
+        if flag_type == "checkbox":
+            resolved[key] = _is_truthy_checkbox(raw_value)
+            continue
+
+        if flag_type == "number":
+            if raw_value in (None, ""):
+                if default not in (None, ""):
+                    try:
+                        resolved[key] = int(default)
+                    except (TypeError, ValueError):
+                        resolved[key] = default
+                else:
+                    resolved.setdefault(key, "")
+                continue
+            try:
+                resolved[key] = int(raw_value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                resolved[key] = raw_value
+            continue
+
+        # text/select: only apply default when the key is missing entirely.
+        if key not in resolved:
+            resolved[key] = default
+
+    return resolved
+
+
 def _reconcile_running_jobs(
     db: Session,
     current_user: User,
@@ -574,6 +619,9 @@ async def start_job(
             if form_dict[key] == "on":
                 form_dict[key] = True
 
+    # Persist effective flags (include defaults) so history is fully reproducible.
+    form_dict = _apply_converter_flag_defaults(conv, form_dict)
+
     try:
         command, volumes = build_command(converter_name, form_dict)
     except Exception as exc:
@@ -588,7 +636,7 @@ async def start_job(
     job = JobRun(
         user_id=current_user.id,
         converter=converter_name,
-        flags_json=json.dumps(form_dict),
+        flags_json=json.dumps(form_dict, ensure_ascii=False),
         rinex_path=(
             _TECSUITE_ENV_ROOT_NOTE
             if converter_name == "tec-suite"

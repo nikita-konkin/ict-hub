@@ -102,7 +102,12 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
     event = JobEvent(
         job_id=job.id,
         event_type="done",
-        payload_xml=xml_payload("done", status=final_status, exit_code=exit_code),
+        payload_xml=xml_payload(
+            "done",
+            status=final_status,
+            exit_code=exit_code,
+            finished_at=job.finished_at.isoformat(),
+        ),
     )
     db.add(event)
     db.commit()

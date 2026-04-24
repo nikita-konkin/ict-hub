@@ -25,10 +25,13 @@
           {% if current_user.is_admin %}<th>User</th>{% endif %}
           <th>Converter</th>
           <th>Input Path</th>
-          <th>Started</th>
+          <th>Start</th>
+          <th>Stop</th>
+          <th>Data Range</th>
           <th>Duration</th>
           <th>Exit</th>
           <th>Status</th>
+          <th>Parameters</th>
         </tr>
       </thead>
       <tbody>
@@ -44,6 +47,17 @@
           </td>
           <td style="font-size:12px;">{{ job.started_at.strftime('%d %b %Y') }}<br>
             <span style="color:var(--text-dim);">{{ job.started_at.strftime('%H:%M:%S') }}</span>
+          </td>
+          <td style="font-size:12px;">
+            {% if job.finished_at %}
+              {{ job.finished_at.strftime('%d %b %Y') }}<br>
+              <span style="color:var(--text-dim);">{{ job.finished_at.strftime('%H:%M:%S') }}</span>
+            {% else %}
+              <span style="color:var(--text-dim);">â€”</span>
+            {% endif %}
+          </td>
+          <td class="td-mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ job.data_range or '' }}">
+            {{ job.data_range or 'â€”' }}
           </td>
           <td class="td-mono">
             {% if job.duration_seconds is not none %}
@@ -63,6 +77,12 @@
           </td>
           <td>
             <span class="badge badge-{{ job.status_class }}">{{ job.status }}</span>
+          </td>
+          <td style="max-width:360px;">
+            <details>
+              <summary style="cursor:pointer; color:var(--accent); font-size:12px;">Show</summary>
+              <pre class="td-mono" style="margin:10px 0 0 0; white-space:pre-wrap; word-break:break-word;">{{ job.flags_pretty }}</pre>
+            </details>
           </td>
         </tr>
         {% endfor %}
