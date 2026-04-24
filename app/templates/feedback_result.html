@@ -1,0 +1,8 @@
+{% if ok %}
+  <div class="alert alert-success">
+    {{ t('feedback_thanks') }}
+    {% if report_id %}<span style="opacity:0.75; margin-left:8px;">(#{{ report_id }})</span>{% endif %}
+  </div>
+{% else %}
+  <div class="alert alert-danger">{{ error }}</div>
+{% endif %}

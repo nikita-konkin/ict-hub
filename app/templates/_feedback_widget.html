@@ -1,0 +1,152 @@
+<button class="feedback-fab" type="button" onclick="window.__chOpenFeedback && window.__chOpenFeedback()">
+  {{ t('feedback_button') }}
+</button>
+
+<div id="feedback-modal" class="feedback-modal" aria-hidden="true" role="dialog" aria-label="{{ t('feedback_title') }}">
+  <div class="feedback-backdrop" onclick="window.__chCloseFeedback && window.__chCloseFeedback()"></div>
+  <div class="feedback-card">
+    <div class="feedback-head">
+      <div class="feedback-title">{{ t('feedback_title') }}</div>
+      <button class="btn btn-ghost" type="button" onclick="window.__chCloseFeedback && window.__chCloseFeedback()" style="padding:6px 10px; font-size:11px;">
+        {{ t('feedback_cancel') }}
+      </button>
+    </div>
+
+    <form
+      method="POST"
+      action="/feedback"
+      hx-post="/feedback"
+      hx-target="#feedback-result"
+      hx-swap="innerHTML"
+      style="margin-top:12px;"
+    >
+      <input type="hidden" name="page_url" value="{{ request.url }}">
+
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label" for="fb-category">{{ t('feedback_type') }}</label>
+        <select class="form-select" id="fb-category" name="category">
+          <option value="feedback" selected>{{ t('feedback_type_feedback') }}</option>
+          <option value="bug">{{ t('feedback_type_bug') }}</option>
+          <option value="idea">{{ t('feedback_type_idea') }}</option>
+          <option value="content">{{ t('feedback_type_content') }}</option>
+          <option value="question">{{ t('feedback_type_question') }}</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label" for="fb-message">{{ t('feedback_message') }} <span class="required">*</span></label>
+        <textarea class="form-textarea" id="fb-message" name="message" rows="5" maxlength="4000" required
+                  placeholder="{{ t('feedback_placeholder') }}"></textarea>
+      </div>
+
+      <div id="feedback-result" style="margin-bottom:12px;"></div>
+
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="window.__chCloseFeedback && window.__chCloseFeedback()">
+          {{ t('feedback_cancel') }}
+        </button>
+        <button type="submit" class="btn btn-primary">
+          {{ t('feedback_send') }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.getElementById("feedback-modal");
+    var form = modal ? modal.querySelector("form[action='/feedback']") : null;
+    var result = modal ? modal.querySelector("#feedback-result") : null;
+    var toastRoot = document.getElementById("feedback-toast-root");
+    if (!toastRoot) {
+      toastRoot = document.createElement("div");
+      toastRoot.id = "feedback-toast-root";
+      toastRoot.className = "toast-root";
+      document.body.appendChild(toastRoot);
+    }
+
+    function toast(text, kind) {
+      var node = document.createElement("div");
+      node.className = "toast " + (kind === "error" ? "toast-error" : "toast-ok");
+      node.textContent = String(text || "");
+      toastRoot.appendChild(node);
+      setTimeout(function () {
+        try { node.classList.add("hide"); } catch (_) {}
+        setTimeout(function () { try { node.remove(); } catch (_) {} }, 250);
+      }, 3500);
+    }
+
+    function openModal() {
+      if (!modal) return;
+      modal.classList.add("open");
+      modal.setAttribute("aria-hidden", "false");
+      try {
+        var textarea = modal.querySelector("textarea[name='message']");
+        if (textarea) textarea.focus();
+      } catch (_) {}
+      try {
+        var page = modal.querySelector("input[name='page_url']");
+        if (page) page.value = window.location.href;
+      } catch (_) {}
+    }
+    function closeModal() {
+      if (!modal) return;
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+    window.__chOpenFeedback = openModal;
+    window.__chCloseFeedback = closeModal;
+    document.addEventListener("keydown", function (e) {
+      if (!modal || !modal.classList.contains("open")) return;
+      if (e.key === "Escape") closeModal();
+    });
+
+    if (form && window.fetch) {
+      form.addEventListener("submit", function (e) {
+        // Prefer an in-page popup notification even if HTMX isn't available.
+        e.preventDefault();
+        if (result) result.innerHTML = "";
+
+        var submitBtn = form.querySelector("button[type='submit']");
+        if (submitBtn) submitBtn.disabled = true;
+
+        var data = new FormData(form);
+        fetch("/feedback", {
+          method: "POST",
+          body: data,
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" },
+        })
+          .then(function (r) {
+            return r.json().then(function (payload) {
+              return { ok: r.ok, payload: payload || {} };
+            });
+          })
+          .then(function (res) {
+            if (res.ok && res.payload && res.payload.ok) {
+              toast(res.payload.message || "Sent.", "ok");
+              try {
+                var textarea = form.querySelector("textarea[name='message']");
+                if (textarea) textarea.value = "";
+              } catch (_) {}
+              closeModal();
+              return;
+            }
+            var err = (res.payload && (res.payload.error || res.payload.message)) || "Failed to send feedback.";
+            toast(err, "error");
+            if (result) {
+              result.innerHTML = '<div class="alert alert-danger">' + String(err) + '</div>';
+            }
+          })
+          .catch(function () {
+            toast("Failed to send feedback.", "error");
+            if (result) result.innerHTML = '<div class="alert alert-danger">Failed to send feedback.</div>';
+          })
+          .finally(function () {
+            if (submitBtn) submitBtn.disabled = false;
+          });
+      });
+    }
+  })();
+</script>

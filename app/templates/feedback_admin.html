@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ t('feedback_admin_title') }} — {{ t('app_name') }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ t('feedback_admin_title') }}</h1>
+  <p class="page-subtitle">{{ t('feedback_admin_subtitle') }}</p>
+  <div style="margin-top:10px; font-size:11px; color:var(--text-dim); display:flex; gap:14px; flex-wrap:wrap;">
+    <div><span style="letter-spacing:0.12em; text-transform:uppercase;">DB</span>: <span class="td-mono">{{ database_url }}</span></div>
+    <div><span style="letter-spacing:0.12em; text-transform:uppercase;">Total</span>: {{ total_reports }}</div>
+    <div><span style="letter-spacing:0.12em; text-transform:uppercase;">New</span>: {{ total_new }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="padding:14px 16px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <a href="/feedback" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; {% if not status_filter %}border-color:var(--accent-dim); color:var(--accent);{% endif %}">
+      {{ t('feedback_filter_all') }}
+    </a>
+    <a href="/feedback?status_filter=new" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; {% if status_filter == 'new' %}border-color:var(--accent-dim); color:var(--accent);{% endif %}">
+      {{ t('feedback_filter_new') }}
+    </a>
+    <a href="/feedback?status_filter=seen" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; {% if status_filter == 'seen' %}border-color:var(--accent-dim); color:var(--accent);{% endif %}">
+      {{ t('feedback_filter_seen') }}
+    </a>
+    <div style="margin-left:auto; font-size:11px; color:var(--text-dim); letter-spacing:0.12em; text-transform:uppercase;">
+      {{ reports|length }} shown
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>{{ t('feedback_type') }}</th>
+          <th>{{ t('feedback_message') }}</th>
+          <th>Page</th>
+          <th>User</th>
+          <th>When</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td class="td-mono">{{ r.id }}</td>
+          <td>
+            <span class="badge badge-muted">{{ r.category }}</span>
+          </td>
+          <td style="white-space:pre-wrap; max-width:520px;">
+            {{ r.message }}
+          </td>
+          <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            {% if r.page_url %}
+              <a href="{{ r.page_url }}" style="color:var(--text-muted); text-decoration:none;">{{ r.page_url }}</a>
+            {% else %}
+              <span style="color:var(--text-dim);">—</span>
+            {% endif %}
+          </td>
+          <td class="td-primary">{{ r.user.username if r.user else ('#' ~ r.user_id) }}</td>
+          <td style="font-size:12px; color:var(--text-muted);">
+            <span data-local-datetime="{{ r.created_at.isoformat() }}"></span>
+          </td>
+          <td>
+            <span class="badge {% if r.status == 'new' %}badge-warning{% else %}badge-muted{% endif %}">
+              {{ r.status }}
+            </span>
+          </td>
+          <td>
+            <a href="/feedback/{{ r.id }}.xml" class="btn btn-ghost" style="padding:4px 10px; font-size:11px; text-decoration:none;">
+              {{ t('feedback_download_xml') }}
+            </a>
+            {% if r.status != 'seen' %}
+            <form method="POST" action="/feedback/{{ r.id }}/seen" style="display:inline;">
+              <button type="submit" class="btn btn-ghost" style="padding:4px 10px; font-size:11px;">
+                {{ t('feedback_mark_seen') }}
+              </button>
+            </form>
+            {% else %}
+            <form method="POST" action="/feedback/{{ r.id }}/unseen" style="display:inline;">
+              <button type="submit" class="btn btn-ghost" style="padding:4px 10px; font-size:11px;">
+                {{ t('feedback_mark_unseen') }}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if reports|length == 0 %}
+        <tr>
+          <td colspan="8" style="padding:18px 16px; color:var(--text-dim);">No feedback reports.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import analysis, auth, indexed_data, jobs
+from app import analysis, auth, feedback, indexed_data, jobs
 from app.auth import hash_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
 from app.database import SessionLocal, engine
@@ -53,6 +53,17 @@ async def lifespan(app: FastAPI):
             cols = []
         if "permissions_json" not in cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT ''"))
+
+        # Ensure feedback_reports exists for upgraded deployments (no Alembic).
+        # Base.metadata.create_all should create it, but we keep this guard so
+        # a long-running dev server can accept feedback immediately after code
+        # hot-reload without requiring a manual restart.
+        try:
+            tables = [row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).all()]
+        except Exception:
+            tables = []
+        if "feedback_reports" not in tables:
+            Base.metadata.create_all(bind=engine)
 
     # If no users exist at all, create a default admin so the system is usable
     # immediately after first boot. The admin can then create other accounts.
@@ -115,6 +126,7 @@ app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(analysis.router)
 app.include_router(indexed_data.router)
+app.include_router(feedback.router)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # API proxy routes for external services

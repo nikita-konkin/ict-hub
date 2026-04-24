@@ -6,6 +6,7 @@ container execution). Keeping them in one file makes the data schema easy
 to understand at a glance.
 """
 import json
+import re
 from datetime import datetime
 
 from sqlalchemy import (
@@ -48,6 +49,7 @@ class User(Base):
 
     # Relationship: one user → many job runs
     job_runs: Mapped[list["JobRun"]] = relationship("JobRun", back_populates="user")
+    feedback_reports: Mapped[list["FeedbackReport"]] = relationship("FeedbackReport", back_populates="user")
 
     @property
     def is_admin(self) -> bool:
@@ -155,6 +157,94 @@ class JobRun(Base):
             return {}
 
     @property
+    def flags_pretty(self) -> str:
+        """Pretty JSON rendering of stored flags for audit/history views."""
+        try:
+            flags = json.loads(self.flags_json or "{}")
+        except Exception:
+            flags = {}
+        if not isinstance(flags, dict):
+            flags = {}
+        return json.dumps(flags, indent=2, sort_keys=True, ensure_ascii=False)
+
+    @property
+    def data_range(self) -> str | None:
+        """Best-effort human string describing the data/time range a job processed."""
+        flags = self.flags
+        converter = str(self.converter or "").strip().lower()
+
+        def _parse_year_day(subpath: object) -> tuple[str | None, str | None]:
+            raw = str(subpath or "").strip().replace("\\", "/")
+            raw = raw.strip("/")
+            if not raw:
+                return None, None
+            parts = [p for p in raw.split("/") if p]
+            if not parts:
+                return None, None
+            match = re.match(r"^(\d{4})", parts[0])
+            year = match.group(1) if match else None
+            day = parts[1] if len(parts) > 1 else None
+            return year, day
+
+        if converter == "tec-suite":
+            year, day = _parse_year_day(flags.get("root_subpath", ""))
+            base = None
+            if year and day:
+                base = f"{year}/{day}"
+            elif year:
+                base = f"{year}/*"
+            days_filter = str(flags.get("days", "") or "").strip()
+            bits: list[str] = []
+            if base:
+                bits.append(base)
+            if days_filter:
+                bits.append(f"days={days_filter}")
+            return ", ".join(bits) if bits else None
+
+        if converter == "abstec-suite":
+            year = str(flags.get("year", "") or "").strip()
+            day_of_year = str(flags.get("day_of_year", "") or "").strip()
+            days = str(flags.get("days", "") or "").strip()
+            site = str(flags.get("site", "") or "").strip()
+            bits = []
+            if year:
+                bits.append(f"year={year}")
+            if days:
+                bits.append(f"days={days}")
+            elif day_of_year:
+                bits.append(f"day_of_year={day_of_year}")
+            if site:
+                bits.append(f"site={site}")
+            return ", ".join(bits) if bits else None
+
+        if converter == "dat-parquet-handler":
+            year, day = _parse_year_day(flags.get("root_subpath", ""))
+            base = None
+            if year and day:
+                base = f"{year}/{day}"
+            elif year:
+                base = f"{year}/*"
+
+            day_from = flags.get("day_from", None)
+            day_to = flags.get("day_to", None)
+            doy = None
+            if day_from not in (None, "") and day_to not in (None, ""):
+                doy = f"DOY {day_from}..{day_to}"
+            elif day_from not in (None, ""):
+                doy = f"DOY from {day_from}"
+            elif day_to not in (None, ""):
+                doy = f"DOY to {day_to}"
+
+            bits = []
+            if base:
+                bits.append(base)
+            if doy:
+                bits.append(doy)
+            return ", ".join(bits) if bits else None
+
+        return None
+
+    @property
     def duration_seconds(self) -> float | None:
         """Wall-clock duration in seconds, or None if the job is still running."""
         if self.finished_at and self.started_at:
@@ -182,3 +272,20 @@ class JobEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
     job: Mapped["JobRun"] = relationship("JobRun", back_populates="events")
+
+
+class FeedbackReport(Base):
+    __tablename__ = "feedback_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    category: Mapped[str] = mapped_column(String(16), nullable=False, default="feedback")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    page_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="feedback_reports")

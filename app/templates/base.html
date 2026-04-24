@@ -456,7 +456,8 @@
     .form-label .required { color: var(--accent); margin-left: 2px; }
 
     .form-input,
-    .form-select {
+    .form-select,
+    .form-textarea {
       width: 100%;
       background: var(--surface-2);
       border: 1px solid var(--border-light);
@@ -470,6 +471,11 @@
       transition: border-color var(--transition), box-shadow var(--transition);
       appearance: none;
       -webkit-appearance: none;
+    }
+
+    .form-textarea {
+      resize: vertical;
+      min-height: 110px;
     }
 
     .form-select[multiple] {
@@ -611,6 +617,7 @@
     }
 
     .badge-running  { color: var(--warning-text); background: rgba(196,160,58,0.1); }
+    .badge-warning  { color: var(--warning-text); background: rgba(196,160,58,0.1); }
     .badge-success  { color: var(--success-text); background: rgba(58,107,74,0.15); }
     .badge-danger   { color: var(--danger-text);  background: rgba(139,58,58,0.15); }
     .badge-muted    { color: var(--text-muted);   background: var(--surface-2); }
@@ -759,6 +766,119 @@
       background: rgba(58,107,74,0.12);
       border-color: var(--success);
       color: var(--success-text);
+    }
+
+    /* â”€â”€â”€ Feedback widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    .feedback-fab {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 130;
+      background: var(--surface);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color var(--transition), border-color var(--transition), background var(--transition);
+      backdrop-filter: blur(4px);
+    }
+
+    .feedback-fab:hover {
+      color: var(--text);
+      border-color: var(--border-light);
+      background: var(--surface-2);
+    }
+
+    .feedback-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 140;
+      padding: 18px;
+    }
+
+    .feedback-modal.open {
+      display: flex;
+    }
+
+    .feedback-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(3px);
+    }
+
+    .feedback-card {
+      position: relative;
+      width: min(640px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+      padding: 16px;
+    }
+
+    .feedback-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .feedback-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+
+    .toast-root {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 160;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+      max-width: min(560px, calc(100vw - 36px));
+    }
+
+    .toast {
+      pointer-events: none;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .toast.hide {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    .toast-ok {
+      border-color: rgba(58,107,74,0.45);
+    }
+
+    .toast-error {
+      border-color: rgba(139,58,58,0.55);
     }
 
     /* ─── Dividers & spacing helpers ─────────────────────────────────────────── */
@@ -985,6 +1105,12 @@
         </svg>
         {{ t('nav_users') }}
       </a>
+      <a href="/feedback" class="nav-link {% if request.url.path.startswith('/feedback') %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 3h10v8H6l-3 2V3z"/>
+        </svg>
+        {{ t('nav_feedback') }}
+      </a>
       {% endif %}
     </div>
 
@@ -1009,6 +1135,10 @@
   <main class="main" {% if not (current_user is defined and current_user) %}style="margin-left:0;max-width:100%;display:flex;align-items:center;justify-content:center;min-height:100vh"{% endif %}>
     {% block content %}{% endblock %}
   </main>
+
+  {% if current_user is defined and current_user %}
+    {% include "_feedback_widget.html" %}
+  {% endif %}
 
   <script>
     (function () {
@@ -1069,7 +1199,7 @@
 
       // ── Recent-runs helpers ────────────────────────────────────────────────
 
-      function updateRecentRunStatus(jobId, isSuccess) {
+      function updateRecentRunStatus(jobId, isSuccess, finishedAtIso) {
         const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
         if (!row) return;
         row.setAttribute("data-recent-job-running", "0");
@@ -1080,6 +1210,14 @@
         }
         const pct = row.querySelector("[data-recent-job-progress]");
         if (pct) pct.setAttribute("hidden", "");
+
+        const finishedNode = row.querySelector(".recent-finished-at");
+        if (finishedNode && finishedAtIso) {
+          const value = finishedAtIso;
+          finishedNode.setAttribute("data-local-datetime", value);
+          finishedNode.textContent = value;
+          formatLocalDateTimes(row);
+        }
       }
 
       function updateRecentRunProgress(jobId, pct) {
@@ -1097,7 +1235,16 @@
        * Add a live row to #recent-runs-body for a job that was just started
        * (it won't be in the server-rendered list yet).
        */
-      function ensureRecentRunRow(jobId, startedAtIso) {
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function ensureRecentRunRow(jobId, startedAtIso, dataRange) {
         const body = document.getElementById("recent-runs-body");
         if (!body) return;
         if (document.querySelector('[data-recent-job-id="' + jobId + '"]')) return;
@@ -1123,14 +1270,25 @@
         const row = document.createElement("div");
         row.setAttribute("data-recent-job-id", jobId);
         row.setAttribute("data-recent-job-running", "1");
+        row.setAttribute("data-recent-job-range", dataRange || "");
         row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted);";
+        const safeRange = dataRange ? escapeHtml(dataRange) : "\u2014";
         row.innerHTML =
           '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">#' + jobId + '</span>' +
-          '<span data-local-datetime="' + (startedAtIso || "") + '">' + timeText + '</span>' +
+          '<div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;">' +
+            '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">' +
+              '<span style="white-space:nowrap;color:var(--text-dim);">Start: <span class="recent-started-at" data-local-datetime="' + (startedAtIso || "") + '">' + timeText + '</span></span>' +
+              '<span style="white-space:nowrap;color:var(--text-dim);">Stop: <span class="recent-finished-at">\u2014</span></span>' +
+            '</div>' +
+            '<div class="td-mono" style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + safeRange + '">' +
+              'Range: ' + safeRange +
+            '</div>' +
+          '</div>' +
           '<span class="badge badge-running" data-recent-job-status>running</span>' +
           '<span data-recent-job-progress style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">—</span>' +
           '<a href="/jobs/' + jobId + '/open" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Open</a>';
         body.insertAdjacentElement("afterbegin", row);
+        formatLocalDateTimes(row);
       }
 
       const recentRunTrackers = new Map();
@@ -1176,7 +1334,8 @@
           }
           const payload = parseSseXml(event.data);
           const isSuccess = readXmlText(payload, 'status') === 'success';
-          updateRecentRunStatus(jobId, isSuccess);
+          const finishedAtIso = readXmlText(payload, 'finished_at') || '';
+          updateRecentRunStatus(jobId, isSuccess, finishedAtIso);
           stopRecentRunTracker(jobId);
         });
 
@@ -1335,7 +1494,7 @@
         }
 
         // Register this job in the Recent runs list (for freshly submitted jobs)
-        ensureRecentRunRow(jobId, panel.dataset.startedAt);
+        ensureRecentRunRow(jobId, panel.dataset.startedAt, panel.dataset.jobRange);
         // Panel stream is the source of truth while open.
         stopRecentRunTracker(jobId);
 
@@ -1513,6 +1672,7 @@
             const payload = parseSseXml(event.data);
             const status = payload ? readXmlText(payload, "status") : "failed";
             const exitCode = payload ? readXmlInt(payload, "exit_code") : null;
+            const finishedAtIso = payload ? readXmlText(payload, "finished_at") : "";
             const isSuccess = status === "success";
 
             if (statusEl) statusEl.innerHTML = buildStatusBadgeMarkup(status, exitCode);
@@ -1521,7 +1681,7 @@
             }
             if (isSuccess && progressLabel) progressLabel.textContent = "100%";
 
-            updateRecentRunStatus(jobId, isSuccess);
+            updateRecentRunStatus(jobId, isSuccess, finishedAtIso);
             flushLogBuffer();
             clearReconnectTimer();
             source.close();
