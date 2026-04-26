@@ -70,6 +70,8 @@ class TestRunPage:
         assert b"No job running" in response.content
 
     def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db):
+        import app.jobs as jobs_module
+
         completed_job.status = "running"
         completed_job.finished_at = None
         completed_job.exit_code = None
@@ -81,7 +83,8 @@ class TestRunPage:
         )
 
         assert response.status_code == 200
-        assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail=all"'.encode() in response.content
+        expected_tail = int(jobs_module.cfg.LOG_PAGELOAD_TAIL_LINES)
+        assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail={expected_tail}"'.encode() in response.content
 
     # -- async indexer integration -------------------------------------------------
 

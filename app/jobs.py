@@ -366,7 +366,7 @@ async def run_page(
         .all()
     )
     active_job = None
-    active_stream_tail = "all"
+    active_stream_tail: str | int = int(cfg.LOG_PAGELOAD_TAIL_LINES)
     tec_rinex_tree: list[dict[str, object]] = []
     tec_rinex_host_path = ""
     abstec_dat_tree: list[dict[str, object]] = []

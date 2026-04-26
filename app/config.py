@@ -75,6 +75,16 @@ except ValueError:
     LOG_MAX_LINES = 2000
 LOG_MAX_LINES = max(1, LOG_MAX_LINES)
 
+# How many log lines to request on a full page render (browser reload / opening
+# an existing job panel). This avoids re-sending the entire job history when the
+# job produced a lot of output.
+try:
+    LOG_PAGELOAD_TAIL_LINES: int = int(os.getenv("LOG_PAGELOAD_TAIL_LINES", "200"))
+except ValueError:
+    LOG_PAGELOAD_TAIL_LINES = 200
+LOG_PAGELOAD_TAIL_LINES = max(0, LOG_PAGELOAD_TAIL_LINES)
+LOG_PAGELOAD_TAIL_LINES = min(LOG_PAGELOAD_TAIL_LINES, LOG_MAX_LINES)
+
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
 
