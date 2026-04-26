@@ -131,6 +131,10 @@ def reconcile_job_state(job_id: int, db: Session | None = None) -> bool:
             return False
 
         state = get_container_state(job.container_id)
+        # If Docker is temporarily unavailable, do not incorrectly close out a
+        # running job (this commonly happens during app restarts/rebuilds).
+        if str(state.get("status", "unknown")) == "unknown":
+            return False
         if state.get("running"):
             return False
 

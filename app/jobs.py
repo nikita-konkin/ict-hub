@@ -246,7 +246,12 @@ def _job_auto_remove_enabled(job: JobRun) -> bool:
     return _is_truthy_checkbox(flags.get("auto_remove", False))
 
 
-async def _stream_job_logs_direct(job: JobRun, db: Session) -> asyncio.AsyncGenerator[str, None]:
+async def _stream_job_logs_direct(
+    job: JobRun,
+    db: Session,
+    *,
+    tail: str | int = "all",
+) -> asyncio.AsyncGenerator[str, None]:
     """
     Fallback path for live log delivery when durable job events are not being
     produced yet. This keeps the UI usable even if the background runtime is
@@ -261,7 +266,7 @@ async def _stream_job_logs_direct(job: JobRun, db: Session) -> asyncio.AsyncGene
         progress_patterns,
         log_emit_interval_sec=0.0,
         auto_remove=auto_remove,
-        tail="all",
+        tail=tail,
     ):
         if event_type == "heartbeat":
             yield ": heartbeat\n\n"
@@ -385,8 +390,23 @@ async def run_page(
         if (
             candidate
             and (current_user.is_admin or candidate.user_id == current_user.id)
+            and candidate.status == "running"
+            and bool(candidate.container_id)
         ):
             active_job = candidate
+    else:
+        running_query = (
+            db.query(JobRun)
+            .filter(
+                JobRun.converter == converter_name,
+                JobRun.status == "running",
+                JobRun.container_id.isnot(None),
+            )
+            .order_by(JobRun.started_at.desc())
+        )
+        if not current_user.is_admin:
+            running_query = running_query.filter(JobRun.user_id == current_user.id)
+        active_job = running_query.first()
 
     if converter_name == "tec-suite":
         tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
@@ -824,7 +844,7 @@ async def stream_job_logs(
                             job_id,
                             float(cfg.JOB_EVENT_BOOTSTRAP_TIMEOUT_SEC),
                         )
-                        async for chunk in _stream_job_logs_direct(db_job, gen_db):
+                        async for chunk in _stream_job_logs_direct(db_job, gen_db, tail=stream_tail):
                             yield chunk
                         return
                 else:

@@ -68,9 +68,38 @@ class TestRunPage:
         )
         assert response.status_code == 200
         assert b"No job running" in response.content
+        assert f'data-stream-url="/jobs/{completed_job.id}/stream'.encode() not in response.content
 
-    def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db):
+    def test_run_page_auto_attaches_running_job(self, operator_client, completed_job, db, monkeypatch):
         import app.jobs as jobs_module
+        import app.job_runtime as runtime_module
+
+        monkeypatch.setattr(
+            runtime_module,
+            "get_container_state",
+            lambda _container_id: {"status": "running", "running": True, "exit_code": None},
+        )
+
+        completed_job.status = "running"
+        completed_job.finished_at = None
+        completed_job.exit_code = None
+        db.commit()
+
+        response = operator_client.get("/run/tec-suite", follow_redirects=True)
+        assert response.status_code == 200
+
+        expected_tail = int(jobs_module.cfg.LOG_PAGELOAD_TAIL_LINES)
+        assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail={expected_tail}"'.encode() in response.content
+
+    def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db, monkeypatch):
+        import app.jobs as jobs_module
+        import app.job_runtime as runtime_module
+
+        monkeypatch.setattr(
+            runtime_module,
+            "get_container_state",
+            lambda _container_id: {"status": "running", "running": True, "exit_code": None},
+        )
 
         completed_job.status = "running"
         completed_job.finished_at = None
