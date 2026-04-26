@@ -91,6 +91,43 @@ class TestRunPage:
         expected_tail = int(jobs_module.cfg.LOG_PAGELOAD_TAIL_LINES)
         assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail={expected_tail}"'.encode() in response.content
 
+    def test_run_page_discovers_running_container_by_image(self, admin_client, db, monkeypatch):
+        import app.jobs as jobs_module
+        import app.job_runtime as runtime_module
+        from app.models import JobRun
+        from datetime import datetime, timezone
+
+        fake_container_id = "deadbeef" * 8  # 64 chars
+        monkeypatch.setattr(
+            runtime_module,
+            "get_container_state",
+            lambda _container_id: {"status": "running", "running": True, "exit_code": None},
+        )
+        monkeypatch.setattr(
+            jobs_module,
+            "list_running_containers",
+            lambda: [
+                {
+                    "id": fake_container_id,
+                    "name": "external-tec-suite",
+                    "image": "tec-suite:latest",
+                    "labels": {},
+                    "started_at": datetime.now(timezone.utc),
+                }
+            ],
+        )
+
+        response = admin_client.get("/run/tec-suite", follow_redirects=True)
+        assert response.status_code == 200
+
+        job = db.query(JobRun).filter(JobRun.container_id == fake_container_id).first()
+        assert job is not None
+        assert job.converter == "tec-suite"
+        assert job.status == "running"
+
+        expected_tail = int(jobs_module.cfg.LOG_PAGELOAD_TAIL_LINES)
+        assert f'data-stream-url="/jobs/{job.id}/stream?tail={expected_tail}"'.encode() in response.content
+
     def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db, monkeypatch):
         import app.jobs as jobs_module
         import app.job_runtime as runtime_module

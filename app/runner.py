@@ -18,7 +18,7 @@ import logging
 import queue
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import docker
@@ -31,11 +31,88 @@ logger = logging.getLogger(__name__)
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _parse_docker_datetime(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    raw = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def _best_container_image_ref(container: object) -> str:
+    """
+    Return best-effort image ref string for a Docker SDK container object.
+    Prefer repository tags when available; fall back to attrs.Config.Image.
+    """
+    try:
+        image = getattr(container, "image", None)
+        tags = getattr(image, "tags", None) if image is not None else None
+        if isinstance(tags, list) and tags:
+            return str(tags[0])
+    except Exception:
+        pass
+    try:
+        attrs = getattr(container, "attrs", {}) or {}
+        config = attrs.get("Config", {}) or {}
+        img = config.get("Image")
+        if img:
+            return str(img)
+    except Exception:
+        pass
+    return ""
+
+
+def list_running_containers() -> list[dict[str, object]]:
+    """
+    Return lightweight metadata for currently running Docker containers.
+
+    Each row includes:
+      id, name, image, labels, started_at (datetime|None)
+    """
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(filters={"status": "running"})
+    except Exception as exc:
+        logger.warning("Failed to list running containers from Docker: %s", exc)
+        return []
+
+    results: list[dict[str, object]] = []
+    for container in containers:
+        try:
+            container.reload()
+        except Exception:
+            pass
+
+        attrs = getattr(container, "attrs", {}) or {}
+        state = attrs.get("State", {}) or {}
+        started_at = _parse_docker_datetime(state.get("StartedAt"))
+        labels = {}
+        try:
+            labels = dict((attrs.get("Config", {}) or {}).get("Labels", {}) or {})
+        except Exception:
+            labels = {}
+
+        results.append(
+            {
+                "id": str(getattr(container, "id", "") or ""),
+                "name": str(getattr(container, "name", "") or ""),
+                "image": _best_container_image_ref(container),
+                "labels": labels,
+                "started_at": started_at,
+            }
+        )
+    return results
+
+
 def start_container(
     image: str,
     command: list[str],
     volumes: dict,
     auto_remove: bool = False,
+    labels: dict[str, str] | None = None,
 ) -> str:
     """
     Start a Docker container in detached mode (non-blocking) and return its ID.
@@ -57,6 +134,7 @@ def start_container(
         volumes=volumes,
         detach=True,
         remove=auto_remove,
+        labels=labels or {},
     )
     logger.info("Container started: id=%s", container.short_id)
     return container.id

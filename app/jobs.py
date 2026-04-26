@@ -41,7 +41,7 @@ from app.data_indexer_client import (
     list_rinex_server_structure_async,
     list_tecsuite_output_structure_async,
 )
-from app.runner import start_container, stop_container, stream_logs
+from app.runner import list_running_containers, start_container, stop_container, stream_logs
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -224,6 +224,7 @@ def _reconcile_running_jobs(
     converter_name: str | None = None,
 ) -> None:
     """Refresh visible running jobs from Docker before rendering pages."""
+    _discover_running_converter_containers(db, current_user, converter_name=converter_name)
     query = db.query(JobRun.id).filter(JobRun.status == "running")
     if not current_user.is_admin:
         query = query.filter(JobRun.user_id == current_user.id)
@@ -235,6 +236,154 @@ def _reconcile_running_jobs(
             reconcile_job_state(job_id, db=db)
         except Exception:
             logger.exception("Failed to reconcile job %s before page render", job_id)
+
+
+def _image_match_score(container_image: str, converter_image: str) -> int:
+    """
+    Return a small score indicating whether a container image ref matches a converter image ref.
+
+    We treat tag/registry variations as equivalent by comparing base names, so:
+      - my.registry/tec-suite:latest matches tec-suite
+      - tec-suite matches tec-suite:latest
+    """
+    container_raw = str(container_image or "").strip()
+    converter_raw = str(converter_image or "").strip()
+    if not container_raw or not converter_raw:
+        return 0
+
+    if container_raw == converter_raw:
+        return 3
+
+    def _base_no_tag(value: str) -> str:
+        cleaned = value.split("@", 1)[0].strip()
+        base = cleaned.rsplit("/", 1)[-1]
+        return base.split(":", 1)[0].strip()
+
+    if _base_no_tag(container_raw) == _base_no_tag(converter_raw):
+        return 1
+
+    container_base = container_raw.split("@", 1)[0].strip().rsplit("/", 1)[-1]
+    converter_base = converter_raw.split("@", 1)[0].strip().rsplit("/", 1)[-1]
+    if container_base == converter_base:
+        return 2
+    return 0
+
+
+def _discover_running_converter_containers(
+    db: Session,
+    current_user: User,
+    *,
+    converter_name: str | None = None,
+) -> int:
+    """
+    Scan Docker for currently running converter containers and import them into JobRun.
+
+    This covers the "ict-hub reset/rebuild" case where converter containers are still running,
+    but the database has no record of them.
+    """
+    if not cfg.DISCOVER_RUNNING_CONTAINERS:
+        return 0
+
+    if converter_name:
+        if converter_name not in CONVERTERS:
+            return 0
+        converters = {converter_name: CONVERTERS[converter_name]}
+    else:
+        converters = CONVERTERS
+
+    try:
+        running = list_running_containers()
+    except Exception:
+        logger.exception("Failed to scan running Docker containers")
+        return 0
+
+    imported = 0
+    for row in running:
+        container_id = str(row.get("id", "") or "").strip()
+        if not container_id:
+            continue
+
+        existing = (
+            db.query(JobRun.id)
+            .filter(JobRun.container_id == container_id)
+            .order_by(JobRun.id.desc())
+            .first()
+        )
+        if existing is not None:
+            continue
+
+        labels = row.get("labels") or {}
+        if not isinstance(labels, dict):
+            labels = {}
+
+        label_user_id_raw = str(labels.get("ict-hub.user_id", "") or "").strip()
+        label_converter = str(labels.get("ict-hub.converter", "") or "").strip()
+
+        if not current_user.is_admin:
+            # Operators only "re-attach" containers that were started by ict-hub
+            # and explicitly labeled for that user.
+            if not label_user_id_raw or not label_converter:
+                continue
+            if label_user_id_raw != str(current_user.id):
+                continue
+            if label_converter not in converters:
+                continue
+
+        owner_user_id = current_user.id
+        if label_user_id_raw:
+            try:
+                label_user_id = int(label_user_id_raw)
+            except ValueError:
+                label_user_id = None
+            if label_user_id is not None:
+                exists = db.query(User.id).filter(User.id == label_user_id).first()
+                if exists is not None:
+                    owner_user_id = label_user_id
+
+        matched_converter: str | None = None
+        if label_converter and label_converter in converters:
+            matched_converter = label_converter
+        else:
+            container_image = str(row.get("image", "") or "").strip()
+            best_score = 0
+            for conv_key, conv in converters.items():
+                score = _image_match_score(container_image, str(conv.get("image", "") or ""))
+                if score > best_score:
+                    best_score = score
+                    matched_converter = conv_key
+                    if score >= 3:
+                        break
+
+        if not matched_converter:
+            continue
+
+        started_at = row.get("started_at")
+        if not isinstance(started_at, datetime):
+            started_at = datetime.now(timezone.utc)
+
+        flags = {
+            "discovered": True,
+            "source": "docker_scan",
+            "docker": {
+                "image": str(row.get("image", "") or ""),
+                "name": str(row.get("name", "") or ""),
+                "labels": labels,
+            },
+        }
+        job = JobRun(
+            user_id=owner_user_id,
+            converter=matched_converter,
+            status="running",
+            container_id=container_id,
+            started_at=started_at,
+            flags_json=json.dumps(flags, ensure_ascii=False),
+        )
+        db.add(job)
+        imported += 1
+
+    if imported:
+        db.commit()
+    return imported
 
 
 def _job_auto_remove_enabled(job: JobRun) -> bool:
@@ -683,6 +832,11 @@ async def start_job(
             command,
             volumes,
             auto_remove=auto_remove,
+            labels={
+                "ict-hub.converter": str(converter_name),
+                "ict-hub.job_id": str(job.id),
+                "ict-hub.user_id": str(current_user.id),
+            },
         )
         job.container_id = container_id
         db.commit()

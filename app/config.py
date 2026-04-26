@@ -95,6 +95,15 @@ JOB_RUNTIME_ENABLED: bool = os.getenv("JOB_RUNTIME_ENABLED", "1").strip().lower(
 # Polling interval for running-job reconciliation and producer restart checks.
 JOB_MONITOR_INTERVAL_SEC: float = float(os.getenv("JOB_MONITOR_INTERVAL_SEC", "3"))
 
+# Discover and import running converter containers from Docker when rendering pages.
+# This is useful after resetting/rebuilding ict-hub while converter containers are
+# still running.
+DISCOVER_RUNNING_CONTAINERS: bool = os.getenv("DISCOVER_RUNNING_CONTAINERS", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
+
 # Polling interval for SSE consumers reading persisted job events.
 JOB_EVENT_POLL_INTERVAL_SEC: float = float(os.getenv("JOB_EVENT_POLL_INTERVAL_SEC", "0.5"))
 
