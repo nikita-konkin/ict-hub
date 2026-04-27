@@ -82,6 +82,35 @@ def append_job_event(
     return event
 
 
+def _prune_job_log_events(db: Session, job_id: int, keep_last: int) -> None:
+    """Keep only the last N persisted log events for a job (best-effort)."""
+    if keep_last <= 0:
+        db.query(JobEvent).filter(
+            JobEvent.job_id == job_id,
+            JobEvent.event_type == "log",
+        ).delete(synchronize_session=False)
+        db.commit()
+        return
+
+    cutoff_row = (
+        db.query(JobEvent.id)
+        .filter(JobEvent.job_id == job_id, JobEvent.event_type == "log")
+        .order_by(JobEvent.id.desc())
+        .offset(keep_last)
+        .limit(1)
+        .first()
+    )
+    if not cutoff_row:
+        return
+    cutoff_id = int(cutoff_row[0])
+    db.query(JobEvent).filter(
+        JobEvent.job_id == job_id,
+        JobEvent.event_type == "log",
+        JobEvent.id <= cutoff_id,
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
 def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent | None:
     """Mark a job terminal and emit its durable `done` event exactly once."""
     final_status = "success" if exit_code == 0 else "failed"
@@ -189,6 +218,7 @@ async def _produce_job_events(job_id: int) -> None:
         auto_remove = _parse_auto_remove(job.flags_json)
         existing_event_count = db.query(JobEvent).filter(JobEvent.job_id == job_id).count()
         tail: str | int = "all" if existing_event_count == 0 else 0
+        log_since_prune = 0
 
         async for event_type, payload in stream_logs(
             job.container_id,
@@ -205,12 +235,19 @@ async def _produce_job_events(job_id: int) -> None:
             if event_type == "heartbeat":
                 continue
             if event_type == "log":
+                if cfg.JOB_EVENT_LOG_MAX_LINES == 0:
+                    continue
                 append_job_event(
                     db,
                     job_id,
                     "log",
                     xml_payload("log", message=str(payload), level="info"),
                 )
+                log_since_prune += 1
+                if log_since_prune >= 100:
+                    log_since_prune = 0
+                    with suppress(Exception):
+                        _prune_job_log_events(db, job_id, int(cfg.JOB_EVENT_LOG_MAX_LINES))
             elif event_type == "progress":
                 append_job_event(
                     db,
@@ -234,6 +271,8 @@ async def _produce_job_events(job_id: int) -> None:
                 break
             elif event_type == "done":
                 persist_job_finished(db, job, int(payload))
+                with suppress(Exception):
+                    _prune_job_log_events(db, job_id, int(cfg.JOB_EVENT_LOG_MAX_LINES))
                 return
 
         reconcile_job_state(job_id, db=db)

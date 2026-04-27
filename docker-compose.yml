@@ -16,6 +16,11 @@ services:
       # Access the UI at http://localhost:8080 (or any LAN IP:8080).
       - "8080:8000"
 
+    # Load environment variables from local .env file (and allow users to add
+    # extra variables without editing docker-compose.yml).
+    env_file:
+      - .env
+
     environment:
       # Prevent runtime proxy interception for container-to-container traffic.
       HTTP_PROXY: ""
@@ -131,6 +136,11 @@ services:
     ports:
       # Map host port 5001 → container port 5001
       - "5001:5001"
+
+    # Load environment variables from local .env file (and allow users to add
+    # extra variables without editing docker-compose.yml).
+    env_file:
+      - .env
 
     environment:
       # Prevent runtime proxy interception for container-to-container traffic.

@@ -88,6 +88,15 @@ LOG_PAGELOAD_TAIL_LINES = min(LOG_PAGELOAD_TAIL_LINES, LOG_MAX_LINES)
 # How many SSE heartbeat seconds between log lines (keeps connections alive)
 SSE_HEARTBEAT_INTERVAL: float = float(os.getenv("SSE_HEARTBEAT_INTERVAL", "15"))
 
+# Maximum number of persisted durable log events per job (DB retention).
+# This is separate from LOG_MAX_LINES (UI trimming), but defaults to the same
+# value for reasonable behavior out of the box.
+try:
+    JOB_EVENT_LOG_MAX_LINES: int = int(os.getenv("JOB_EVENT_LOG_MAX_LINES", str(LOG_MAX_LINES)))
+except ValueError:
+    JOB_EVENT_LOG_MAX_LINES = LOG_MAX_LINES
+JOB_EVENT_LOG_MAX_LINES = max(0, JOB_EVENT_LOG_MAX_LINES)
+
 # Enable the background job runtime that tails container logs and reconciles
 # finished containers into durable job events. Tests can disable this.
 JOB_RUNTIME_ENABLED: bool = os.getenv("JOB_RUNTIME_ENABLED", "1").strip().lower() not in {"0", "false", "no"}

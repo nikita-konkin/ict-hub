@@ -336,6 +336,7 @@ class TestStartContainer:
             volumes=volumes,
             detach=True,
             remove=False,
+            labels={},
         )
         assert container_id == "fake_container_id_12345"
 
@@ -358,6 +359,7 @@ class TestStartContainer:
             volumes={},
             detach=True,
             remove=True,
+            labels={},
         )
 
     @patch("app.runner.docker.from_env")

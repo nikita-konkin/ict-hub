@@ -65,6 +65,15 @@ async def lifespan(app: FastAPI):
         if "feedback_reports" not in tables:
             Base.metadata.create_all(bind=engine)
 
+        # Performance/size guardrails for large job-event tables.
+        # This helps pruning queries avoid full-table scans.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id "
+                "ON job_events(job_id, event_type, id)"
+            )
+        )
+
     # If no users exist at all, create a default admin so the system is usable
     # immediately after first boot. The admin can then create other accounts.
     db = SessionLocal()

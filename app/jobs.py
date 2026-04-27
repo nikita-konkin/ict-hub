@@ -506,7 +506,11 @@ async def run_page(
     current_user: User = Depends(require_converter_access()),
 ):
     """Render the flag form for a specific converter."""
-    _reconcile_running_jobs(db, current_user, converter_name=converter_name)
+    # Reconciliation can immediately close out very short-lived containers, which
+    # breaks the non-HTMX redirect flow (the user lands on /run/... and expects to
+    # see the live panel). Only reconcile when no explicit job_id is requested.
+    if job_id is None:
+        _reconcile_running_jobs(db, current_user, converter_name=converter_name)
     conv = get_converter(converter_name)
     if not conv:
         raise HTTPException(status_code=404, detail=f"Converter '{converter_name}' not found")
