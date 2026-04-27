@@ -38,6 +38,10 @@ cp .env.example .env
 docker-compose up --build -d
 ```
 
+Note: keep the SQLite database in the `/app/data` named volume (default). Avoid setting `DATABASE_URL=sqlite:///./dev.db`
+for docker-compose runs, because that writes the DB into the container filesystem (`/app/dev.db`) and can grow very large
+over long runs; use `CONVERTER_HUB_DATABASE_URL` if you need a compose-time override.
+
 The UI is available at **http://localhost:8080** (or any LAN IP on port 8080).
 
 ### 2. First login

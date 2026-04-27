@@ -16,10 +16,6 @@ services:
       # Access the UI at http://localhost:8080 (or any LAN IP:8080).
       - "8080:8000"
 
-    # Load environment variables from local .env file.
-    env_file:
-      - .env
-
     environment:
       # Prevent runtime proxy interception for container-to-container traffic.
       HTTP_PROXY: ""
@@ -34,7 +30,10 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # password for the first-boot 'admin' user
 
       # ── Database ─────────────────────────────────────────────────────────
-      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/converter_hub.db}
+      # IMPORTANT: don't read DATABASE_URL from a host .env, otherwise Docker runs
+      # can accidentally write the SQLite DB into the container layer (e.g. /app/dev.db),
+      # ballooning container size. Use CONVERTER_HUB_DATABASE_URL to override.
+      DATABASE_URL: ${CONVERTER_HUB_DATABASE_URL:-sqlite:////app/data/converter_hub.db}
 
       # ── Converter images ─────────────────────────────────────────────────
       # Must match the image name you built with "docker build -t tecsuite ."
@@ -132,10 +131,6 @@ services:
     ports:
       # Map host port 5001 → container port 5001
       - "5001:5001"
-
-    # Load environment variables from local .env file.
-    env_file:
-      - .env
 
     environment:
       # Prevent runtime proxy interception for container-to-container traffic.
