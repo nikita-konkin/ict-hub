@@ -48,7 +48,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
 
-_TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3})?$")
+# Accept both layouts used by TEC-Suite input data:
+# - /YYYY_original[/DDD]             (day directly under year, 2-3 digits)
+# - /YYYY_original/MM/DD             (month/day under year, 2-3 digits each)
+_TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3}){0,2}$")
 _DAT_PARQUET_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}(?:/\d{1,3})?$")
 _TECSUITE_ENV_ROOT_NOTE = "Configured from environment variable RINEX_DATA_PATH_HOST"
 _ABSTEC_ENV_INPUT_NOTE = "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"

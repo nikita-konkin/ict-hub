@@ -286,6 +286,17 @@ class TestStartJob:
         assert response.status_code == 200
         assert mock_start.called
 
+    @patch("app.jobs.start_container", return_value="container_root_path_month_day")
+    def test_start_job_accepts_month_day_root_subpath(self, mock_start, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(root_subpath="/2026_original/01/21"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert mock_start.called
+
     @patch("app.jobs.start_container", return_value="container123abc")
     def test_successful_job_start_returns_panel(self, mock_start, operator_client, db):
         """A successful job start should return the SSE monitoring panel HTML."""
