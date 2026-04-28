@@ -147,3 +147,12 @@ curl "http://localhost:5001/parquet"
 ## Caching
 
 The service uses in-memory caching based on directory modification time to avoid redundant filesystem scans.
+
+### Forcing a refresh
+
+All indexing endpoints accept an optional `refresh=true` query parameter to bypass cached results and rescan immediately:
+
+```bash
+curl "http://localhost:5001/tecsuite?refresh=true"
+curl "http://localhost:5001/parquet-satellites?refresh=true"
+```

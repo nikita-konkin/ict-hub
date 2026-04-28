@@ -142,38 +142,53 @@ def indexer_status():
     })
 
 @app.get('/rinex')
-def rinex_index(root: str = Query(default=DEFAULT_PATHS['rinex'])):
+def rinex_index(
+    root: str = Query(default=DEFAULT_PATHS['rinex']),
+    refresh: bool = Query(default=False),
+):
     """Get RINEX server structure as XML."""
     
     logger.info(f"[APP] RINEX endpoint called with root: {root}")
-    data = list_rinex_server_structure(root)
+    data = list_rinex_server_structure(root, refresh=refresh)
     
     logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
     return dict_to_xml_response(data, "rinex_structure")
 
 @app.get('/tecsuite')
-def tecsuite_index(root: str = Query(default=DEFAULT_PATHS['tecsuite'])):
+def tecsuite_index(
+    root: str = Query(default=DEFAULT_PATHS['tecsuite']),
+    refresh: bool = Query(default=False),
+):
     """Get TEC-suite DAT output structure as XML."""
-    data = list_tecsuite_output_structure(root)
+    data = list_tecsuite_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "tecsuite_structure")
 
 @app.get('/abstec')
-def abstec_index(root: str = Query(default=DEFAULT_PATHS['abstec'])):
+def abstec_index(
+    root: str = Query(default=DEFAULT_PATHS['abstec']),
+    refresh: bool = Query(default=False),
+):
     """Get AbsTEC output structure as XML."""
-    data = list_abstec_output_structure(root)
+    data = list_abstec_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "abstec_structure")
 
 @app.get('/parquet')
-def parquet_index(root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite'])):
+def parquet_index(
+    root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite']),
+    refresh: bool = Query(default=False),
+):
     """Get Parquet output structure as XML."""
-    data = list_parquet_output_structure(root)
+    data = list_parquet_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "parquet_structure")
 
 
 @app.get('/parquet-satellites')
-def parquet_satellite_index(root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite'])):
+def parquet_satellite_index(
+    root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite']),
+    refresh: bool = Query(default=False),
+):
     """Get Parquet output structure with stations/satellites as XML."""
-    data = list_parquet_satellite_structure(root)
+    data = list_parquet_satellite_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "parquet_satellite_structure")
 
 

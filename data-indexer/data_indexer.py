@@ -288,6 +288,23 @@ def _refresh_invalidated_cache(
     return result
 
 
+def _force_refresh_cache(
+    cache_type: str,
+    host_root: str,
+    root: Path,
+    scan_fn,
+    cache_dict: dict,
+):
+    """Force a synchronous rescan and update the in-memory + persistent cache."""
+    logger.info("[%s] Forced refresh for %s", cache_type.upper(), host_root)
+    result = scan_fn(root)
+    ts = time.monotonic()
+    cache_dict[host_root] = (ts, result)
+    _save_cache_to_db(cache_type, host_root, (ts, result))
+    _cache_invalidated[host_root] = False
+    return result
+
+
 def _day_sort_key(name: str) -> tuple[int, int, str]:
     """Sort days numerically. For MM/DD format, sort by month then day. For DOY, sort numerically."""
     if '/' in name:
@@ -382,7 +399,7 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
 #     _save_cache_to_db('rinex', host_root, (now, result))
 #     return result
 
-def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
+def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[YearInfo]:
     logger.info(f"[RINEX] Function called with host_root: {host_root}")
     if not host_root:
         return []
@@ -392,6 +409,8 @@ def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
         return []
 
     _ensure_watcher(host_root, root)
+    if refresh:
+        return _force_refresh_cache("rinex", host_root, root, _scan_rinex, _rinex_cache)
     invalidated_result = _refresh_invalidated_cache('rinex', host_root, root, _scan_rinex, _rinex_cache)
     if invalidated_result is not None:
         return invalidated_result
@@ -679,7 +698,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
 #     _save_cache_to_db('tecsuite', host_root, (now, result))
 #     return result
 
-def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
+def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
     if not host_root:
         return []
     root = Path(host_root)
@@ -688,6 +707,8 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
 
     _ensure_watcher(host_root, root)
     scan_root = root / "in" if (root / "in").is_dir() else root
+    if refresh:
+        return _force_refresh_cache("tecsuite", host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
     invalidated_result = _refresh_invalidated_cache('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
     if invalidated_result is not None:
         return invalidated_result
@@ -714,7 +735,7 @@ def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
     return result
 
 
-def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
+def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
     """
     Return AbsTEC output structure under host_root.
 
@@ -731,6 +752,8 @@ def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
         return []
 
     _ensure_watcher(host_root, root)
+    if refresh:
+        return _force_refresh_cache("abstec", host_root, root, _scan_abstec_output_parallel, _abstec_cache)
     invalidated_result = _refresh_invalidated_cache('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
     if invalidated_result is not None:
         return invalidated_result
@@ -785,7 +808,7 @@ def list_abstec_output_structure(host_root: str) -> list[AbsTecYearInfo]:
 #     _save_cache_to_db('parquet', host_root, (now, result))
 #     return result
 
-def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
+def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     if not host_root:
         return []
     root = Path(host_root)
@@ -793,6 +816,8 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
         return []
 
     _ensure_watcher(host_root, root)
+    if refresh:
+        return _force_refresh_cache("parquet", host_root, root, _scan_parquet, _parquet_cache)
     invalidated_result = _refresh_invalidated_cache('parquet', host_root, root, _scan_parquet, _parquet_cache)
     if invalidated_result is not None:
         return invalidated_result
@@ -849,7 +874,7 @@ def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
 #     _save_cache_to_db('parquet_sat', host_root, (now, result))
 #     return result
 
-def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
+def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     if not host_root:
         return []
     root = Path(host_root)
@@ -857,6 +882,8 @@ def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
         return []
 
     _ensure_watcher(host_root, root)
+    if refresh:
+        return _force_refresh_cache("parquet_sat", host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
     invalidated_result = _refresh_invalidated_cache('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
     if invalidated_result is not None:
         return invalidated_result

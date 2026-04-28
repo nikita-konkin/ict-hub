@@ -1,3 +1,4 @@
 fastapi==0.115.2
 uvicorn==0.32.0
 dicttoxml==1.7.16
+watchdog==4.0.1

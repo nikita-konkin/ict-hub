@@ -36,14 +36,19 @@ def _as_int(value: str, default: int = 0) -> int:
         return default
 
 
-def _fetch_xml(endpoint: str, root_path: str) -> ET.Element | None:
+def _fetch_xml(endpoint: str, root_path: str, refresh: bool = False) -> ET.Element | None:
     if not DATA_INDEXER_URL:
         return None
 
     base = DATA_INDEXER_URL.rstrip("/")
     url = f"{base}/{endpoint}"
+    query_parts: list[str] = []
     if root_path:
-        url = f"{url}?root={quote(root_path, safe='/:\\')}"
+        query_parts.append(f"root={quote(root_path, safe='/:\\')}")
+    if refresh:
+        query_parts.append("refresh=true")
+    if query_parts:
+        url = f"{url}?{'&'.join(query_parts)}"
 
     try:
         # trust_env=False avoids accidental proxy routing for internal Docker service calls.
@@ -177,15 +182,20 @@ def _parse_parquet_sat_root(root: ET.Element) -> list[dict[str, object]]:
     return years
 
 
-async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None":
+async def _fetch_xml_async(endpoint: str, root_path: str, refresh: bool = False) -> "ET.Element | None":
     """Async version of _fetch_xml — does not block the event loop."""
     if not DATA_INDEXER_URL:
         return None
 
     base = DATA_INDEXER_URL.rstrip("/")
     url = f"{base}/{endpoint}"
+    query_parts: list[str] = []
     if root_path:
-        url = f"{url}?root={quote(root_path, safe='/:\\')}"
+        query_parts.append(f"root={quote(root_path, safe='/:\\')}")
+    if refresh:
+        query_parts.append("refresh=true")
+    if query_parts:
+        url = f"{url}?{'&'.join(query_parts)}"
 
     try:
         # trust_env=False avoids accidental proxy routing for internal Docker service calls.
@@ -207,127 +217,127 @@ async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None"
         return None
 
 
-async def list_parquet_satellite_structure_async(host_root: str) -> list[dict[str, object]]:
+async def list_parquet_satellite_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Async variant of list_parquet_satellite_structure — for use inside async FastAPI handlers."""
     cache_key = ("parquet-satellites", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]  # type: ignore[return-value]
 
-    root = await _fetch_xml_async("parquet-satellites", host_root)
+    root = await _fetch_xml_async("parquet-satellites", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("parquet-satellites", host_root, _parse_parquet_sat_root(root))
 
 
-async def list_rinex_server_structure_async(host_root: str) -> list[dict[str, object]]:
+async def list_rinex_server_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     cache_key = ("rinex", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]  # type: ignore[return-value]
 
-    root = await _fetch_xml_async("rinex", host_root)
+    root = await _fetch_xml_async("rinex", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("rinex", host_root, _parse_rinex_root(root))
 
 
-async def list_tecsuite_output_structure_async(host_root: str) -> list[dict[str, object]]:
+async def list_tecsuite_output_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     cache_key = ("tecsuite", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]  # type: ignore[return-value]
 
-    root = await _fetch_xml_async("tecsuite", host_root)
+    root = await _fetch_xml_async("tecsuite", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
 
 
-async def list_abstec_output_structure_async(host_root: str) -> list[dict[str, object]]:
+async def list_abstec_output_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Async AbsTEC variant of list_tecsuite_output_structure_async (same structure)."""
     cache_key = ("abstec", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]  # type: ignore[return-value]
 
-    root = await _fetch_xml_async("abstec", host_root)
+    root = await _fetch_xml_async("abstec", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("abstec", host_root, _parse_tecsuite_root(root))
 
 
-async def list_parquet_output_structure_async(host_root: str) -> list[dict[str, object]]:
+async def list_parquet_output_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     cache_key = ("parquet", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]  # type: ignore[return-value]
 
-    root = await _fetch_xml_async("parquet", host_root)
+    root = await _fetch_xml_async("parquet", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("parquet", host_root, _parse_parquet_root(root))
 
 
-def list_rinex_server_structure(host_root: str) -> list[dict[str, object]]:
+def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Return RINEX tree from data-indexer /rinex endpoint."""
     cache_key = ("rinex", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]
 
-    root = _fetch_xml("rinex", host_root)
+    root = _fetch_xml("rinex", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("rinex", host_root, _parse_rinex_root(root))
 
 
-def list_tecsuite_output_structure(host_root: str) -> list[dict[str, object]]:
+def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Return DAT tree from data-indexer /tecsuite endpoint."""
     cache_key = ("tecsuite", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]
 
-    root = _fetch_xml("tecsuite", host_root)
+    root = _fetch_xml("tecsuite", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
 
 
-def list_abstec_output_structure(host_root: str) -> list[dict[str, object]]:
+def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Return AbsTEC tree from data-indexer /abstec endpoint (same structure as tecsuite)."""
     cache_key = ("abstec", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]
 
-    root = _fetch_xml("abstec", host_root)
+    root = _fetch_xml("abstec", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("abstec", host_root, _parse_tecsuite_root(root))
 
 
-def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
+def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Return parquet tree from data-indexer /parquet endpoint."""
     cache_key = ("parquet", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]
 
-    root = _fetch_xml("parquet", host_root)
+    root = _fetch_xml("parquet", host_root, refresh=refresh)
     if root is None:
         return []
 
     return _set_cache("parquet", host_root, _parse_parquet_root(root))
 
 
-def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
+def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Return parquet year/day/station/satellite tree from /parquet-satellites."""
     cache_key = ("parquet-satellites", host_root)
-    if cache_key in _cache:
+    if not refresh and cache_key in _cache:
         return _cache[cache_key]
 
-    root = _fetch_xml("parquet-satellites", host_root)
+    root = _fetch_xml("parquet-satellites", host_root, refresh=refresh)
     if root is None:
         return []
 

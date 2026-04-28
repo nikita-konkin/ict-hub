@@ -15,6 +15,12 @@
 <div class="page-header">
   <h1 class="page-title">{{ t('nav_indexed_data') }}</h1>
   <p class="page-subtitle">{{ t('indexed_data_subtitle') }}</p>
+  <div style="margin-top:12px;">
+    <a class="btn btn-ghost" href="/indexed-data?refresh=1">Refresh index</a>
+    {% if refresh %}
+      <span class="badge badge-muted" style="margin-left:10px;">Force refresh</span>
+    {% endif %}
+  </div>
 </div>
 
 {% if not data_indexer_enabled %}
@@ -184,4 +190,3 @@
   </div>
 </div>
 {% endblock %}
-

@@ -10,7 +10,7 @@ Shows the folder trees currently indexed by the data-indexer service for:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -43,6 +43,7 @@ def _scan_root(*paths: str) -> str:
 async def indexed_data_page(
     request: Request,
     current_user: User = Depends(require_page_access("indexed_data")),
+    refresh: bool = Query(default=False),
 ):
     clear_data_indexer_cache()
 
@@ -58,19 +59,31 @@ async def indexed_data_page(
         "parquet_abstec": _scan_root(cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST),
     }
 
-    rinex_tree = await list_rinex_server_structure_async(roots["rinex"]) if data_indexer_enabled and roots["rinex"] else []
-    tecsuite_tree = (
-        await list_tecsuite_output_structure_async(roots["tecsuite"]) if data_indexer_enabled and roots["tecsuite"] else []
+    rinex_tree = (
+        await list_rinex_server_structure_async(roots["rinex"], refresh=refresh)
+        if data_indexer_enabled and roots["rinex"]
+        else []
     )
-    abstec_tree = await list_abstec_output_structure_async(roots["abstec"]) if data_indexer_enabled and roots["abstec"] else []
+    tecsuite_tree = (
+        await list_tecsuite_output_structure_async(roots["tecsuite"], refresh=refresh)
+        if data_indexer_enabled and roots["tecsuite"]
+        else []
+    )
+    abstec_tree = (
+        await list_abstec_output_structure_async(roots["abstec"], refresh=refresh)
+        if data_indexer_enabled and roots["abstec"]
+        else []
+    )
 
     parquet_tecsuite_tree = (
-        await list_parquet_output_structure_async(roots["parquet_tecsuite"])
+        await list_parquet_output_structure_async(roots["parquet_tecsuite"], refresh=refresh)
         if data_indexer_enabled and roots["parquet_tecsuite"]
         else []
     )
     parquet_abstec_tree = (
-        await list_parquet_output_structure_async(roots["parquet_abstec"]) if data_indexer_enabled and roots["parquet_abstec"] else []
+        await list_parquet_output_structure_async(roots["parquet_abstec"], refresh=refresh)
+        if data_indexer_enabled and roots["parquet_abstec"]
+        else []
     )
 
     response = templates.TemplateResponse(
@@ -86,6 +99,7 @@ async def indexed_data_page(
             abstec_tree=abstec_tree,
             parquet_tecsuite_tree=parquet_tecsuite_tree,
             parquet_abstec_tree=parquet_abstec_tree,
+            refresh=refresh,
         ),
     )
     return apply_lang_cookie(request, response)
