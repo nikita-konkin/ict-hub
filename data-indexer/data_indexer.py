@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import threading
+import errno
 # For file watching approach
 try:
     from watchdog.observers import Observer
@@ -32,6 +33,8 @@ try:
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
+
+_WATCHERS_ENABLED: bool = os.getenv("DATA_INDEXER_WATCHERS_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -184,6 +187,7 @@ if WATCHDOG_AVAILABLE:
     _observers: dict[str, Observer] = {}
 else:
     _observers: dict[str, object] = {}
+_watcher_disabled: set[str] = set()
 # Cache invalidation flags (path → bool)
 _cache_invalidated: dict[str, bool] = {}
 
@@ -235,16 +239,34 @@ if WATCHDOG_AVAILABLE:
 
 def _ensure_watcher(host_root: str, root: Path) -> None:
     """Start a watchdog observer for a root if watchdog is available."""
-    if not WATCHDOG_AVAILABLE:
+    if not WATCHDOG_AVAILABLE or not _WATCHERS_ENABLED:
         return
 
     with _watch_lock:
+        if host_root in _watcher_disabled:
+            return
         if host_root in _observers:
             return
 
         observer = Observer()
         observer.schedule(_RootChangeHandler(host_root), str(root), recursive=True)
-        observer.start()
+        try:
+            observer.start()
+        except OSError as exc:
+            # Common on Linux when the host hits fs.inotify.max_user_watches.
+            # Watchers are an optimization only; the indexer must continue to serve requests.
+            if getattr(exc, "errno", None) == errno.ENOSPC:
+                logger.warning(
+                    "[WATCHER] Failed to start observer for %s (inotify watch limit reached). "
+                    "Continuing without filesystem watchers; indexing will rely on TTL/refresh.",
+                    host_root,
+                )
+                _watcher_disabled.add(host_root)
+                return
+            logger.warning("[WATCHER] Failed to start observer for %s: %s", host_root, exc)
+            _watcher_disabled.add(host_root)
+            return
+
         _observers[host_root] = observer
         _cache_invalidated.setdefault(host_root, False)
         logger.info("[WATCHER] Started observer for %s", host_root)

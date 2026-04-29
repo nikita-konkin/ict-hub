@@ -12,6 +12,12 @@ The service uses the following environment variables (set in `.env` file):
   - Lower values = more frequent updates but higher CPU/disk usage
   - Higher values = less frequent updates but may miss new files sooner
 
+### Filesystem Watchers (optional)
+- `DATA_INDEXER_WATCHERS_ENABLED`: Enable filesystem watchers for fast cache invalidation (default: `true`)
+  - If disabled, the indexer relies on cache TTL and/or explicit `refresh=true` requests.
+  - On Linux, very large directory trees may hit the host `inotify` watch limit (`OSError: [Errno 28] inotify watch limit reached`).
+    In that case either increase `fs.inotify.max_user_watches` on the host, or set `DATA_INDEXER_WATCHERS_ENABLED=false`.
+
 ### Persistent Cache Database
 - `DATA_INDEXER_CACHE_DB_PATH`: Path to SQLite database for persistent caching (default: `/app/data/cache.db`)
   - Cache survives container restarts and rebuilds
