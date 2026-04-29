@@ -166,6 +166,8 @@ services:
       DATA_INDEXER_RUN_ON_STARTUP: ${DATA_INDEXER_RUN_ON_STARTUP:-false}
       # Optional: disable watchers to avoid Linux inotify limits on very large trees.
       DATA_INDEXER_WATCHERS_ENABLED: ${DATA_INDEXER_WATCHERS_ENABLED:-true}
+      # Optional: cap scanning for very large datasets (0 = unlimited).
+      DATA_INDEXER_MAX_YEARS: ${DATA_INDEXER_MAX_YEARS:-0}
 
     volumes:
       # Mount data volumes for indexing (reuse the same host paths as converter-hub)

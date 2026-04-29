@@ -66,7 +66,12 @@ def _fetch_xml(endpoint: str, root_path: str, refresh: bool = False) -> ET.Eleme
         root = ET.fromstring(response.text)
         return root
     except Exception as exc:  # noqa: BLE001 - external service errors should be non-fatal
-        logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
+        logger.warning(
+            "data-indexer request failed for %s: %s (%r)",
+            endpoint,
+            getattr(exc, "__class__", type(exc)).__name__,
+            exc,
+        )
         return None
 
 
@@ -213,7 +218,12 @@ async def _fetch_xml_async(endpoint: str, root_path: str, refresh: bool = False)
         response.raise_for_status()
         return ET.fromstring(response.text)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
+        logger.warning(
+            "data-indexer request failed for %s: %s (%r)",
+            endpoint,
+            getattr(exc, "__class__", type(exc)).__name__,
+            exc,
+        )
         return None
 
 

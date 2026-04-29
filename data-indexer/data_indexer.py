@@ -35,6 +35,7 @@ except ImportError:
     WATCHDOG_AVAILABLE = False
 
 _WATCHERS_ENABLED: bool = os.getenv("DATA_INDEXER_WATCHERS_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+_MAX_YEARS: int = int(os.getenv("DATA_INDEXER_MAX_YEARS", "0") or "0")
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -636,6 +637,10 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
     # Step 1: collect year directories
     with os.scandir(root) as it:
         year_entries = [e for e in it if e.is_dir() and YEAR_DIR_RE.fullmatch(e.name)]
+    # Optional cap for very large datasets (keeps the newest years).
+    if _MAX_YEARS > 0:
+        year_entries.sort(key=lambda e: _year_sort_key(e.name), reverse=True)
+        year_entries = year_entries[:_MAX_YEARS]
 
     # Step 2: each worker handles exactly ONE year_entry
     def scan_year(year_entry) -> YearInfo | None:
@@ -935,6 +940,9 @@ def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""
     with os.scandir(root) as it:
         year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+    if _MAX_YEARS > 0:
+        year_dirs.sort(key=lambda p: int(p.name), reverse=True)
+        year_dirs = year_dirs[:_MAX_YEARS]
 
     def scan_year(year_dir: Path) -> dict[str, object] | None:
         logger.debug(f"[PARQUET] Scanning year directory: {year_dir}")
@@ -964,6 +972,9 @@ def _scan_abstec_output_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
     """Parallel scan variant for AbsTEC output roots (YYYY/DDD/SITE/...)."""
     with os.scandir(scan_root) as it:
         year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+    if _MAX_YEARS > 0:
+        year_dirs.sort(key=lambda p: int(p.name), reverse=True)
+        year_dirs = year_dirs[:_MAX_YEARS]
 
     def scan_year(year_dir: Path) -> AbsTecYearInfo | None:
         days: list[AbsTecDayInfo] = []
@@ -1079,6 +1090,9 @@ def _scan_parquet_satellites_parallel(root: Path) -> list[dict[str, object]]:
     """Parallel scan variant for parquet roots with station/satellite extraction."""
     with os.scandir(root) as it:
         year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+    if _MAX_YEARS > 0:
+        year_dirs.sort(key=lambda p: int(p.name), reverse=True)
+        year_dirs = year_dirs[:_MAX_YEARS]
 
     def scan_year(year_dir: Path) -> dict[str, object] | None:
         days: list[dict[str, object]] = []
@@ -1199,6 +1213,9 @@ def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
     """Parallel scan variant for TEC-suite DAT output roots."""
     with os.scandir(scan_root) as it:
         year_dirs = [Path(e.path) for e in it if e.is_dir() and ABSTEC_YEAR_DIR_RE.fullmatch(e.name)]
+    if _MAX_YEARS > 0:
+        year_dirs.sort(key=lambda p: int(p.name), reverse=True)
+        year_dirs = year_dirs[:_MAX_YEARS]
 
     def scan_year(year_dir: Path) -> AbsTecYearInfo | None:
         days: list[AbsTecDayInfo] = []

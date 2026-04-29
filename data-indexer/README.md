@@ -18,6 +18,10 @@ The service uses the following environment variables (set in `.env` file):
   - On Linux, very large directory trees may hit the host `inotify` watch limit (`OSError: [Errno 28] inotify watch limit reached`).
     In that case either increase `fs.inotify.max_user_watches` on the host, or set `DATA_INDEXER_WATCHERS_ENABLED=false`.
 
+### Large Dataset Tuning (optional)
+- `DATA_INDEXER_MAX_YEARS`: Limit indexing to the newest N years (default: `0` = unlimited)
+  - Useful when full scans take longer than `DATA_INDEXER_TIMEOUT_SEC` in ConverterHub.
+
 ### Persistent Cache Database
 - `DATA_INDEXER_CACHE_DB_PATH`: Path to SQLite database for persistent caching (default: `/app/data/cache.db`)
   - Cache survives container restarts and rebuilds
