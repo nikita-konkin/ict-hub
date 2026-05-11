@@ -138,7 +138,7 @@
             </div>
 
             <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted);">
-              <input id="stations-map-labels" type="checkbox" />
+              <input id="stations-map-labels" type="checkbox" checked />
               <span>{{ t('stations_map_show_ids') }}</span>
             </label>
           </div>
@@ -291,6 +291,13 @@
     }
 
     function stationLabel(item) {
+      const city = String(item.city || "").trim();
+      const region = String(item.region || "").trim();
+      const country = String(item.country || "").trim();
+      const geoParts = [city, region, country].filter(Boolean);
+      if (geoParts.length) {
+        return geoParts.join(", ");
+      }
       const markerName = String(item.marker_name || "").trim();
       if (markerName) {
         return markerName;
@@ -309,20 +316,32 @@
       return "light";
     }
 
+    function toNumber(value) {
+      const num = typeof value === "number" ? value : Number.parseFloat(String(value || ""));
+      return Number.isFinite(num) ? num : NaN;
+    }
+
     async function renderPlot(payload) {
       if (!plotEl) return;
       if (!window.Plotly) {
         throw new Error("Plotly is not available in the browser.");
       }
-      const stations = Array.isArray(payload.stations) ? payload.stations : [];
+      const stationsRaw = Array.isArray(payload.stations) ? payload.stations : [];
+      const points = stationsRaw
+        .map((item) => ({
+          item,
+          lon: toNumber(item.longitude_deg),
+          lat: toNumber(item.latitude_deg),
+        }))
+        .filter((point) => Number.isFinite(point.lon) && Number.isFinite(point.lat));
 
-      if (!stations.length) {
+      if (!points.length) {
         window.Plotly.purge(plotEl);
         plotEl.innerHTML = `<div class="station-map-empty">{{ t('stations_map_empty') }}</div>`;
         return;
       }
 
-      plotEl.innerHTML = "";
+      window.Plotly.purge(plotEl);
       const showLabels = labelsCheckbox && labelsCheckbox.checked;
 
       const categories = [
@@ -345,31 +364,31 @@
 
       const traces = [];
       for (const category of categories) {
-        const subset = stations.filter((item) => stationCategory(item) === category.key);
+        const subset = points.filter((point) => stationCategory(point.item) === category.key);
         if (!subset.length) continue;
 
-        const customdata = subset.map((item) => ([
-          String(item.marker_name || ""),
-          String(item.marker_number || ""),
-          Number(item.archive_count || 0),
-          Array.isArray(item.days) ? item.days.join(", ") : "",
-          Number(item.altitude_m || 0).toFixed(1),
-          Number(item.coordinate_spread_m || 0).toFixed(1),
-          String(item.first_archive || ""),
-          String(item.last_archive || ""),
-          stationLabel(item),
+        const customdata = subset.map((point) => ([
+          String(point.item.marker_name || ""),
+          String(point.item.marker_number || ""),
+          Number(point.item.archive_count || 0),
+          Array.isArray(point.item.days) ? point.item.days.join(", ") : "",
+          Number(point.item.altitude_m || 0).toFixed(1),
+          Number(point.item.coordinate_spread_m || 0).toFixed(1),
+          String(point.item.first_archive || ""),
+          String(point.item.last_archive || ""),
+          stationLabel(point.item),
         ]));
 
         traces.push({
-          type: "scatter",
+          type: "scattergeo",
           mode: "markers",
           name: category.name,
-          x: subset.map((item) => Number(item.longitude_deg)),
-          y: subset.map((item) => Number(item.latitude_deg)),
-          text: subset.map((item) => String(item.station_id || "")),
+          lon: subset.map((point) => point.lon),
+          lat: subset.map((point) => point.lat),
+          text: subset.map((point) => String(point.item.station_id || "")),
           customdata,
           marker: {
-            size: subset.map((item) => Math.max(10, Math.min(22, 10 + Math.log2(Math.max(Number(item.archive_count || 0), 1)) * 3))),
+            size: subset.map((point) => Math.max(10, Math.min(22, 10 + Math.log2(Math.max(Number(point.item.archive_count || 0), 1)) * 3))),
             color: category.color,
             opacity: 0.94,
             line: {
@@ -395,13 +414,13 @@
 
       if (showLabels) {
         traces.push({
-          type: "scatter",
+          type: "scattergeo",
           mode: "text",
-          name: "Map labels: marker/locality names",
-          x: stations.map((item) => Number(item.longitude_deg)),
-          y: stations.map((item) => Number(item.latitude_deg) - 0.22),
-          text: stations.map((item) => stationLabel(item)),
-          textposition: "middle center",
+          name: "Labels",
+          lon: points.map((point) => point.lon),
+          lat: points.map((point) => point.lat),
+          text: points.map((point) => stationLabel(point.item) || String(point.item.station_id || "")),
+          textposition: "bottom center",
           textfont: {
             size: 10,
             color: cssVar("--text-muted", "#655A4A"),
@@ -411,24 +430,41 @@
         });
       }
 
-      const lonValues = stations.map((item) => Number(item.longitude_deg));
-      const latValues = stations.map((item) => Number(item.latitude_deg));
-      const longitudeRange = padRange(Math.min(...lonValues), Math.max(...lonValues), 0.08, 1.5);
-      const latitudeRange = padRange(Math.min(...latValues), Math.max(...latValues), 0.08, 1.0);
-
       const layout = {
+        autosize: true,
         height: Math.max(plotEl.clientHeight || 0, 700),
-        margin: { l: 56, r: 20, t: 48, b: 56 },
+        margin: { l: 20, r: 20, t: 48, b: 20 },
         paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: cssVar("--surface-2", "#161512"),
         hovermode: "closest",
+        geo: {
+          scope: "world",
+          projection: { type: "natural earth" },
+          fitbounds: "locations",
+          bgcolor: cssVar("--surface-2", "#161512"),
+          showland: true,
+          landcolor: cssVar("--surface-3", "#1D1B18"),
+          showocean: true,
+          oceancolor: cssVar("--surface-2", "#161512"),
+          showlakes: true,
+          lakecolor: cssVar("--surface-2", "#161512"),
+          showcountries: true,
+          countrycolor: cssVar("--border", "#242220"),
+          showcoastlines: true,
+          coastlinecolor: cssVar("--border-light", "#2E2C28"),
+          lonaxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
+          lataxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
+        },
         legend: {
           orientation: "h",
           x: 0,
-          y: 1.12,
+          y: 0.99,
           xanchor: "left",
-          yanchor: "bottom",
+          yanchor: "top",
           bgcolor: "rgba(0,0,0,0)",
+          title: {
+            text: "Archive coverage",
+            font: { color: cssVar("--text-muted", "#7A7268"), size: 11 },
+          },
           font: {
             color: cssVar("--text", "#EAE4D8"),
           },
@@ -438,9 +474,9 @@
             xref: "paper",
             yref: "paper",
             x: 0,
-            y: 1.05,
+            y: 0.88,
             xanchor: "left",
-            yanchor: "bottom",
+            yanchor: "top",
             showarrow: false,
             align: "left",
             font: {
@@ -452,33 +488,9 @@
               : "Marker colors show archive coverage. Enable labels to display best-effort locality names below markers.",
           },
         ],
-        xaxis: {
-          title: "Longitude",
-          range: longitudeRange,
-          gridcolor: cssVar("--border", "#D9CFBF"),
-          zeroline: false,
-          linecolor: cssVar("--border-light", "#C9BEAC"),
-          mirror: true,
-          ticks: "outside",
-          tickfont: { color: cssVar("--text-muted", "#655A4A") },
-          titlefont: { color: cssVar("--text", "#2B251E") },
-        },
-        yaxis: {
-          title: "Latitude",
-          range: latitudeRange,
-          gridcolor: cssVar("--border", "#D9CFBF"),
-          zeroline: false,
-          linecolor: cssVar("--border-light", "#C9BEAC"),
-          mirror: true,
-          ticks: "outside",
-          tickfont: { color: cssVar("--text-muted", "#655A4A") },
-          titlefont: { color: cssVar("--text", "#2B251E") },
-          scaleanchor: "x",
-          scaleratio: 1,
-        },
       };
 
-      await window.Plotly.react(plotEl, traces, layout, {
+      await window.Plotly.newPlot(plotEl, traces, layout, {
         responsive: true,
         displayModeBar: false,
       });
@@ -541,6 +553,9 @@
         params.set("refresh", "true");
       }
 
+      const requestSeq = (state.loadSeq || 0) + 1;
+      state.loadSeq = requestSeq;
+
       loadButton.disabled = true;
       refreshButton.disabled = true;
       setStatus("info", "{{ t('stations_map_loading') }}");
@@ -554,17 +569,25 @@
           throw new Error(String(payload.detail || response.statusText || "Request failed"));
         }
 
+        if (state.loadSeq !== requestSeq) {
+          return;
+        }
         state.payload = payload;
         renderSummary(payload);
         await renderPlot(payload);
         renderTable(payload);
         setStatus("info", "{{ t('stations_map_loaded') }}");
       } catch (error) {
+        if (state.loadSeq !== requestSeq) {
+          return;
+        }
         const message = error instanceof Error ? error.message : "{{ t('stations_map_error') }}";
         setStatus("error", message);
       } finally {
-        loadButton.disabled = false;
-        refreshButton.disabled = false;
+        if (state.loadSeq === requestSeq) {
+          loadButton.disabled = false;
+          refreshButton.disabled = false;
+        }
       }
     }
 

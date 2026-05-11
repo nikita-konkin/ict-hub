@@ -39,7 +39,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "stations_map_table_title": "Station Metadata",
         "stations_map_load": "Load map",
         "stations_map_refresh_data": "Refresh from disk",
-        "stations_map_show_ids": "Show station IDs on map",
+        "stations_map_show_ids": "Show station labels on map",
         "stations_map_summary_idle": "Choose a year/day from the indexed RINEX tree, then load the station map.",
         "stations_map_all_days": "All indexed days",
         "stations_map_station_count": "Stations",
