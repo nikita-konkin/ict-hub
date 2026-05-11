@@ -33,6 +33,7 @@ from data_indexer import (
     list_parquet_satellite_structure,
     stop_all_watchers,
 )
+from rinex_station_map import list_rinex_station_map
 
 # Configure logging to show DEBUG messages
 logging.basicConfig(
@@ -153,6 +154,23 @@ def rinex_index(
     
     logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
     return dict_to_xml_response(data, "rinex_structure")
+
+
+@app.get('/rinex-stations')
+def rinex_station_map(
+    root: str = Query(default=DEFAULT_PATHS['rinex']),
+    year: str = Query(..., min_length=1),
+    day: str = Query(default=""),
+    refresh: bool = Query(default=False),
+):
+    """Return aggregated station metadata from RINEX headers as JSON."""
+    try:
+        data = list_rinex_station_map(root, year=year, day=day, refresh=refresh)
+    except FileNotFoundError as exc:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(content=data)
 
 @app.get('/tecsuite')
 def tecsuite_index(

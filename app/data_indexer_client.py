@@ -227,6 +227,55 @@ async def _fetch_xml_async(endpoint: str, root_path: str, refresh: bool = False)
         return None
 
 
+async def _fetch_json_async(
+    endpoint: str,
+    root_path: str,
+    *,
+    refresh: bool = False,
+    extra_query: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    if not DATA_INDEXER_URL:
+        return None
+
+    base = DATA_INDEXER_URL.rstrip("/")
+    url = f"{base}/{endpoint}"
+    query_parts: list[str] = []
+    if root_path:
+        query_parts.append(f"root={quote(root_path, safe='/:\\')}")
+    if refresh:
+        query_parts.append("refresh=true")
+    for key, value in (extra_query or {}).items():
+        value_text = str(value or "").strip()
+        if value_text:
+            query_parts.append(f"{quote(str(key), safe='')}={quote(value_text, safe='/:\\')}")
+    if query_parts:
+        url = f"{url}?{'&'.join(query_parts)}"
+
+    try:
+        async with httpx.AsyncClient(timeout=DATA_INDEXER_TIMEOUT_SEC, trust_env=False) as client:
+            response = await client.get(url)
+        if response.status_code >= 400:
+            logger.warning(
+                "data-indexer upstream status=%s endpoint=%s url=%s server=%s body_prefix=%s",
+                response.status_code,
+                endpoint,
+                url,
+                response.headers.get("server", ""),
+                response.text[:180],
+            )
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "data-indexer JSON request failed for %s: %s (%r)",
+            endpoint,
+            getattr(exc, "__class__", type(exc)).__name__,
+            exc,
+        )
+        return None
+
+
 async def list_parquet_satellite_structure_async(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
     """Async variant of list_parquet_satellite_structure — for use inside async FastAPI handlers."""
     cache_key = ("parquet-satellites", host_root)
@@ -287,6 +336,40 @@ async def list_parquet_output_structure_async(host_root: str, refresh: bool = Fa
         return []
 
     return _set_cache("parquet", host_root, _parse_parquet_root(root))
+
+
+def _empty_rinex_station_map_payload(year: str, day: str) -> dict[str, object]:
+    return {
+        "year": year,
+        "day": day,
+        "station_count": 0,
+        "archive_count": 0,
+        "stations": [],
+    }
+
+
+async def get_rinex_station_map_async(
+    host_root: str,
+    *,
+    year: str,
+    day: str = "",
+    refresh: bool = False,
+) -> dict[str, object]:
+    cache_root = f"{host_root}|{year}|{day}"
+    cache_key = ("rinex-stations", cache_root)
+    if not refresh and cache_key in _cache:
+        return _cache[cache_key]  # type: ignore[return-value]
+
+    payload = await _fetch_json_async(
+        "rinex-stations",
+        host_root,
+        refresh=refresh,
+        extra_query={"year": year, "day": day},
+    )
+    if payload is None:
+        return _empty_rinex_station_map_payload(year, day)
+
+    return _set_cache("rinex-stations", cache_root, payload)
 
 
 def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:

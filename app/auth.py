@@ -46,7 +46,7 @@ def new_account_permissions(
     Default rules for newly created (non-admin) accounts.
 
     Rule set requested:
-      1) Access only to Overview pages: Data analysis and Indexed data
+      1) Access only to Overview pages: Data analysis, Stations Map, and Indexed data
       2) Distinct access toggles to TEC-Suite, DAT <-> Parquet, AbsTEC Suite
     """
     return {
@@ -54,6 +54,7 @@ def new_account_permissions(
             "dashboard": False,
             "history": False,
             "analysis": True,
+            "stations_map": True,
             "indexed_data": True,
         },
         "converters": {

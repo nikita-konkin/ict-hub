@@ -97,6 +97,8 @@ class User(Base):
 
         if self.can_access_page("analysis"):
             return "/analysis"
+        if self.can_access_page("stations_map"):
+            return "/stations-map"
         if self.can_access_page("indexed_data"):
             return "/indexed-data"
         if self.can_access_page("dashboard"):

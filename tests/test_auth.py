@@ -138,6 +138,7 @@ class TestUserManagement:
         assert user.role == "operator"
         assert user.permissions_json
         assert user.can_access_page("analysis") is True
+        assert user.can_access_page("stations_map") is True
         assert user.can_access_page("indexed_data") is True
         assert user.can_access_converter("tec-suite") is False
 
@@ -161,6 +162,7 @@ class TestUserManagement:
 
         # Overview pages work
         assert client.get("/analysis", follow_redirects=True).status_code == 200
+        assert client.get("/stations-map", follow_redirects=True).status_code == 200
         assert client.get("/indexed-data", follow_redirects=True).status_code == 200
 
         # Dashboard/history are denied (redirect away)

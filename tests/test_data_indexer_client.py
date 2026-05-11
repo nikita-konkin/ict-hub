@@ -371,6 +371,17 @@ class TestAsyncFunctions:
         from app.data_indexer_client import list_parquet_output_structure_async
         assert await list_parquet_output_structure_async("/any") == []
 
+    async def test_rinex_station_map_returns_empty_payload_when_url_not_configured(self, monkeypatch):
+        import app.data_indexer_client as m
+        monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
+        from app.data_indexer_client import get_rinex_station_map_async
+
+        result = await get_rinex_station_map_async("/any", year="2026_original", day="001")
+        assert result["year"] == "2026_original"
+        assert result["day"] == "001"
+        assert result["station_count"] == 0
+        assert result["stations"] == []
+
     # ----- HTTP error → empty list -----
 
     async def test_parquet_sat_returns_empty_on_upstream_error(self, monkeypatch):
@@ -448,6 +459,32 @@ class TestAsyncFunctions:
         # HTTP was called exactly once (cache served the second call)
         assert mock_client.get.call_count == 1
 
+    async def test_rinex_station_map_second_call_uses_cache(self, monkeypatch):
+        import app.data_indexer_client as m
+        monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
+
+        fetch_calls: list[tuple[str, str, str]] = []
+
+        async def _fake_fetch_json(endpoint: str, root_path: str, *, refresh: bool = False, extra_query=None):
+            fetch_calls.append((endpoint, root_path, str((extra_query or {}).get("day", ""))))
+            return {
+                "year": "2026_original",
+                "day": "001",
+                "station_count": 1,
+                "archive_count": 2,
+                "stations": [{"station_id": "AKSU"}],
+            }
+
+        with patch.object(m, "_fetch_json_async", side_effect=_fake_fetch_json):
+            from app.data_indexer_client import get_rinex_station_map_async
+
+            first = await get_rinex_station_map_async("/mnt/rinex", year="2026_original", day="001")
+            second = await get_rinex_station_map_async("/mnt/rinex", year="2026_original", day="001")
+
+        assert first == second
+        assert first["station_count"] == 1
+        assert fetch_calls == [("rinex-stations", "/mnt/rinex", "001")]
+
     async def test_different_paths_are_cached_independently(self, monkeypatch):
         import app.data_indexer_client as m
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
@@ -457,7 +494,7 @@ class TestAsyncFunctions:
 
         call_count = 0
 
-        async def _fake_fetch(endpoint: str, root_path: str):
+        async def _fake_fetch(endpoint: str, root_path: str, refresh: bool = False):
             nonlocal call_count
             call_count += 1
             year = "2026" if root_path == "/mnt/tecsuite" else "2025"
@@ -481,7 +518,7 @@ class TestAsyncFunctions:
 
         fetch_calls: list[str] = []
 
-        async def _fake_fetch(endpoint: str, root_path: str):
+        async def _fake_fetch(endpoint: str, root_path: str, refresh: bool = False):
             fetch_calls.append(root_path)
             return ET.fromstring("<root><item><year>2026</year><days/></item></root>")
 

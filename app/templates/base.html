@@ -1041,6 +1041,15 @@
         {{ t('nav_analysis') }}
       </a>
       {% endif %}
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('stations_map')) %}
+      <a href="/stations-map" class="nav-link {% if '/stations-map' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 14s4-3.4 4-7.3A4 4 0 0 0 4 6.7C4 10.6 8 14 8 14Z"/>
+          <circle cx="8" cy="6.4" r="1.6"/>
+        </svg>
+        {{ t('nav_stations_map') }}
+      </a>
+      {% endif %}
       {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('indexed_data')) %}
       <a href="/indexed-data" class="nav-link {% if '/indexed-data' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">

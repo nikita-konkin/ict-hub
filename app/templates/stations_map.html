@@ -1,0 +1,595 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_stations_map') }} - {{ t('app_name') }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  .main {
+    max-width: none;
+  }
+
+  .station-map-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .station-map-controls {
+    display: grid;
+    gap: 14px;
+  }
+
+  .station-map-field label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .station-map-field select {
+    width: 100%;
+  }
+
+  .station-map-meta {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .station-map-status {
+    min-height: 20px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .station-map-status.error {
+    color: var(--danger-text);
+  }
+
+  .station-map-plot {
+    min-height: 680px;
+    width: 100%;
+  }
+
+  .station-map-empty {
+    min-height: 560px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 24px;
+  }
+
+  .station-map-table-wrap {
+    overflow: auto;
+  }
+
+  @media (max-width: 1050px) {
+    .station-map-layout {
+      display: block;
+    }
+
+    .station-map-layout > .card + .card {
+      margin-top: 20px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ t('nav_stations_map') }}</h1>
+  <p class="page-subtitle">{{ t('stations_map_subtitle') }}</p>
+  <div style="margin-top:12px;">
+    <a class="btn btn-ghost" href="/stations-map?refresh=1">{{ t('stations_map_refresh_index') }}</a>
+    {% if refresh %}
+      <span class="badge badge-muted" style="margin-left:10px;">Force refresh</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if not data_indexer_enabled %}
+  <div class="card">
+    <div class="card-body" style="font-size:13px; color:var(--text-muted);">
+      {{ t('stations_map_disabled_detail') }}
+    </div>
+  </div>
+{% elif not rinex_root %}
+  <div class="card">
+    <div class="card-body" style="font-size:13px; color:var(--text-muted);">
+      {{ t('stations_map_root_missing') }}
+    </div>
+  </div>
+{% else %}
+  <div class="station-map-layout">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">{{ t('stations_map_filters_title') }}</div>
+      </div>
+      <div class="card-body">
+        <div class="badge badge-muted" style="display:inline-block; margin-bottom:14px;">{{ rinex_root }}</div>
+
+        {% if rinex_tree %}
+          <div class="station-map-controls">
+            <div class="station-map-field">
+              <label for="station-year">{{ t('label_year_folder') }}</label>
+              <select id="station-year"></select>
+            </div>
+
+            <div class="station-map-field">
+              <label for="station-day">{{ t('label_day_folder') }}</label>
+              <select id="station-day"></select>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button id="stations-map-load" type="button" class="btn btn-primary">{{ t('stations_map_load') }}</button>
+              <button id="stations-map-refresh" type="button" class="btn btn-ghost">{{ t('stations_map_refresh_data') }}</button>
+            </div>
+
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted);">
+              <input id="stations-map-labels" type="checkbox" />
+              <span>{{ t('stations_map_show_ids') }}</span>
+            </label>
+          </div>
+
+          <div id="stations-map-summary" class="station-map-meta">
+            {{ t('stations_map_summary_idle') }}
+          </div>
+        {% else %}
+          <div class="station-map-meta">{{ t('indexed_data_empty') }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">{{ t('stations_map_plot_title') }}</div>
+      </div>
+      <div class="card-body">
+        <div id="stations-map-status" class="station-map-status">{{ t('stations_map_summary_idle') }}</div>
+        <div id="stations-map-plot" class="station-map-plot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px;">
+    <div class="card-header">
+      <div class="card-title">{{ t('stations_map_table_title') }}</div>
+    </div>
+    <div class="card-body">
+      <div id="stations-map-table-wrap" class="station-map-table-wrap">
+        <div style="font-size:12px; color:var(--text-muted);">{{ t('stations_map_table_idle') }}</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const rinexTree = {{ rinex_tree|tojson }};
+
+    function byDayValue(a, b) {
+      const left = String(a || "");
+      const right = String(b || "");
+      if (left.includes("/") && right.includes("/")) {
+        const [lm, ld] = left.split("/").map(Number);
+        const [rm, rd] = right.split("/").map(Number);
+        return (lm - rm) || (ld - rd) || left.localeCompare(right);
+      }
+      const leftNum = Number.parseInt(left, 10);
+      const rightNum = Number.parseInt(right, 10);
+      if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) {
+        return (leftNum - rightNum) || (left.length - right.length) || left.localeCompare(right);
+      }
+      return left.localeCompare(right);
+    }
+
+    function cssVar(name, fallback) {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return value || fallback;
+    }
+
+    const state = {
+      tree: Array.isArray(rinexTree) ? rinexTree : [],
+      payload: null,
+    };
+
+    const yearSelect = document.getElementById("station-year");
+    const daySelect = document.getElementById("station-day");
+    const loadButton = document.getElementById("stations-map-load");
+    const refreshButton = document.getElementById("stations-map-refresh");
+    const labelsCheckbox = document.getElementById("stations-map-labels");
+    const summaryEl = document.getElementById("stations-map-summary");
+    const statusEl = document.getElementById("stations-map-status");
+    const plotEl = document.getElementById("stations-map-plot");
+    const tableWrapEl = document.getElementById("stations-map-table-wrap");
+
+    function getYearItem(yearValue) {
+      return state.tree.find((item) => String(item.year || "") === String(yearValue || ""));
+    }
+
+    function populateYearOptions() {
+      if (!yearSelect) return;
+      yearSelect.innerHTML = "";
+      for (const item of state.tree) {
+        const yearValue = String(item.year || "").trim();
+        if (!yearValue) continue;
+        const option = document.createElement("option");
+        option.value = yearValue;
+        option.textContent = yearValue;
+        yearSelect.appendChild(option);
+      }
+    }
+
+    function populateDayOptions(preserveValue) {
+      if (!daySelect) return;
+      const yearItem = getYearItem(yearSelect ? yearSelect.value : "");
+      const days = Array.isArray(yearItem && yearItem.days) ? [...yearItem.days] : [];
+      days.sort((left, right) => byDayValue(left.day, right.day));
+
+      daySelect.innerHTML = "";
+      const allOption = document.createElement("option");
+      allOption.value = "";
+      allOption.textContent = "{{ t('stations_map_all_days') }}";
+      daySelect.appendChild(allOption);
+
+      for (const item of days) {
+        const dayValue = String(item.day || "").trim();
+        if (!dayValue) continue;
+        const count = Number(item.stations || 0);
+        const option = document.createElement("option");
+        option.value = dayValue;
+        option.textContent = `${dayValue} (${count} {{ t('run_unit_stations') }})`;
+        daySelect.appendChild(option);
+      }
+
+      if (preserveValue && [...daySelect.options].some((option) => option.value === preserveValue)) {
+        daySelect.value = preserveValue;
+        return;
+      }
+
+      if (days.length) {
+        daySelect.value = String(days[days.length - 1].day || "");
+      } else {
+        daySelect.value = "";
+      }
+    }
+
+    function setStatus(kind, message) {
+      if (!statusEl) return;
+      statusEl.className = `station-map-status${kind === "error" ? " error" : ""}`;
+      statusEl.textContent = message;
+    }
+
+    function renderSummary(payload) {
+      if (!summaryEl) return;
+      const stationCount = Number(payload.station_count || 0);
+      const archiveCount = Number(payload.archive_count || 0);
+      const dayValue = String(payload.day || "");
+      const label = dayValue ? dayValue : "{{ t('stations_map_all_days') }}";
+      summaryEl.innerHTML = [
+        `<div><strong>{{ t('label_year_folder') }}:</strong> ${payload.year || "-"}</div>`,
+        `<div><strong>{{ t('label_day_folder') }}:</strong> ${label}</div>`,
+        `<div><strong>{{ t('stations_map_station_count') }}:</strong> ${stationCount}</div>`,
+        `<div><strong>{{ t('stations_map_archive_count') }}:</strong> ${archiveCount}</div>`,
+      ].join("");
+    }
+
+    function padRange(minValue, maxValue, ratio, fallbackPad) {
+      const span = Math.abs(maxValue - minValue);
+      const pad = Math.max(span * ratio, fallbackPad);
+      return [minValue - pad, maxValue + pad];
+    }
+
+    function stationLabel(item) {
+      const markerName = String(item.marker_name || "").trim();
+      if (markerName) {
+        return markerName;
+      }
+      return String(item.station_id || "").trim();
+    }
+
+    function stationCategory(item) {
+      const archives = Number(item.archive_count || 0);
+      if (archives >= 10) {
+        return "dense";
+      }
+      if (archives >= 4) {
+        return "regular";
+      }
+      return "light";
+    }
+
+    async function renderPlot(payload) {
+      if (!plotEl) return;
+      if (!window.Plotly) {
+        throw new Error("Plotly is not available in the browser.");
+      }
+      const stations = Array.isArray(payload.stations) ? payload.stations : [];
+
+      if (!stations.length) {
+        window.Plotly.purge(plotEl);
+        plotEl.innerHTML = `<div class="station-map-empty">{{ t('stations_map_empty') }}</div>`;
+        return;
+      }
+
+      plotEl.innerHTML = "";
+      const showLabels = labelsCheckbox && labelsCheckbox.checked;
+
+      const categories = [
+        {
+          key: "dense",
+          name: "Dense coverage: 10+ archives",
+          color: "#2f6b4f",
+        },
+        {
+          key: "regular",
+          name: "Regular coverage: 4-9 archives",
+          color: "#8a6a3d",
+        },
+        {
+          key: "light",
+          name: "Light coverage: 1-3 archives",
+          color: "#a65b3b",
+        },
+      ];
+
+      const traces = [];
+      for (const category of categories) {
+        const subset = stations.filter((item) => stationCategory(item) === category.key);
+        if (!subset.length) continue;
+
+        const customdata = subset.map((item) => ([
+          String(item.marker_name || ""),
+          String(item.marker_number || ""),
+          Number(item.archive_count || 0),
+          Array.isArray(item.days) ? item.days.join(", ") : "",
+          Number(item.altitude_m || 0).toFixed(1),
+          Number(item.coordinate_spread_m || 0).toFixed(1),
+          String(item.first_archive || ""),
+          String(item.last_archive || ""),
+          stationLabel(item),
+        ]));
+
+        traces.push({
+          type: "scatter",
+          mode: "markers",
+          name: category.name,
+          x: subset.map((item) => Number(item.longitude_deg)),
+          y: subset.map((item) => Number(item.latitude_deg)),
+          text: subset.map((item) => String(item.station_id || "")),
+          customdata,
+          marker: {
+            size: subset.map((item) => Math.max(10, Math.min(22, 10 + Math.log2(Math.max(Number(item.archive_count || 0), 1)) * 3))),
+            color: category.color,
+            opacity: 0.94,
+            line: {
+              color: cssVar("--surface", "#0F0E0D"),
+              width: 1,
+            },
+          },
+          hovertemplate: [
+            "<b>%{text}</b>",
+            "Locality label: %{customdata[8]}",
+            "Marker name: %{customdata[0]}",
+            "Marker number: %{customdata[1]}",
+            "Archives: %{customdata[2]}",
+            "Days: %{customdata[3]}",
+            "Altitude: %{customdata[4]} m",
+            "Coordinate spread: %{customdata[5]} m",
+            "First archive: %{customdata[6]}",
+            "Last archive: %{customdata[7]}",
+            "<extra></extra>",
+          ].join("<br>"),
+        });
+      }
+
+      if (showLabels) {
+        traces.push({
+          type: "scatter",
+          mode: "text",
+          name: "Map labels: marker/locality names",
+          x: stations.map((item) => Number(item.longitude_deg)),
+          y: stations.map((item) => Number(item.latitude_deg) - 0.22),
+          text: stations.map((item) => stationLabel(item)),
+          textposition: "middle center",
+          textfont: {
+            size: 10,
+            color: cssVar("--text-muted", "#655A4A"),
+          },
+          hoverinfo: "skip",
+          showlegend: false,
+        });
+      }
+
+      const lonValues = stations.map((item) => Number(item.longitude_deg));
+      const latValues = stations.map((item) => Number(item.latitude_deg));
+      const longitudeRange = padRange(Math.min(...lonValues), Math.max(...lonValues), 0.08, 1.5);
+      const latitudeRange = padRange(Math.min(...latValues), Math.max(...latValues), 0.08, 1.0);
+
+      const layout = {
+        height: Math.max(plotEl.clientHeight || 0, 700),
+        margin: { l: 56, r: 20, t: 48, b: 56 },
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: cssVar("--surface-2", "#161512"),
+        hovermode: "closest",
+        legend: {
+          orientation: "h",
+          x: 0,
+          y: 1.12,
+          xanchor: "left",
+          yanchor: "bottom",
+          bgcolor: "rgba(0,0,0,0)",
+          font: {
+            color: cssVar("--text", "#EAE4D8"),
+          },
+        },
+        annotations: [
+          {
+            xref: "paper",
+            yref: "paper",
+            x: 0,
+            y: 1.05,
+            xanchor: "left",
+            yanchor: "bottom",
+            showarrow: false,
+            align: "left",
+            font: {
+              size: 11,
+              color: cssVar("--text-muted", "#655A4A"),
+            },
+            text: showLabels
+              ? "Marker colors show archive coverage. Text labels below markers use RINEX marker names as best-effort locality labels."
+              : "Marker colors show archive coverage. Enable labels to display best-effort locality names below markers.",
+          },
+        ],
+        xaxis: {
+          title: "Longitude",
+          range: longitudeRange,
+          gridcolor: cssVar("--border", "#D9CFBF"),
+          zeroline: false,
+          linecolor: cssVar("--border-light", "#C9BEAC"),
+          mirror: true,
+          ticks: "outside",
+          tickfont: { color: cssVar("--text-muted", "#655A4A") },
+          titlefont: { color: cssVar("--text", "#2B251E") },
+        },
+        yaxis: {
+          title: "Latitude",
+          range: latitudeRange,
+          gridcolor: cssVar("--border", "#D9CFBF"),
+          zeroline: false,
+          linecolor: cssVar("--border-light", "#C9BEAC"),
+          mirror: true,
+          ticks: "outside",
+          tickfont: { color: cssVar("--text-muted", "#655A4A") },
+          titlefont: { color: cssVar("--text", "#2B251E") },
+          scaleanchor: "x",
+          scaleratio: 1,
+        },
+      };
+
+      await window.Plotly.react(plotEl, traces, layout, {
+        responsive: true,
+        displayModeBar: false,
+      });
+      await window.Plotly.Plots.resize(plotEl);
+    }
+
+    function renderTable(payload) {
+      if (!tableWrapEl) return;
+      const stations = Array.isArray(payload.stations) ? payload.stations : [];
+      if (!stations.length) {
+        tableWrapEl.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">{{ t('stations_map_table_empty') }}</div>`;
+        return;
+      }
+
+      const rows = stations.map((item) => {
+        const days = Array.isArray(item.days) ? item.days.join(", ") : "";
+        return `
+          <tr>
+            <td class="td-mono">${String(item.station_id || "")}</td>
+            <td>${String(item.marker_name || "-")}</td>
+            <td class="td-mono">${String(item.marker_number || "-")}</td>
+            <td class="td-mono">${Number(item.latitude_deg || 0).toFixed(4)}</td>
+            <td class="td-mono">${Number(item.longitude_deg || 0).toFixed(4)}</td>
+            <td class="td-mono">${Number(item.altitude_m || 0).toFixed(1)}</td>
+            <td class="td-mono">${Number(item.archive_count || 0)}</td>
+            <td class="td-mono">${days || "-"}</td>
+          </tr>
+        `;
+      }).join("");
+
+      tableWrapEl.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>{{ t('analysis_label_station') }}</th>
+              <th>{{ t('stations_map_marker_name') }}</th>
+              <th>{{ t('stations_map_marker_number') }}</th>
+              <th>{{ t('stations_map_latitude') }}</th>
+              <th>{{ t('stations_map_longitude') }}</th>
+              <th>{{ t('stations_map_altitude') }}</th>
+              <th>{{ t('stations_map_archive_count') }}</th>
+              <th>{{ t('stations_map_days') }}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function loadStationMap(forceRefresh) {
+      if (!yearSelect || !daySelect) return;
+      const year = String(yearSelect.value || "").trim();
+      if (!year) {
+        setStatus("error", "{{ t('stations_map_no_year') }}");
+        return;
+      }
+
+      const params = new URLSearchParams({ year, day: String(daySelect.value || "") });
+      if (forceRefresh) {
+        params.set("refresh", "true");
+      }
+
+      loadButton.disabled = true;
+      refreshButton.disabled = true;
+      setStatus("info", "{{ t('stations_map_loading') }}");
+
+      try {
+        const response = await fetch(`/stations-map/data?${params.toString()}`, {
+          headers: { "Accept": "application/json" },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(payload.detail || response.statusText || "Request failed"));
+        }
+
+        state.payload = payload;
+        renderSummary(payload);
+        await renderPlot(payload);
+        renderTable(payload);
+        setStatus("info", "{{ t('stations_map_loaded') }}");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "{{ t('stations_map_error') }}";
+        setStatus("error", message);
+      } finally {
+        loadButton.disabled = false;
+        refreshButton.disabled = false;
+      }
+    }
+
+    if (yearSelect && daySelect && loadButton && refreshButton && state.tree.length) {
+      populateYearOptions();
+      populateDayOptions();
+      yearSelect.addEventListener("change", () => {
+        populateDayOptions("");
+        loadStationMap(false);
+      });
+      daySelect.addEventListener("change", () => loadStationMap(false));
+      loadButton.addEventListener("click", () => loadStationMap(false));
+      refreshButton.addEventListener("click", () => loadStationMap(true));
+      if (labelsCheckbox) {
+        labelsCheckbox.addEventListener("change", () => {
+          if (state.payload) {
+            renderPlot(state.payload).catch((error) => {
+              const message = error instanceof Error ? error.message : "{{ t('stations_map_error') }}";
+              setStatus("error", message);
+            });
+          }
+        });
+      }
+      loadStationMap(false);
+    }
+  </script>
+{% endif %}
+{% endblock %}
