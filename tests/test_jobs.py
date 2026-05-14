@@ -538,7 +538,7 @@ class TestStartJob:
         assert b"PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST is not configured" in response.content
 
     @patch("app.jobs.start_container", return_value="container_dat_parquet_subpath")
-    def test_dat_parquet_applies_root_subpath_to_src_and_dst(self, mock_start, operator_client, db):
+    def test_dat_parquet_applies_root_subpath_to_src_and_destination_command(self, mock_start, operator_client, db):
         response = operator_client.post(
             "/jobs/start",
             data=self._start_dat_parquet_job_data(root_subpath="/2026/007"),
@@ -549,15 +549,20 @@ class TestStartJob:
 
         from app.models import JobRun
 
-        _, _, volumes = mock_start.call_args.args
+        _, command, volumes = mock_start.call_args.args
         assert "/data/tecs-out/2026/007" in volumes
-        assert "/data/tecsuite-parquet/2026/007" in volumes
+        assert "/data/tecsuite-parquet" in volumes
+        assert "/data/tecsuite-parquet/2026/007" not in volumes
+        assert "/output/2026/007" in command
 
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         flags = json.loads(job.flags_json)
         assert flags.get("root_subpath") == "/2026/007"
         assert flags.get("src") == "/data/tecs-out/2026/007"
-        assert flags.get("dst") == "/data/tecsuite-parquet/2026/007"
+        assert flags.get("dst") == "/data/tecsuite-parquet"
+        assert flags.get("dst_subpath") == "/2026/007"
+        assert flags.get("dst_effective") == "/data/tecsuite-parquet/2026/007"
+        assert job.output_path == "/data/tecsuite-parquet/2026/007"
 
     @patch("app.jobs.start_container", return_value="container_dat_parquet_parquet_src_subpath")
     def test_dat_parquet_parquet_to_dat_applies_root_subpath(self, mock_start, operator_client, db):
@@ -572,14 +577,19 @@ class TestStartJob:
 
         from app.models import JobRun
 
-        _, _, volumes = mock_start.call_args.args
+        _, command, volumes = mock_start.call_args.args
         assert "/data/tecsuite-parquet/2026/007" in volumes
-        assert "/data/tecs-out/2026/007" in volumes
+        assert "/data/tecs-out" in volumes
+        assert "/data/tecs-out/2026/007" not in volumes
+        assert "/output/2026/007" in command
 
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         flags = json.loads(job.flags_json)
         assert flags.get("src") == "/data/tecsuite-parquet/2026/007"
-        assert flags.get("dst") == "/data/tecs-out/2026/007"
+        assert flags.get("dst") == "/data/tecs-out"
+        assert flags.get("dst_subpath") == "/2026/007"
+        assert flags.get("dst_effective") == "/data/tecs-out/2026/007"
+        assert job.output_path == "/data/tecs-out/2026/007"
 
     def test_dat_parquet_invalid_root_subpath_returns_400(self, operator_client):
         response = operator_client.post(

@@ -406,6 +406,9 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             if converter_name == "tec-suite" and key == "root":
                 root_subpath = str(form_data.get("root_subpath", "")).strip()
                 cmd.extend([flag["long"], _join_container_path(container_path, root_subpath)])
+            elif converter_name == "dat-parquet-handler" and key == "dst":
+                dst_subpath = str(form_data.get("dst_subpath", "")).strip()
+                cmd.extend([flag["name"], _join_container_path(container_path, dst_subpath)])
             else:
                 cmd.extend([flag["name"], container_path])
 

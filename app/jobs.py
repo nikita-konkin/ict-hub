@@ -775,10 +775,16 @@ async def start_job(
                     status_code=400,
                 )
             form_dict["src"] = _join_host_path(resolved_paths["src"], root_subpath)
-            form_dict["dst"] = _join_host_path(resolved_paths["dst"], root_subpath)
         else:
             form_dict["src"] = resolved_paths["src"]
-            form_dict["dst"] = resolved_paths["dst"]
+        # Mount the destination root and let the converter create nested
+        # year/day folders inside it. Binding the leaf subdirectory directly
+        # causes Docker to create/chown it on the host before startup, which
+        # can fail on protected mounts even though writing below the root is
+        # otherwise permitted.
+        form_dict["dst"] = resolved_paths["dst"]
+        form_dict["dst_subpath"] = root_subpath
+        form_dict["dst_effective"] = _join_host_path(resolved_paths["dst"], root_subpath)
         form_dict["dataset_profile"] = resolved_paths["profile"]
         form_dict["root_subpath"] = root_subpath
         dat_parquet_source_note = resolved_paths["source_note"]
@@ -826,7 +832,11 @@ async def start_job(
                 )
             )
         ),
-        output_path=form_dict.get("out", ""),
+        output_path=(
+            str(form_dict.get("dst_effective", "")).strip()
+            if converter_name == "dat-parquet-handler"
+            else form_dict.get("out", "")
+        ),
         status="running",
     )
     db.add(job)

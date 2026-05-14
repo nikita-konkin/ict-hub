@@ -361,6 +361,24 @@ class TestCommandBuilding:
         # Should have only one volume entry for the shared path
         assert "/data/tecs-out" in vols
 
+    def test_build_dat_parquet_command_mounts_destination_root_but_targets_subpath(self):
+        """Selected year/day should be passed as a container-side destination subpath."""
+        cmd, vols = build_command(
+            "dat-parquet-handler",
+            {
+                "direction": "dat-to-parquet",
+                "src": "/data/tecs-out/2026",
+                "dst": "/data/parquet-root",
+                "dst_subpath": "/2026",
+            }
+        )
+
+        assert "/data/tecs-out/2026" in vols
+        assert "/data/parquet-root" in vols
+        assert vols["/data/parquet-root"]["bind"] == "/output"
+        assert "-d" in cmd
+        assert "/output/2026" in cmd
+
     def test_abstec_progress_patterns_are_individual(self):
         """AbsTEC progress pattern definitions should be separate list entries."""
         conv = get_converter("abstec-suite")
