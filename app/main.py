@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import analysis, auth, feedback, indexed_data, jobs, stations_map
+from app import analysis, auth, feedback, indexed_data, jobs, stations_map, tec_map
 from app.auth import hash_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
 from app.database import SessionLocal, engine
@@ -137,6 +137,7 @@ app.include_router(analysis.router)
 app.include_router(indexed_data.router)
 app.include_router(stations_map.router)
 app.include_router(feedback.router)
+app.include_router(tec_map.router)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # API proxy routes for external services

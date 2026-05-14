@@ -19,6 +19,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
+    libfreetype6 \
+    libpng16-16 \
+    fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy only the requirements file first so Docker can cache this layer.

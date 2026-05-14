@@ -113,7 +113,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 1G
 
     healthcheck:
       test: ["CMD", "python", "-c",

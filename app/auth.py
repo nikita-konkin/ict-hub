@@ -124,6 +124,21 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def get_current_user_or_401(request: Request, db: Session = Depends(get_db)) -> User:
+    """
+    Like `get_current_user`, but returns a JSON-friendly 401 instead of a 303 redirect.
+
+    Use this for API endpoints that are consumed via `fetch()` where an HTML redirect
+    would be confusing to handle client-side.
+    """
+    try:
+        return get_current_user(request, db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_303_SEE_OTHER:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated") from exc
+        raise
+
+
 def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """
     Extends get_current_user to additionally require admin role.
