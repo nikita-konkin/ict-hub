@@ -166,6 +166,72 @@ def test_tec_map_gif_route_supports_multi_day_range(client, monkeypatch):
     assert str(load_calls[1]["end_time"]).startswith("2026-01-03 23:00:00")
 
 
+def test_tec_map_gif_route_accepts_cache_only_basemap_mode(client, monkeypatch):
+    import app.tec_map as tec_map_module
+
+    class _User:
+        is_admin = True
+
+        def can_access_page(self, name: str) -> bool:
+            return name == "analysis"
+
+    captured_render: list[TecMapRenderConfig] = []
+
+    def fake_build_frame_summary(_leveled_links, _config):
+        return pd.DataFrame(
+            [
+                {
+                    "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+                    "station": "aksu",
+                    "site_lat": 55.8,
+                    "site_lon": 49.1,
+                    "ipp_lat": 55.9,
+                    "ipp_lon": 49.2,
+                    "vtec_tecu": 10.0,
+                    "samples": 4,
+                }
+            ]
+        )
+
+    def fake_build_animation_gif_bytes(**kwargs):
+        captured_render.append(kwargs["render"])
+        return b"GIF89a-test"
+
+    monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER", "/mnt/fake")
+    monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
+    monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_CACHE_ROOT", "/mnt/cache")
+    monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_XYZ_ROOT", "/mnt/tiles")
+    monkeypatch.setattr(tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1]}))
+    monkeypatch.setattr(tec_map_module, "build_leveled_links", lambda raw_links, config: raw_links)
+    monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
+    monkeypatch.setattr(tec_map_module, "build_animation_gif_bytes", fake_build_animation_gif_bytes)
+
+    app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
+    try:
+        response = client.get(
+            "/tec-map/gif",
+            params=[
+                ("date", "2026-01-02"),
+                ("stations", "aksu"),
+                ("start_time", "00:00:00"),
+                ("end_time", "01:00:00"),
+                ("basemap", "cache_only"),
+            ],
+        )
+    finally:
+        app.dependency_overrides.pop(tec_map_module.get_current_user_or_401, None)
+
+    assert response.status_code == 200
+    assert captured_render
+    render = captured_render[0]
+    assert render.basemap_enabled is True
+    assert render.basemap_mode == "cache_only"
+    assert render.basemap_cache_root is not None
+    assert render.basemap_tiles_root is not None
+    assert render.basemap_cache_root.parts[-2:] == ("mnt", "cache")
+    assert render.basemap_tiles_root.parts[-2:] == ("mnt", "tiles")
+
+
 def test_build_animation_gif_bytes_returns_gif_bytes():
     frame_summary = pd.DataFrame(
         [
@@ -242,6 +308,95 @@ def test_build_animation_gif_bytes_returns_gif_bytes():
     assert len(gif_bytes) > 1000
     with Image.open(BytesIO(gif_bytes)) as gif:
         assert gif.n_frames == 2
+
+
+def test_build_animation_gif_bytes_falls_back_when_openstreetmap_is_unreachable(monkeypatch, tmp_path):
+    frame_summary = pd.DataFrame(
+        [
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "aksu",
+                "site_lat": 55.8,
+                "site_lon": 49.1,
+                "ipp_lat": 55.9,
+                "ipp_lon": 49.2,
+                "vtec_tecu": 10.0,
+                "samples": 4,
+            },
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "alme",
+                "site_lat": 54.9,
+                "site_lon": 52.3,
+                "ipp_lat": 55.0,
+                "ipp_lon": 52.4,
+                "vtec_tecu": 12.0,
+                "samples": 4,
+            },
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "arsk",
+                "site_lat": 56.1,
+                "site_lon": 49.9,
+                "ipp_lat": 56.2,
+                "ipp_lon": 50.0,
+                "vtec_tecu": 11.0,
+                "samples": 4,
+            },
+        ]
+    )
+    frame_summary["frame_time"] = pd.to_datetime(frame_summary["frame_time"])
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise OSError("network is unreachable")
+
+    monkeypatch.setattr(tec_map_render_module, "urlopen", fake_urlopen)
+
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(
+        basemap_enabled=True,
+        basemap_mode="openstreetmap",
+        basemap_cache_root=tmp_path,
+        basemap_fallback_to_plain=True,
+        frame_dpi=50,
+    )
+
+    gif_bytes = build_animation_gif_bytes(frame_summary=frame_summary, pipeline=pipeline, render=render)
+
+    assert gif_bytes[:6] == b"GIF89a"
+
+
+def test_load_basemap_layer_reads_local_xyz_tiles(tmp_path):
+    bounds = (49.0, 53.0, 54.0, 57.0)
+    zoom = 3
+    x_start_f, y_top_f = tec_map_render_module.lonlat_to_tile_fraction(bounds[0], bounds[3], zoom)
+    x_end_f, y_bottom_f = tec_map_render_module.lonlat_to_tile_fraction(bounds[1], bounds[2], zoom)
+    x_start = int(np.floor(x_start_f))
+    x_end = int(np.floor(x_end_f))
+    y_start = int(np.floor(y_top_f))
+    y_end = int(np.floor(y_bottom_f))
+
+    for x in range(x_start, x_end + 1):
+        for y in range(y_start, y_end + 1):
+            tile_dir = tmp_path / str(zoom) / str(x % (2**zoom))
+            tile_dir.mkdir(parents=True, exist_ok=True)
+            image = Image.new("RGBA", (256, 256), (200, 210, 220, 255))
+            image.save(tile_dir / f"{y}.png")
+
+    render = TecMapRenderConfig(
+        basemap_enabled=True,
+        basemap_mode="local_xyz",
+        basemap_zoom=zoom,
+        basemap_max_tiles=32,
+        basemap_tiles_root=tmp_path,
+    )
+
+    layer = tec_map_render_module.load_basemap_layer(bounds, render)
+
+    assert layer is not None
+    assert layer.image.shape[0] > 0
+    assert layer.image.shape[1] > 0
+    assert "Local XYZ tiles" in layer.attribution
 
 
 def test_build_animation_gif_bytes_preserves_frame_local_palettes(monkeypatch):

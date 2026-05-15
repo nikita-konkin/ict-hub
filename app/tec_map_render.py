@@ -62,6 +62,7 @@ class TecMapRenderConfig:
     label_ipp_samples: bool = False
 
     basemap_enabled: bool = False
+    basemap_mode: str = "off"
     basemap_zoom: int | None = None
     basemap_max_tiles: int = 16
     basemap_alpha: float = 0.28
@@ -70,8 +71,12 @@ class TecMapRenderConfig:
     frame_dpi: int = 120
     gif_frame_duration_seconds: float = 0.8
 
-    # Basemap cache root. If None, basemap is disabled even if basemap_enabled=True.
+    # Basemap cache root. If None, cache-backed basemap modes are unavailable.
     basemap_cache_root: Path | None = None
+    # Optional local XYZ tile root laid out as z/x/y.(png|jpg|jpeg|webp).
+    basemap_tiles_root: Path | None = None
+    # If True, fall back to plain lat/lon rendering when the requested basemap source is unavailable.
+    basemap_fallback_to_plain: bool = True
 
 
 @dataclass(slots=True)
@@ -234,13 +239,45 @@ def lonlat_to_web_mercator(
     return x_m, y_m
 
 
-def fetch_openstreetmap_tile(x: int, y: int, zoom: int, cache_root: Path) -> Image.Image:
+def _open_cached_tile(tile_path: Path) -> Image.Image:
+    return Image.open(tile_path).convert("RGBA")
+
+
+def _find_xyz_tile_path(root: Path, x: int, y: int, zoom: int) -> Path | None:
+    wrapped_x = x % (2**zoom)
+    for extension in (".png", ".jpg", ".jpeg", ".webp"):
+        candidate = root / str(zoom) / str(wrapped_x) / f"{y}{extension}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def fetch_local_xyz_tile(x: int, y: int, zoom: int, tiles_root: Path) -> Image.Image:
+    tile_path = _find_xyz_tile_path(tiles_root, x, y, zoom)
+    if tile_path is None:
+        raise FileNotFoundError(f"Local XYZ tile not found for z={zoom}, x={x}, y={y} under {tiles_root}.")
+    return _open_cached_tile(tile_path)
+
+
+def fetch_openstreetmap_tile(
+    x: int,
+    y: int,
+    zoom: int,
+    cache_root: Path,
+    *,
+    allow_network: bool,
+) -> Image.Image:
     wrapped_x = x % (2**zoom)
     cache_path = cache_root / "openstreetmap" / str(zoom) / str(wrapped_x) / f"{y}.png"
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     if cache_path.exists():
-        return Image.open(cache_path).convert("RGBA")
+        return _open_cached_tile(cache_path)
+
+    if not allow_network:
+        raise FileNotFoundError(
+            f"Cached OpenStreetMap tile not found for z={zoom}, x={wrapped_x}, y={y} under {cache_root}."
+        )
 
     url = f"https://tile.openstreetmap.org/{zoom}/{wrapped_x}/{y}.png"
     request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
@@ -250,12 +287,13 @@ def fetch_openstreetmap_tile(x: int, y: int, zoom: int, cache_root: Path) -> Ima
     return Image.open(BytesIO(data)).convert("RGBA")
 
 
-def fetch_openstreetmap_layer_at_zoom(
+def fetch_xyz_layer_at_zoom(
     bounds: tuple[float, float, float, float],
     *,
-    cache_root: Path,
+    tile_fetcher: Any,
     zoom: int,
     max_tiles: int,
+    attribution: str,
 ) -> BasemapLayer:
     lon_min, lon_max, lat_min, lat_max = bounds
 
@@ -282,7 +320,7 @@ def fetch_openstreetmap_layer_at_zoom(
     max_workers = min(8, max(2, len(coords)))
     fetched: dict[tuple[int, int], Image.Image] = {}
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(fetch_openstreetmap_tile, x, y, zoom, cache_root): (x, y) for (x, y) in coords}
+        futures = {pool.submit(tile_fetcher, x, y, zoom): (x, y) for (x, y) in coords}
         for fut in as_completed(futures):
             x, y = futures[fut]
             fetched[(x, y)] = fut.result()
@@ -307,28 +345,89 @@ def fetch_openstreetmap_layer_at_zoom(
     return BasemapLayer(
         image=np.asarray(stitched.convert("RGBA")),
         extent=(x_min, x_max, y_min, y_max),
-        attribution="© OpenStreetMap contributors",
+        attribution=attribution,
     )
 
 
 def load_basemap_layer(bounds: tuple[float, float, float, float], render: TecMapRenderConfig) -> BasemapLayer | None:
-    if not render.basemap_enabled or render.basemap_cache_root is None:
+    if not render.basemap_enabled:
+        return None
+
+    mode = str(render.basemap_mode or "off").strip().lower()
+    if mode == "off":
         return None
 
     preferred_zoom = render.basemap_zoom or choose_tile_zoom(bounds, render.basemap_max_tiles)
-    last_error: Exception | None = None
-    for zoom in range(preferred_zoom, 1, -1):
-        try:
-            return fetch_openstreetmap_layer_at_zoom(
-                bounds,
-                cache_root=render.basemap_cache_root,
-                zoom=zoom,
-                max_tiles=render.basemap_max_tiles,
-            )
-        except Exception as exc:
-            last_error = exc
-            continue
-    raise RuntimeError(f"OpenStreetMap tiles could not be loaded for zooms 2..{preferred_zoom}: {last_error}")
+
+    def _load_mode() -> BasemapLayer:
+        last_error: Exception | None = None
+        for zoom in range(preferred_zoom, 1, -1):
+            try:
+                if mode == "openstreetmap":
+                    if render.basemap_cache_root is None:
+                        raise RuntimeError("openstreetmap mode requires basemap_cache_root.")
+                    return fetch_xyz_layer_at_zoom(
+                        bounds,
+                        tile_fetcher=lambda x, y, tile_zoom: fetch_openstreetmap_tile(
+                            x,
+                            y,
+                            tile_zoom,
+                            render.basemap_cache_root,
+                            allow_network=True,
+                        ),
+                        zoom=zoom,
+                        max_tiles=render.basemap_max_tiles,
+                        attribution="© OpenStreetMap contributors",
+                    )
+                if mode == "cache_only":
+                    if render.basemap_cache_root is None:
+                        raise RuntimeError("cache_only mode requires basemap_cache_root.")
+                    return fetch_xyz_layer_at_zoom(
+                        bounds,
+                        tile_fetcher=lambda x, y, tile_zoom: fetch_local_xyz_tile(
+                            x,
+                            y,
+                            tile_zoom,
+                            render.basemap_cache_root / "openstreetmap",
+                        ),
+                        zoom=zoom,
+                        max_tiles=render.basemap_max_tiles,
+                        attribution="© OpenStreetMap contributors (cached)",
+                    )
+                if mode == "local_xyz":
+                    if render.basemap_tiles_root is None:
+                        raise RuntimeError("local_xyz mode requires basemap_tiles_root.")
+                    return fetch_xyz_layer_at_zoom(
+                        bounds,
+                        tile_fetcher=lambda x, y, tile_zoom: fetch_local_xyz_tile(
+                            x,
+                            y,
+                            tile_zoom,
+                            render.basemap_tiles_root,
+                        ),
+                        zoom=zoom,
+                        max_tiles=render.basemap_max_tiles,
+                        attribution=f"Local XYZ tiles: {render.basemap_tiles_root}",
+                    )
+                raise RuntimeError(f"Unsupported basemap mode: {render.basemap_mode}")
+            except Exception as exc:
+                last_error = exc
+                continue
+
+        source_name = {
+            "openstreetmap": "OpenStreetMap tiles",
+            "cache_only": "cached OpenStreetMap tiles",
+            "local_xyz": "local XYZ tiles",
+        }.get(mode, f"basemap mode {mode!r}")
+        raise RuntimeError(f"{source_name} could not be loaded for zooms 2..{preferred_zoom}: {last_error}")
+
+    try:
+        return _load_mode()
+    except Exception as exc:
+        if render.basemap_fallback_to_plain:
+            print(f"Warning: basemap mode '{mode}' unavailable; rendering without basemap: {exc}")
+            return None
+        raise
 
 
 # ---------------------------------------------------------------------------

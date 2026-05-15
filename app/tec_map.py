@@ -35,6 +35,25 @@ def _parse_bool(value: bool | str | None) -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
+def _parse_basemap_mode(value: bool | str | None) -> str:
+    if isinstance(value, bool):
+        return "openstreetmap" if value else "off"
+
+    text = str(value or "").strip().lower()
+    if text in {"", "0", "false", "no", "off"}:
+        return "off"
+    if text in {"1", "true", "yes", "on", "osm", "openstreetmap"}:
+        return "openstreetmap"
+    if text in {"cache", "cache_only", "offline_cache"}:
+        return "cache_only"
+    if text in {"local", "local_xyz", "xyz", "offline", "tiles"}:
+        return "local_xyz"
+
+    raise ValueError(
+        "Unsupported basemap mode. Use one of: off, cache_only, local_xyz, openstreetmap."
+    )
+
+
 def _normalize_utc_timestamp(value: pd.Timestamp | str) -> pd.Timestamp:
     ts = pd.Timestamp(value)
     if ts.tzinfo is not None:
@@ -138,7 +157,10 @@ def tec_map_gif(
     ionosphere_height_km: float = Query(default=350.0, ge=50.0, le=2000.0),
     grid_resolution_deg: float = Query(default=1.0, gt=0.0, le=10.0),
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
-    basemap: bool | str | None = Query(default=False, description="Enable OpenStreetMap basemap (requires outbound network)."),
+    basemap: bool | str | None = Query(
+        default=False,
+        description="Basemap mode: off, cache_only, local_xyz, or openstreetmap. Legacy true/false also accepted.",
+    ),
     frame_dpi: int | None = Query(default=None, ge=50, le=200, description="Optional render DPI override (GIF only)."),
 ):
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
@@ -158,7 +180,10 @@ def tec_map_gif(
         smoothing_sigma=float(smoothing_sigma),
     )
 
-    basemap_enabled = _parse_bool(basemap)
+    basemap_mode = _parse_basemap_mode(basemap)
+    basemap_enabled = basemap_mode != "off"
+    basemap_cache_root = cfg.TEC_MAP_BASEMAP_CACHE_ROOT.strip() if basemap_enabled else ""
+    basemap_tiles_root = cfg.TEC_MAP_BASEMAP_XYZ_ROOT.strip() if basemap_enabled else ""
 
     # Heuristic: full-day multi-frame animations can get very large at 120dpi.
     # Reduce DPI unless user explicitly overrides.
@@ -188,7 +213,10 @@ def tec_map_gif(
 
     render = TecMapRenderConfig(
         basemap_enabled=basemap_enabled,
-        basemap_cache_root=Path("/app/data/basemap_cache") if basemap_enabled else None,
+        basemap_mode=basemap_mode,
+        basemap_cache_root=Path(basemap_cache_root) if basemap_cache_root else None,
+        basemap_tiles_root=Path(basemap_tiles_root) if basemap_tiles_root else None,
+        basemap_fallback_to_plain=cfg.TEC_MAP_BASEMAP_FALLBACK_TO_PLAIN,
         frame_dpi=chosen_dpi,
     )
 

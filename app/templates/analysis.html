@@ -148,8 +148,11 @@
             <label class="form-label" for="tecmap-basemap">Basemap</label>
             <select id="tecmap-basemap" class="form-select">
               <option value="false" selected>off</option>
-              <option value="true">on (OpenStreetMap; needs internet)</option>
+              <option value="cache_only">cache only (offline; uses saved OSM tiles on server)</option>
+              <option value="local_xyz">local XYZ tiles (offline mount)</option>
+              <option value="true">OpenStreetMap (needs internet)</option>
             </select>
+            <div class="param-hint">If the selected basemap source is unavailable, the GIF now falls back to plain lat/lon rendering.</div>
           </div>
         </div>
       </details>

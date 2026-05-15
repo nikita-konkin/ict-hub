@@ -127,3 +127,17 @@ ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "4
 # External data-indexer FastAPI integration
 DATA_INDEXER_URL: str = os.getenv("DATA_INDEXER_URL", "")
 DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "120"))
+
+# Optional TEC map basemap storage roots.
+# CACHE_ROOT stores fetched OpenStreetMap raster tiles under openstreetmap/z/x/y.png.
+# XYZ_ROOT can point at any pre-seeded local XYZ raster tile tree laid out as z/x/y.(png|jpg|jpeg|webp).
+TEC_MAP_BASEMAP_CACHE_ROOT: str = os.getenv("TEC_MAP_BASEMAP_CACHE_ROOT", "/app/data/basemap_cache")
+TEC_MAP_BASEMAP_XYZ_ROOT: str = os.getenv("TEC_MAP_BASEMAP_XYZ_ROOT", "")
+
+# If enabled, TEC map rendering falls back to the plain lat/lon view when the selected
+# basemap source is unavailable instead of failing the whole GIF request.
+TEC_MAP_BASEMAP_FALLBACK_TO_PLAIN: bool = os.getenv("TEC_MAP_BASEMAP_FALLBACK_TO_PLAIN", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
