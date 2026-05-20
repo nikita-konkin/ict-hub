@@ -128,11 +128,12 @@ ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "4
 DATA_INDEXER_URL: str = os.getenv("DATA_INDEXER_URL", "")
 DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "120"))
 
-# Optional TEC map basemap storage roots.
+# Optional TEC map basemap sources.
 # CACHE_ROOT stores fetched OpenStreetMap raster tiles under openstreetmap/z/x/y.png.
-# XYZ_ROOT can point at any pre-seeded local XYZ raster tile tree laid out as z/x/y.(png|jpg|jpeg|webp).
+# TILE_SERVER_URL is an HTTP XYZ tile-server URL template with {z}/{x}/{y} placeholders,
+# e.g. http://localhost:8090/tile/{z}/{x}/{y}.png for a self-hosted overv/openstreetmap-tile-server.
 TEC_MAP_BASEMAP_CACHE_ROOT: str = os.getenv("TEC_MAP_BASEMAP_CACHE_ROOT", "/app/data/basemap_cache")
-TEC_MAP_BASEMAP_XYZ_ROOT: str = os.getenv("TEC_MAP_BASEMAP_XYZ_ROOT", "")
+TEC_MAP_BASEMAP_TILE_SERVER_URL: str = os.getenv("TEC_MAP_BASEMAP_TILE_SERVER_URL", "")
 
 # If enabled, TEC map rendering falls back to the plain lat/lon view when the selected
 # basemap source is unavailable instead of failing the whole GIF request.

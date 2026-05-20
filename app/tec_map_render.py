@@ -73,8 +73,9 @@ class TecMapRenderConfig:
 
     # Basemap cache root. If None, cache-backed basemap modes are unavailable.
     basemap_cache_root: Path | None = None
-    # Optional local XYZ tile root laid out as z/x/y.(png|jpg|jpeg|webp).
-    basemap_tiles_root: Path | None = None
+    # HTTP XYZ tile-server URL template with {z}/{x}/{y} placeholders
+    # (e.g. "http://localhost:8090/tile/{z}/{x}/{y}.png"). If None, tile_server mode is unavailable.
+    basemap_tile_server_url: str | None = None
     # If True, fall back to plain lat/lon rendering when the requested basemap source is unavailable.
     basemap_fallback_to_plain: bool = True
 
@@ -252,11 +253,20 @@ def _find_xyz_tile_path(root: Path, x: int, y: int, zoom: int) -> Path | None:
     return None
 
 
-def fetch_local_xyz_tile(x: int, y: int, zoom: int, tiles_root: Path) -> Image.Image:
+def fetch_cached_xyz_tile(x: int, y: int, zoom: int, tiles_root: Path) -> Image.Image:
     tile_path = _find_xyz_tile_path(tiles_root, x, y, zoom)
     if tile_path is None:
-        raise FileNotFoundError(f"Local XYZ tile not found for z={zoom}, x={x}, y={y} under {tiles_root}.")
+        raise FileNotFoundError(f"XYZ tile not found for z={zoom}, x={x}, y={y} under {tiles_root}.")
     return _open_cached_tile(tile_path)
+
+
+def fetch_tile_server_tile(x: int, y: int, zoom: int, url_template: str) -> Image.Image:
+    wrapped_x = x % (2**zoom)
+    url = url_template.format(z=zoom, x=wrapped_x, y=y)
+    request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
+    with urlopen(request, timeout=15) as response:
+        data = response.read()
+    return Image.open(BytesIO(data)).convert("RGBA")
 
 
 def fetch_openstreetmap_tile(
@@ -384,7 +394,7 @@ def load_basemap_layer(bounds: tuple[float, float, float, float], render: TecMap
                         raise RuntimeError("cache_only mode requires basemap_cache_root.")
                     return fetch_xyz_layer_at_zoom(
                         bounds,
-                        tile_fetcher=lambda x, y, tile_zoom: fetch_local_xyz_tile(
+                        tile_fetcher=lambda x, y, tile_zoom: fetch_cached_xyz_tile(
                             x,
                             y,
                             tile_zoom,
@@ -394,20 +404,20 @@ def load_basemap_layer(bounds: tuple[float, float, float, float], render: TecMap
                         max_tiles=render.basemap_max_tiles,
                         attribution="© OpenStreetMap contributors (cached)",
                     )
-                if mode == "local_xyz":
-                    if render.basemap_tiles_root is None:
-                        raise RuntimeError("local_xyz mode requires basemap_tiles_root.")
+                if mode == "tile_server":
+                    if not render.basemap_tile_server_url:
+                        raise RuntimeError("tile_server mode requires basemap_tile_server_url.")
                     return fetch_xyz_layer_at_zoom(
                         bounds,
-                        tile_fetcher=lambda x, y, tile_zoom: fetch_local_xyz_tile(
+                        tile_fetcher=lambda x, y, tile_zoom: fetch_tile_server_tile(
                             x,
                             y,
                             tile_zoom,
-                            render.basemap_tiles_root,
+                            render.basemap_tile_server_url,
                         ),
                         zoom=zoom,
                         max_tiles=render.basemap_max_tiles,
-                        attribution=f"Local XYZ tiles: {render.basemap_tiles_root}",
+                        attribution=f"Tiles: {render.basemap_tile_server_url}",
                     )
                 raise RuntimeError(f"Unsupported basemap mode: {render.basemap_mode}")
             except Exception as exc:
@@ -417,7 +427,7 @@ def load_basemap_layer(bounds: tuple[float, float, float, float], render: TecMap
         source_name = {
             "openstreetmap": "OpenStreetMap tiles",
             "cache_only": "cached OpenStreetMap tiles",
-            "local_xyz": "local XYZ tiles",
+            "tile_server": "HTTP XYZ tile server",
         }.get(mode, f"basemap mode {mode!r}")
         raise RuntimeError(f"{source_name} could not be loaded for zooms 2..{preferred_zoom}: {last_error}")
 

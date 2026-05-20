@@ -46,11 +46,11 @@ def _parse_basemap_mode(value: bool | str | None) -> str:
         return "openstreetmap"
     if text in {"cache", "cache_only", "offline_cache"}:
         return "cache_only"
-    if text in {"local", "local_xyz", "xyz", "offline", "tiles"}:
-        return "local_xyz"
+    if text in {"tile_server", "tileserver", "server", "http", "xyz"}:
+        return "tile_server"
 
     raise ValueError(
-        "Unsupported basemap mode. Use one of: off, cache_only, local_xyz, openstreetmap."
+        "Unsupported basemap mode. Use one of: off, cache_only, tile_server, openstreetmap."
     )
 
 
@@ -159,7 +159,7 @@ def tec_map_gif(
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
     basemap: bool | str | None = Query(
         default=False,
-        description="Basemap mode: off, cache_only, local_xyz, or openstreetmap. Legacy true/false also accepted.",
+        description="Basemap mode: off, cache_only, tile_server, or openstreetmap. Legacy true/false also accepted.",
     ),
     frame_dpi: int | None = Query(default=None, ge=50, le=200, description="Optional render DPI override (GIF only)."),
 ):
@@ -183,7 +183,7 @@ def tec_map_gif(
     basemap_mode = _parse_basemap_mode(basemap)
     basemap_enabled = basemap_mode != "off"
     basemap_cache_root = cfg.TEC_MAP_BASEMAP_CACHE_ROOT.strip() if basemap_enabled else ""
-    basemap_tiles_root = cfg.TEC_MAP_BASEMAP_XYZ_ROOT.strip() if basemap_enabled else ""
+    basemap_tile_server_url = cfg.TEC_MAP_BASEMAP_TILE_SERVER_URL.strip() if basemap_enabled else ""
 
     # Heuristic: full-day multi-frame animations can get very large at 120dpi.
     # Reduce DPI unless user explicitly overrides.
@@ -215,7 +215,7 @@ def tec_map_gif(
         basemap_enabled=basemap_enabled,
         basemap_mode=basemap_mode,
         basemap_cache_root=Path(basemap_cache_root) if basemap_cache_root else None,
-        basemap_tiles_root=Path(basemap_tiles_root) if basemap_tiles_root else None,
+        basemap_tile_server_url=basemap_tile_server_url or None,
         basemap_fallback_to_plain=cfg.TEC_MAP_BASEMAP_FALLBACK_TO_PLAIN,
         frame_dpi=chosen_dpi,
     )

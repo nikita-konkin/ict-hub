@@ -200,7 +200,7 @@ def test_tec_map_gif_route_accepts_cache_only_basemap_mode(client, monkeypatch):
     monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER", "/mnt/fake")
     monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
     monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_CACHE_ROOT", "/mnt/cache")
-    monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_XYZ_ROOT", "/mnt/tiles")
+    monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_TILE_SERVER_URL", "http://tiles.test/{z}/{x}/{y}.png")
     monkeypatch.setattr(tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1]}))
     monkeypatch.setattr(tec_map_module, "build_leveled_links", lambda raw_links, config: raw_links)
     monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
@@ -227,9 +227,8 @@ def test_tec_map_gif_route_accepts_cache_only_basemap_mode(client, monkeypatch):
     assert render.basemap_enabled is True
     assert render.basemap_mode == "cache_only"
     assert render.basemap_cache_root is not None
-    assert render.basemap_tiles_root is not None
     assert render.basemap_cache_root.parts[-2:] == ("mnt", "cache")
-    assert render.basemap_tiles_root.parts[-2:] == ("mnt", "tiles")
+    assert render.basemap_tile_server_url == "http://tiles.test/{z}/{x}/{y}.png"
 
 
 def test_build_animation_gif_bytes_returns_gif_bytes():
@@ -366,29 +365,38 @@ def test_build_animation_gif_bytes_falls_back_when_openstreetmap_is_unreachable(
     assert gif_bytes[:6] == b"GIF89a"
 
 
-def test_load_basemap_layer_reads_local_xyz_tiles(tmp_path):
+def test_load_basemap_layer_reads_tile_server(monkeypatch):
     bounds = (49.0, 53.0, 54.0, 57.0)
     zoom = 3
-    x_start_f, y_top_f = tec_map_render_module.lonlat_to_tile_fraction(bounds[0], bounds[3], zoom)
-    x_end_f, y_bottom_f = tec_map_render_module.lonlat_to_tile_fraction(bounds[1], bounds[2], zoom)
-    x_start = int(np.floor(x_start_f))
-    x_end = int(np.floor(x_end_f))
-    y_start = int(np.floor(y_top_f))
-    y_end = int(np.floor(y_bottom_f))
+    url_template = "http://tiles.test/{z}/{x}/{y}.png"
 
-    for x in range(x_start, x_end + 1):
-        for y in range(y_start, y_end + 1):
-            tile_dir = tmp_path / str(zoom) / str(x % (2**zoom))
-            tile_dir.mkdir(parents=True, exist_ok=True)
-            image = Image.new("RGBA", (256, 256), (200, 210, 220, 255))
-            image.save(tile_dir / f"{y}.png")
+    requested_urls: list[str] = []
+
+    def fake_urlopen(request, timeout=15):
+        requested_urls.append(request.full_url)
+        buffer = BytesIO()
+        Image.new("RGBA", (256, 256), (200, 210, 220, 255)).save(buffer, format="PNG")
+
+        class _Response:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, exc_type, exc, tb):
+                return False
+
+            def read(self_inner):
+                return buffer.getvalue()
+
+        return _Response()
+
+    monkeypatch.setattr(tec_map_render_module, "urlopen", fake_urlopen)
 
     render = TecMapRenderConfig(
         basemap_enabled=True,
-        basemap_mode="local_xyz",
+        basemap_mode="tile_server",
         basemap_zoom=zoom,
         basemap_max_tiles=32,
-        basemap_tiles_root=tmp_path,
+        basemap_tile_server_url=url_template,
     )
 
     layer = tec_map_render_module.load_basemap_layer(bounds, render)
@@ -396,7 +404,9 @@ def test_load_basemap_layer_reads_local_xyz_tiles(tmp_path):
     assert layer is not None
     assert layer.image.shape[0] > 0
     assert layer.image.shape[1] > 0
-    assert "Local XYZ tiles" in layer.attribution
+    assert "Tiles:" in layer.attribution
+    assert requested_urls
+    assert all(url.startswith("http://tiles.test/") and url.endswith(".png") for url in requested_urls)
 
 
 def test_build_animation_gif_bytes_preserves_frame_local_palettes(monkeypatch):
