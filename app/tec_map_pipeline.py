@@ -58,6 +58,17 @@ class TecMapConfig:
     apply_mstd_receiver_bias: bool = True
     mstd_search_bounds_tecu: tuple[float, float] = DEFAULT_MSTD_SEARCH_BOUNDS_TECU
 
+    # Per-arc temporal smoothing of vtec_tecu (rolling median window in epochs; 0 disables).
+    vtec_smooth_epochs: int = 0
+
+    # Per-station VTEC median-shift normalization mode:
+    #   "off"    — never shift
+    #   "auto"   — shift only stations whose MSTD receiver-bias estimate failed (rx_bias_estimated=False)
+    #   "always" — shift every station to share a common high-elevation median
+    normalize_stations: str = "off"
+    # Only samples at elevation >= this value contribute to the per-station reference median.
+    normalize_min_elevation_deg: float = 60.0
+
     # Output constraints (PadArt-style positivity is optional here; default on)
     enforce_nonnegative_vtec: bool = True
 
@@ -667,10 +678,105 @@ def build_leveled_links(raw_links: pd.DataFrame, config: TecMapConfig) -> pd.Dat
     leveled_links = apply_bias_corrections(leveled_links, config)
     leveled_links["vtec_tecu"] = leveled_links["stec_tecu"] / leveled_links["mapping_factor"]
 
+    # Per-arc temporal smoothing (noise reduction; does not address absolute calibration).
+    if int(getattr(config, "vtec_smooth_epochs", 0) or 0) > 0:
+        leveled_links = smooth_vtec_temporal(leveled_links, int(config.vtec_smooth_epochs))
+
+    # Per-station median-shift normalisation (compensates for the silent MSTD-NaN path).
+    leveled_links = normalize_station_offsets(
+        leveled_links,
+        mode=getattr(config, "normalize_stations", "off"),
+        reference_min_elevation_deg=float(getattr(config, "normalize_min_elevation_deg", 60.0)),
+    )
+
     if config.enforce_nonnegative_vtec:
         leveled_links["vtec_tecu"] = leveled_links["vtec_tecu"].clip(lower=0.0)
     leveled_links = leveled_links[leveled_links["vtec_tecu"].between(0 if config.enforce_nonnegative_vtec else -200, 200)].copy()
     return leveled_links
+
+
+def smooth_vtec_temporal(leveled_links: pd.DataFrame, window_epochs: int) -> pd.DataFrame:
+    """
+    Rolling-median smoothing of vtec_tecu inside each (station, satellite, arc_id) group.
+
+    Does not cross arc boundaries (so it does not fight the phase-leveling) and does
+    not span stations (so it does not smear any genuine inter-station offsets). Use
+    this to suppress per-epoch jitter that would otherwise turn into spurious gradient
+    features after spatial differentiation.
+    """
+    if window_epochs <= 0 or leveled_links.empty:
+        return leveled_links
+    if "arc_id" not in leveled_links.columns:
+        return leveled_links
+
+    out = leveled_links.sort_values(["station", "satellite", "arc_id", "datetime"]).copy()
+    out["vtec_tecu"] = (
+        out.groupby(["station", "satellite", "arc_id"], sort=False, group_keys=False)["vtec_tecu"]
+        .transform(lambda s: s.rolling(window=int(window_epochs), center=True, min_periods=1).median())
+    )
+    return out
+
+
+def normalize_station_offsets(
+    leveled_links: pd.DataFrame,
+    *,
+    mode: str,
+    reference_min_elevation_deg: float = 60.0,
+) -> pd.DataFrame:
+    """
+    Per-station median-shift of vtec_tecu so all (selected) stations share the
+    cohort's high-elevation median for the loaded window.
+
+    mode:
+      "off"    — return input unchanged.
+      "auto"   — only shift stations whose MSTD receiver-bias estimate failed
+                  (rx_bias_estimated is False for some/all of their rows). Stations
+                  with a successful MSTD estimate are left untouched.
+      "always" — shift every station to the cohort median.
+
+    Reference samples use elevation >= reference_min_elevation_deg, where the
+    obliquity mapping factor is ~1 and per-station VTEC means reflect mostly
+    the absolute calibration of the receiver.
+
+    The applied shift is recorded in a new column ``station_offset_applied_tecu``.
+    """
+    if leveled_links.empty:
+        return leveled_links
+    mode = (mode or "off").strip().lower()
+    if mode == "off":
+        return leveled_links
+
+    out = leveled_links.copy()
+    out["station_offset_applied_tecu"] = 0.0
+
+    high_el = out[out["elevation_deg"] >= float(reference_min_elevation_deg)]
+    if high_el.empty:
+        return out
+
+    cohort_median = float(high_el["vtec_tecu"].median())
+    station_medians = high_el.groupby("station")["vtec_tecu"].median()
+    offsets = station_medians - cohort_median
+
+    if mode == "auto":
+        if "rx_bias_estimated" not in out.columns:
+            return out
+        # A station is "MSTD-failed" if any of its rows have rx_bias_estimated == False.
+        # In practice MSTD success/failure is per (station, day, code-pair) — so a partial
+        # failure still leaves uncalibrated samples, and we should normalise the whole station.
+        failed_stations = set(
+            out.loc[~out["rx_bias_estimated"].astype(bool), "station"].unique()
+        )
+        offsets = offsets.loc[offsets.index.isin(failed_stations)]
+    elif mode != "always":
+        return out
+
+    if offsets.empty:
+        return out
+
+    shift = out["station"].map(offsets.to_dict()).fillna(0.0).astype(float)
+    out["vtec_tecu"] = out["vtec_tecu"] - shift
+    out["station_offset_applied_tecu"] = shift
+    return out
 
 
 def build_frame_summary(leveled_links: pd.DataFrame, config: TecMapConfig) -> pd.DataFrame:
@@ -724,6 +830,9 @@ def apply_bias_corrections(leveled_links: pd.DataFrame, config: TecMapConfig) ->
     leveled_links = leveled_links.copy()
     leveled_links["tx_bias_tecu"] = 0.0
     leveled_links["rx_bias_tecu"] = 0.0
+    # Tracks which rows got a finite MSTD receiver-bias estimate; the normaliser
+    # uses this to find stations that silently fell through to rx_bias=0.
+    leveled_links["rx_bias_estimated"] = False
 
     leveled_links = annotate_tecsuite_bias_metadata(leveled_links)
     if config.apply_mstd_receiver_bias:
@@ -790,6 +899,7 @@ def apply_mstd_receiver_biases(
         bias = estimate_receiver_bias_mstd_group(group, bounds=bounds)
         if np.isfinite(bias):
             leveled_links.loc[group.index, "rx_bias_tecu"] = bias
+            leveled_links.loc[group.index, "rx_bias_estimated"] = True
 
     return leveled_links.drop(columns=["bias_date"])
 

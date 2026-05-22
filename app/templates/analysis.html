@@ -152,6 +152,20 @@
             </select>
             <div class="param-hint">VTEC magnitude or its spatial-gradient magnitude. Gradient is computed on the smoothed grid.</div>
           </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-vtec-smooth">VTEC smooth (epochs)</label>
+            <input id="tecmap-vtec-smooth" class="form-input" type="number" min="0" max="50" step="1" value="0">
+            <div class="param-hint">Rolling-median window per (station, satellite, arc). Reduces single-epoch noise; does not fix inter-station bias.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-normalize-stations">Normalize stations</label>
+            <select id="tecmap-normalize-stations" class="form-select">
+              <option value="off" selected>off</option>
+              <option value="auto">auto (only stations where MSTD bias failed)</option>
+              <option value="always">always (force common high-elevation median)</option>
+            </select>
+            <div class="param-hint">Per-station median-shift over samples with elevation ≥ 60° — kills the "wall" artefact when a receiver's DCB is uncorrected.</div>
+          </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
             <label class="form-label" for="tecmap-basemap">Basemap</label>
             <select id="tecmap-basemap" class="form-select">
@@ -2283,6 +2297,8 @@
     const heightEl = document.getElementById("tecmap-height");
     const basemapEl = document.getElementById("tecmap-basemap");
     const fieldEl = document.getElementById("tecmap-field");
+    const vtecSmoothEl = document.getElementById("tecmap-vtec-smooth");
+    const normalizeStationsEl = document.getElementById("tecmap-normalize-stations");
     const stationHintEl = document.getElementById("tecmap-station-hint");
     const availYearEl = document.getElementById("tecmap-avail-year");
     const availDoyEl = document.getElementById("tecmap-avail-doy");
@@ -2637,6 +2653,14 @@
 
       const fieldValue = clean(fieldEl ? fieldEl.value : "") || "vtec";
       if (fieldValue && fieldValue !== "vtec") params.set("field", fieldValue);
+
+      const smoothEpochs = Number(vtecSmoothEl ? vtecSmoothEl.value : "");
+      if (Number.isFinite(smoothEpochs) && smoothEpochs > 0) {
+        params.set("vtec_smooth_epochs", String(Math.floor(smoothEpochs)));
+      }
+
+      const normalizeValue = clean(normalizeStationsEl ? normalizeStationsEl.value : "") || "off";
+      if (normalizeValue && normalizeValue !== "off") params.set("normalize_stations", normalizeValue);
 
       if (mode === "range") {
         const startText = clean(startTimeEl ? startTimeEl.value : "");

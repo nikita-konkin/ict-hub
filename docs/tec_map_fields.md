@@ -127,6 +127,48 @@ Implementation sketch:
 
 ---
 
+## Pre-render cleanup knobs
+
+Two query parameters operate on the leveled link table *before* gridding /
+smoothing / gradient compute. Both default off so the existing scalar VTEC
+behaviour is unchanged.
+
+### `?vtec_smooth_epochs=N`
+
+Rolling-median window over `vtec_tecu`, grouped by
+`(station, satellite, arc_id)`. Does **not** cross arc boundaries (so it does
+not fight the existing phase-leveling) and does **not** span stations (so it
+does not smear genuine inter-station offsets).
+
+Use this to suppress single-epoch spikes from surviving cycle slips and
+high-frequency jitter at low elevation — both of which spatial differentiation
+amplifies into spurious gradient lines.
+
+Typical values: 3–7 for sampling intervals around 30–60 s; larger windows
+start to wash out real short-lived structure.
+
+### `?normalize_stations=auto|always|off`
+
+Per-station median-shift over samples with `elevation_deg ≥ 60` (where the
+mapping factor ≈ 1 and per-station VTEC reflects mostly the absolute
+calibration of the receiver). Records the applied shift in
+`station_offset_applied_tecu` for traceability.
+
+- `off` (default): never shift.
+- `auto`: shift only stations whose MSTD receiver-bias estimator failed
+  (`rx_bias_estimated` is False anywhere in the station's rows). Calibrated
+  stations are left untouched. **This is the recommended setting when you see
+  a visible "wall" between stations** — it's a targeted patch that only acts
+  when the principled bias-correction silently fell through to zero.
+- `always`: shift every station to the cohort median. Use carefully — this
+  also flattens any genuine large-scale VTEC variation across stations and is
+  not physically rigorous. Useful when comparing relative spatial structure
+  with the absolute level deliberately discarded.
+
+This is an *ad-hoc* patch, not a proper bias correction. The real fix is to
+load IGS satellite + receiver DCB files, which is out of scope today
+(`apply_bias_corrections` docstring in `tec_map_pipeline.py` calls it out).
+
 ## Notes on data-quality improvements that benefit every field
 
 The per-station IPP averaging in `build_frame_summary`

@@ -35,6 +35,17 @@ def _parse_bool(value: bool | str | None) -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
+def _parse_normalize_stations(value: str | None) -> str:
+    text = str(value or "off").strip().lower()
+    if text in {"", "off", "false", "no", "0"}:
+        return "off"
+    if text in {"auto", "missing", "fallback", "nan"}:
+        return "auto"
+    if text in {"always", "all", "true", "1", "yes", "on"}:
+        return "always"
+    raise ValueError("Unsupported normalize_stations. Use one of: off, auto, always.")
+
+
 def _parse_field(value: str | None) -> str:
     text = str(value or "vtec").strip().lower()
     if text in {"", "vtec", "v", "magnitude"}:
@@ -166,6 +177,16 @@ def tec_map_gif(
     ionosphere_height_km: float = Query(default=350.0, ge=50.0, le=2000.0),
     grid_resolution_deg: float = Query(default=1.0, gt=0.0, le=10.0),
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
+    vtec_smooth_epochs: int = Query(
+        default=0,
+        ge=0,
+        le=50,
+        description="Rolling-median window in epochs per (station, satellite, arc). 0 disables.",
+    ),
+    normalize_stations: str = Query(
+        default="off",
+        description="Per-station VTEC median-shift: off (default), auto (only when MSTD bias failed), always.",
+    ),
     basemap: bool | str | None = Query(
         default=False,
         description="Basemap mode: off, cache_only, tile_server, or openstreetmap. Legacy true/false also accepted.",
@@ -184,6 +205,11 @@ def tec_map_gif(
     if not data_root:
         raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
 
+    try:
+        normalize_mode = _parse_normalize_stations(normalize_stations)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     pipeline = TecMapConfig(
         min_elevation_deg=float(min_elevation_deg),
         sampling_interval_seconds=int(sampling_interval_seconds),
@@ -191,6 +217,8 @@ def tec_map_gif(
         ionosphere_height_km=float(ionosphere_height_km),
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
+        vtec_smooth_epochs=int(vtec_smooth_epochs),
+        normalize_stations=normalize_mode,
     )
 
     basemap_mode = _parse_basemap_mode(basemap)
@@ -286,6 +314,16 @@ def tec_map_snapshot(
     ionosphere_height_km: float = Query(default=350.0, ge=50.0, le=2000.0),
     grid_resolution_deg: float = Query(default=1.0, gt=0.0, le=10.0),
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
+    vtec_smooth_epochs: int = Query(
+        default=0,
+        ge=0,
+        le=50,
+        description="Rolling-median window in epochs per (station, satellite, arc). 0 disables.",
+    ),
+    normalize_stations: str = Query(
+        default="off",
+        description="Per-station VTEC median-shift: off (default), auto (only when MSTD bias failed), always.",
+    ),
     field: str = Query(
         default="vtec",
         description="Scalar field to render: vtec (default) or vtec_gradient (|∇VTEC| in TECU/100km).",
@@ -298,6 +336,11 @@ def tec_map_snapshot(
     if not data_root:
         raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
 
+    try:
+        normalize_mode = _parse_normalize_stations(normalize_stations)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     pipeline = TecMapConfig(
         min_elevation_deg=float(min_elevation_deg),
         sampling_interval_seconds=int(sampling_interval_seconds),
@@ -305,6 +348,8 @@ def tec_map_snapshot(
         ionosphere_height_km=float(ionosphere_height_km),
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
+        vtec_smooth_epochs=int(vtec_smooth_epochs),
+        normalize_stations=normalize_mode,
     )
     try:
         field_mode = _parse_field(field)
