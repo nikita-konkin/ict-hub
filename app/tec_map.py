@@ -35,6 +35,15 @@ def _parse_bool(value: bool | str | None) -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
+def _parse_field(value: str | None) -> str:
+    text = str(value or "vtec").strip().lower()
+    if text in {"", "vtec", "v", "magnitude"}:
+        return "vtec"
+    if text in {"vtec_gradient", "gradient", "grad", "|grad|", "vtec_grad"}:
+        return "vtec_gradient"
+    raise ValueError("Unsupported field. Use one of: vtec, vtec_gradient.")
+
+
 def _parse_basemap_mode(value: bool | str | None) -> str:
     if isinstance(value, bool):
         return "openstreetmap" if value else "off"
@@ -161,6 +170,10 @@ def tec_map_gif(
         default=False,
         description="Basemap mode: off, cache_only, tile_server, or openstreetmap. Legacy true/false also accepted.",
     ),
+    field: str = Query(
+        default="vtec",
+        description="Scalar field to render: vtec (default) or vtec_gradient (|∇VTEC| in TECU/100km).",
+    ),
     frame_dpi: int | None = Query(default=None, ge=50, le=200, description="Optional render DPI override (GIF only)."),
 ):
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
@@ -211,7 +224,13 @@ def tec_map_gif(
         except Exception:
             chosen_dpi = 120
 
+    try:
+        field_mode = _parse_field(field)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     render = TecMapRenderConfig(
+        field=field_mode,
         basemap_enabled=basemap_enabled,
         basemap_mode=basemap_mode,
         basemap_cache_root=Path(basemap_cache_root) if basemap_cache_root else None,
@@ -267,6 +286,10 @@ def tec_map_snapshot(
     ionosphere_height_km: float = Query(default=350.0, ge=50.0, le=2000.0),
     grid_resolution_deg: float = Query(default=1.0, gt=0.0, le=10.0),
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
+    field: str = Query(
+        default="vtec",
+        description="Scalar field to render: vtec (default) or vtec_gradient (|∇VTEC| in TECU/100km).",
+    ),
 ):
     if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
@@ -283,7 +306,11 @@ def tec_map_snapshot(
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
     )
-    render = TecMapRenderConfig()
+    try:
+        field_mode = _parse_field(field)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    render = TecMapRenderConfig(field=field_mode)
 
     # Snapshot is defined as the `frame_minutes` bin containing the requested timestamp.
     # Load only that bin range (half-open interval [frame_time, frame_time + frame_minutes)).

@@ -54,12 +54,20 @@ TEC_MAP_MATPLOTLIB_CMAP = LinearSegmentedColormap.from_list(
 )
 TEC_MAP_PLOTLY_COLORSCALE = [[stop, color] for stop, color in TEC_MAP_COLOR_STOPS]
 
+# ~111.32 km per degree of latitude (mean Earth radius approximation).
+KM_PER_DEGREE_LAT = 111.32
+
 
 @dataclass(frozen=True, slots=True)
 class TecMapRenderConfig:
     contour_levels: int = 128
     label_station_markers: bool = True
     label_ipp_samples: bool = False
+
+    # Which scalar field to render. Supported:
+    #   "vtec"          — VTEC magnitude [TECU] (default)
+    #   "vtec_gradient" — |∇VTEC| spatial-gradient magnitude [TECU / 100 km]
+    field: str = "vtec"
 
     basemap_enabled: bool = False
     basemap_mode: str = "off"
@@ -162,6 +170,63 @@ def soften_coverage_mask(mask: np.ndarray, pipeline: TecMapConfig) -> np.ndarray
 
     softened = gaussian_filter(mask_bool.astype(float), sigma=sigma_cells, mode="nearest")
     return softened >= 0.5
+
+
+def compute_vtec_gradient_magnitude(
+    grid: np.ndarray,
+    grid_lon: np.ndarray,
+    grid_lat: np.ndarray,
+) -> np.ndarray:
+    """
+    |∇VTEC| in TECU per 100 km on a regular lon/lat grid.
+
+    The longitudinal step shrinks as cos(lat), so the east-west derivative is
+    rescaled per row before combining with the (uniform) north-south derivative.
+    NaN cells propagate; edge cells use one-sided differences via np.gradient.
+    """
+    if grid.ndim != 2 or grid.shape[0] < 2 or grid.shape[1] < 2:
+        return np.full(grid.shape, np.nan, dtype=float)
+
+    dlat_deg = float(np.abs(grid_lat[1, 0] - grid_lat[0, 0]))
+    dlon_deg = float(np.abs(grid_lon[0, 1] - grid_lon[0, 0]))
+    if dlat_deg <= 0 or dlon_deg <= 0:
+        return np.full(grid.shape, np.nan, dtype=float)
+
+    dlat_km = dlat_deg * KM_PER_DEGREE_LAT
+
+    d_dy = np.gradient(grid, dlat_km, axis=0)        # TECU/km, lat direction
+    d_dx_per_deg = np.gradient(grid, dlon_deg, axis=1)  # TECU per degree-of-longitude
+
+    cos_lat = np.cos(np.deg2rad(grid_lat))
+    cos_lat = np.where(np.abs(cos_lat) < 1e-6, 1e-6, cos_lat)
+    d_dx = d_dx_per_deg / (KM_PER_DEGREE_LAT * cos_lat)  # TECU/km, lon direction
+
+    magnitude_per_km = np.sqrt(d_dx ** 2 + d_dy ** 2)
+    return magnitude_per_km * 100.0  # TECU per 100 km
+
+
+def _field_render_spec(field: str) -> dict[str, Any]:
+    """
+    Per-field rendering metadata: matplotlib cmap, plotly colorscale, colorbar label, title prefix.
+    """
+    name = (field or "vtec").strip().lower()
+    if name == "vtec_gradient":
+        return {
+            "matplotlib_cmap": "magma",
+            "plotly_colorscale": "Magma",
+            "colorbar_label": "|∇VTEC| [TECU / 100 km]",
+            "title_prefix": "|∇VTEC| map",
+            "hover_unit": "TECU/100km",
+            "vmin_floor": 0.0,
+        }
+    return {
+        "matplotlib_cmap": TEC_MAP_MATPLOTLIB_CMAP,
+        "plotly_colorscale": TEC_MAP_PLOTLY_COLORSCALE,
+        "colorbar_label": "VTEC [TECU]",
+        "title_prefix": "VTEC map",
+        "hover_unit": "TECU",
+        "vmin_floor": None,
+    }
 
 
 def interpolate_frame(
@@ -527,7 +592,12 @@ def render_frame_png_bytes(
     basemap_layer: BasemapLayer | None,
     pipeline: TecMapConfig,
     render: TecMapRenderConfig,
+    field_spec: dict[str, Any] | None = None,
 ) -> bytes:
+    spec = field_spec or _field_render_spec(render.field)
+    plot_cmap = spec["matplotlib_cmap"]
+    colorbar_label = spec["colorbar_label"]
+    title_prefix = spec["title_prefix"]
     lon_min, lon_max, lat_min, lat_max = bounds
     vmin, vmax = color_limits
     mean_lat = (lat_min + lat_max) / 2.0
@@ -578,7 +648,7 @@ def render_frame_png_bytes(
             plot_grid_y,
             masked_grid,
             levels=contour_levels,
-            cmap=TEC_MAP_MATPLOTLIB_CMAP,
+            cmap=plot_cmap,
             alpha=overlay_alpha,
             antialiased=True,
             zorder=1,
@@ -604,18 +674,32 @@ def render_frame_png_bytes(
         label="Stations",
         zorder=3,
     )
-    sample_plot = ax.scatter(
-        sample_x,
-        sample_y,
-        c=frame["vtec_tecu"],
-        cmap=TEC_MAP_MATPLOTLIB_CMAP,
-        vmin=vmin,
-        vmax=vmax,
-        edgecolors="black",
-        s=35,
-        label="IPP samples",
-        zorder=4,
-    )
+    if spec is not None and spec["title_prefix"] != "VTEC map":
+        # Gradient (or other non-VTEC) mode: render IPP markers as position-only
+        # neutral dots, since their per-point VTEC values are not on the same
+        # colour scale as the rendered field.
+        sample_plot = ax.scatter(
+            sample_x,
+            sample_y,
+            c="white",
+            edgecolors="black",
+            s=20,
+            label="IPP samples",
+            zorder=4,
+        )
+    else:
+        sample_plot = ax.scatter(
+            sample_x,
+            sample_y,
+            c=frame["vtec_tecu"],
+            cmap=plot_cmap,
+            vmin=vmin,
+            vmax=vmax,
+            edgecolors="black",
+            s=35,
+            label="IPP samples",
+            zorder=4,
+        )
 
     if render.label_station_markers and "station" in station_positions.columns:
         for row in station_positions.itertuples(index=False):
@@ -645,7 +729,7 @@ def render_frame_png_bytes(
                 bbox={"facecolor": "white", "alpha": 0.5, "edgecolor": "none", "pad": 1.0},
             )
 
-    ax.set_title(f"VTEC map {frame_time:%Y-%m-%d %H:%M} UTC")
+    ax.set_title(f"{title_prefix} {frame_time:%Y-%m-%d %H:%M} UTC")
     apply_geographic_ticks(ax, lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max, projected=projected)
 
     ax.set_xlim(*x_limits)
@@ -657,7 +741,7 @@ def render_frame_png_bytes(
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right")
 
-    fig.colorbar(mesh if mesh is not None else sample_plot, ax=ax, label="VTEC [TECU]")
+    fig.colorbar(mesh if mesh is not None else sample_plot, ax=ax, label=colorbar_label)
     if basemap_layer is not None:
         ax.text(
             0.01,
@@ -723,18 +807,12 @@ def build_animation_gif_bytes(
 
     station_positions = frame_summary.groupby("station", as_index=False).agg(site_lat=("site_lat", "first"), site_lon=("site_lon", "first"))
 
-    vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
-    if math.isclose(float(vmin), float(vmax)):
-        vmin -= 1.0
-        vmax += 1.0
-    if pipeline.enforce_nonnegative_vtec:
-        vmin = max(float(vmin), 0.0)
+    field_spec = _field_render_spec(render.field)
+    is_gradient_field = (render.field or "").strip().lower() == "vtec_gradient"
 
-    duration_ms = max(int(round(render.gif_frame_duration_seconds * 1000.0)), 20)
-    out = BytesIO()
-    wrote_any_frame = False
-
-    for idx, (frame_time, frame) in enumerate(frame_groups):
+    # Pass 1: build the per-frame grid (and, for gradient mode, the derived field).
+    computed_frames: list[tuple[pd.Timestamp, pd.DataFrame, np.ndarray]] = []
+    for frame_time, frame in frame_groups:
         coverage_mask = ipp_coverage_mask(frame, grid_lon, grid_lat, pipeline)
         coverage_mask = soften_coverage_mask(coverage_mask, pipeline)
         grid = interpolate_frame(frame, grid_lon, grid_lat, pipeline, coverage_mask=coverage_mask)
@@ -743,8 +821,44 @@ def build_animation_gif_bytes(
         if pipeline.enforce_nonnegative_vtec:
             grid = np.where(np.isfinite(grid), np.maximum(grid, 0.0), grid)
 
+        if is_gradient_field:
+            grid = compute_vtec_gradient_magnitude(grid, grid_lon, grid_lat)
+            grid = np.where(coverage_mask, grid, np.nan)
+
+        computed_frames.append((pd.Timestamp(frame_time), frame, grid))
+
+    # Determine global colour limits from the actual field that will be plotted.
+    if is_gradient_field:
+        finite_values: list[np.ndarray] = []
+        for _, _, grid in computed_frames:
+            if np.isfinite(grid).any():
+                finite_values.append(grid[np.isfinite(grid)].ravel())
+        if finite_values:
+            stacked = np.concatenate(finite_values)
+            vmax = float(np.quantile(stacked, 0.95))
+            if not np.isfinite(vmax) or vmax <= 0.0:
+                vmax = float(np.nanmax(stacked)) if stacked.size else 1.0
+            vmin = 0.0
+        else:
+            vmin, vmax = 0.0, 1.0
+        if math.isclose(vmin, vmax):
+            vmax = vmin + 1.0
+    else:
+        vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
+        if math.isclose(float(vmin), float(vmax)):
+            vmin -= 1.0
+            vmax += 1.0
+        if pipeline.enforce_nonnegative_vtec:
+            vmin = max(float(vmin), 0.0)
+
+    duration_ms = max(int(round(render.gif_frame_duration_seconds * 1000.0)), 20)
+    out = BytesIO()
+    wrote_any_frame = False
+
+    # Pass 2: render each frame against the shared colour scale.
+    for idx, (frame_time, frame, grid) in enumerate(computed_frames):
         png_bytes = render_frame_png_bytes(
-            frame_time=pd.Timestamp(frame_time),
+            frame_time=frame_time,
             frame=frame,
             station_positions=station_positions,
             grid_lon=grid_lon,
@@ -755,6 +869,7 @@ def build_animation_gif_bytes(
             basemap_layer=basemap_layer,
             pipeline=pipeline,
             render=render,
+            field_spec=field_spec,
         )
 
         with Image.open(BytesIO(png_bytes)) as frame_image:
@@ -811,16 +926,12 @@ def build_snapshot_plotly_json(
         site_lon=("site_lon", "first"),
     )
 
-    # Shared color scale logic (prototype: 5–95% quantile over full selection)
-    vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
-    if math.isclose(float(vmin), float(vmax)):
-        vmin -= 1.0
-        vmax += 1.0
-    if pipeline.enforce_nonnegative_vtec:
-        vmin = max(float(vmin), 0.0)
+    field_spec = _field_render_spec(render.field)
+    is_gradient_field = (render.field or "").strip().lower() == "vtec_gradient"
 
     fig = go.Figure()
 
+    grid_for_scale: np.ndarray | None = None
     if include_grid:
         lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
         lat_axis = np.arange(lat_min, lat_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
@@ -834,22 +945,52 @@ def build_snapshot_plotly_json(
         if pipeline.enforce_nonnegative_vtec:
             grid = np.where(np.isfinite(grid), np.maximum(grid, 0.0), grid)
 
+        if is_gradient_field:
+            grid = compute_vtec_gradient_magnitude(grid, grid_lon, grid_lat)
+            grid = np.where(coverage_mask, grid, np.nan)
+        grid_for_scale = grid
+
+    # Shared colour scale. For VTEC: 5–95% quantile over the full selection.
+    # For |∇VTEC|: 0 → 95% quantile of the snapshot's gradient values.
+    if is_gradient_field:
+        if grid_for_scale is not None and np.isfinite(grid_for_scale).any():
+            finite_vals = grid_for_scale[np.isfinite(grid_for_scale)]
+            vmax = float(np.quantile(finite_vals, 0.95))
+            if not np.isfinite(vmax) or vmax <= 0.0:
+                vmax = float(np.nanmax(finite_vals))
+            vmin = 0.0
+        else:
+            vmin, vmax = 0.0, 1.0
+        if math.isclose(vmin, vmax):
+            vmax = vmin + 1.0
+    else:
+        vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
+        if math.isclose(float(vmin), float(vmax)):
+            vmin -= 1.0
+            vmax += 1.0
+        if pipeline.enforce_nonnegative_vtec:
+            vmin = max(float(vmin), 0.0)
+
+    if include_grid and grid_for_scale is not None:
         # Prefer strict-JSON safe z: replace NaN with None.
         z_rows: list[list[float | None]] = []
-        for row in grid:
+        for row in grid_for_scale:
             z_rows.append([float(v) if np.isfinite(v) else None for v in row])
 
+        heatmap_name = "|∇VTEC| (interpolated)" if is_gradient_field else "Interpolated VTEC"
+        hover_unit = field_spec["hover_unit"]
+        z_label = "|∇VTEC|" if is_gradient_field else "VTEC"
         fig.add_trace(
             go.Heatmap(
                 x=lon_axis,
                 y=lat_axis,
                 z=z_rows,
-                colorscale=TEC_MAP_PLOTLY_COLORSCALE,
+                colorscale=field_spec["plotly_colorscale"],
                 zmin=float(vmin),
                 zmax=float(vmax),
-                colorbar={"title": "VTEC [TECU]"},
-                hovertemplate="Lon %{x:.2f}<br>Lat %{y:.2f}<br>VTEC %{z:.2f} TECU<extra></extra>",
-                name="Interpolated VTEC",
+                colorbar={"title": field_spec["colorbar_label"]},
+                hovertemplate="Lon %{x:.2f}<br>Lat %{y:.2f}<br>" + z_label + " %{z:.2f} " + hover_unit + "<extra></extra>",
+                name=heatmap_name,
                 showscale=True,
                 opacity=render.vtec_layer_alpha if render.vtec_layer_alpha is not None else 0.95,
                 zsmooth="best",
@@ -877,20 +1018,29 @@ def build_snapshot_plotly_json(
     )
 
     ipp_station_codes = [str(v).upper() for v in frame["station"].tolist()]
-    ipp_marker: dict[str, Any] = {
-        "size": 10,
-        "color": frame["vtec_tecu"],
-        "colorscale": TEC_MAP_PLOTLY_COLORSCALE,
-        "cmin": float(vmin),
-        "cmax": float(vmax),
-        "line": {"color": "black", "width": 0.7},
-    }
-    # Avoid duplicate colorbars when the contour layer already shows one.
-    if not include_grid:
-        ipp_marker["showscale"] = True
-        ipp_marker["colorbar"] = {"title": "VTEC [TECU]"}
+    if is_gradient_field:
+        # Per-IPP VTEC values are not on the gradient colour scale; show positions only.
+        ipp_marker: dict[str, Any] = {
+            "size": 8,
+            "color": "white",
+            "line": {"color": "black", "width": 0.7},
+        }
+        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>(per-IPP VTEC not on gradient scale)<extra></extra>"
     else:
-        ipp_marker["showscale"] = False
+        ipp_marker = {
+            "size": 10,
+            "color": frame["vtec_tecu"],
+            "colorscale": field_spec["plotly_colorscale"],
+            "cmin": float(vmin),
+            "cmax": float(vmax),
+            "line": {"color": "black", "width": 0.7},
+        }
+        if not include_grid:
+            ipp_marker["showscale"] = True
+            ipp_marker["colorbar"] = {"title": field_spec["colorbar_label"]}
+        else:
+            ipp_marker["showscale"] = False
+        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>VTEC %{marker.color:.2f} TECU<extra></extra>"
 
     fig.add_trace(
         go.Scatter(
@@ -899,14 +1049,14 @@ def build_snapshot_plotly_json(
             mode="markers",
             marker=ipp_marker,
             name="IPP samples",
-            hovertemplate="Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>VTEC %{marker.color:.2f} TECU<extra></extra>",
+            hovertemplate=ipp_hover,
             customdata=ipp_station_codes,
             showlegend=True,
         )
     )
 
     fig.update_layout(
-        title=f"VTEC map {frame_time:%Y-%m-%d %H:%M} UTC",
+        title=f"{field_spec['title_prefix']} {frame_time:%Y-%m-%d %H:%M} UTC",
         xaxis={"title": "Longitude [deg]", "range": [lon_min, lon_max]},
         yaxis={"title": "Latitude [deg]", "range": [lat_min, lat_max], "scaleanchor": "x", "scaleratio": 1.0},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},

@@ -144,6 +144,14 @@
             <label class="form-label" for="tecmap-height">Iono height (km)</label>
             <input id="tecmap-height" class="form-input" type="number" min="50" max="2000" step="1" value="350">
           </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-field">Field</label>
+            <select id="tecmap-field" class="form-select">
+              <option value="vtec" selected>VTEC [TECU]</option>
+              <option value="vtec_gradient">|∇VTEC| [TECU / 100 km]</option>
+            </select>
+            <div class="param-hint">VTEC magnitude or its spatial-gradient magnitude. Gradient is computed on the smoothed grid.</div>
+          </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
             <label class="form-label" for="tecmap-basemap">Basemap</label>
             <select id="tecmap-basemap" class="form-select">
@@ -2274,6 +2282,7 @@
     const samplingEl = document.getElementById("tecmap-sampling");
     const heightEl = document.getElementById("tecmap-height");
     const basemapEl = document.getElementById("tecmap-basemap");
+    const fieldEl = document.getElementById("tecmap-field");
     const stationHintEl = document.getElementById("tecmap-station-hint");
     const availYearEl = document.getElementById("tecmap-avail-year");
     const availDoyEl = document.getElementById("tecmap-avail-doy");
@@ -2625,6 +2634,9 @@
       addNumberParam(params, "ionosphere_height_km", heightEl);
       addNumberParam(params, "grid_resolution_deg", gridResEl);
       addNumberParam(params, "smoothing_sigma", sigmaEl);
+
+      const fieldValue = clean(fieldEl ? fieldEl.value : "") || "vtec";
+      if (fieldValue && fieldValue !== "vtec") params.set("field", fieldValue);
 
       if (mode === "range") {
         const startText = clean(startTimeEl ? startTimeEl.value : "");
