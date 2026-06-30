@@ -253,6 +253,12 @@
               <option value="cb/statistics">GET /cb/statistics — Statistics</option>
               <option value="cb/statistics/per-station-day">GET /cb/statistics/per-station-day — Statistics Per Station Day</option>
             </optgroup>
+            <optgroup label="Propagation (B_k / GDD)">
+              <option value="propagation/calc">GET /propagation/calc — B_k / GDD Direct Calc</option>
+              <option value="propagation/absoltec/raw">GET /propagation/absoltec/raw — AbsolTEC Raw + B_k/GDD</option>
+              <option value="propagation/absoltec/statistics">GET /propagation/absoltec/statistics — AbsolTEC Stats + B_k/GDD</option>
+              <option value="propagation/tec/raw">GET /propagation/tec/raw — TEC-suite Raw + B_k/GDD</option>
+            </optgroup>
             <optgroup label="TEC-suite">
               <option value="tec/stations">GET /tec/stations — Stations With Meta</option>
               <option value="tec/satellites">GET /tec/satellites — Satellites</option>
@@ -338,6 +344,47 @@
               <option value="csv">csv</option>
               <option value="xlsx">xlsx</option>
             </select>
+          </div>
+        </div>
+
+        <div class="divider" style="margin:4px 0 0;"></div>
+        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Propagation options (B_k / GDD)</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-signal-band">Signal band</label>
+            <select id="data-signal-band" class="form-select">
+              <option value="GPS_L1" selected>GPS_L1</option>
+              <option value="GPS_L2">GPS_L2</option>
+              <option value="GPS_L5">GPS_L5</option>
+              <option value="GAL_E1">GAL_E1</option>
+              <option value="GAL_E5A">GAL_E5A</option>
+              <option value="GAL_E5B">GAL_E5B</option>
+              <option value="GAL_E5">GAL_E5</option>
+              <option value="BDS_B1I">BDS_B1I</option>
+              <option value="BDS_B1C">BDS_B1C</option>
+              <option value="BDS_B2A">BDS_B2A</option>
+              <option value="BDS_B2I">BDS_B2I</option>
+              <option value="">(use custom f_hz)</option>
+            </select>
+            <div class="param-hint">GNSS preset for the working frequency <b>f</b>. Choose "(use custom f_hz)" to override with an explicit value.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-f-hz">Custom f_hz</label>
+            <input id="data-f-hz" class="form-input" type="number" min="1" step="0.01" placeholder="e.g. 1575420000">
+            <div class="param-hint">Optional explicit frequency in Hz. Takes priority over the preset when set.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-tec">TEC (TECU)</label>
+            <input id="data-tec" class="form-input" type="number" min="0" step="0.1" value="20" placeholder="for /propagation/calc">
+            <div class="param-hint">Direct N_t source for <b>/propagation/calc</b> only (N_t = TEC · 10¹⁶).</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-observable">Observable</label>
+            <select id="data-observable" class="form-select">
+              <option value="tec_l1l2" selected>tec_l1l2</option>
+              <option value="tec_c1p2">tec_c1p2</option>
+            </select>
+            <div class="param-hint">TEC-suite observable for <b>/propagation/tec/raw</b>.</div>
           </div>
         </div>
 
@@ -612,6 +659,8 @@
 
     function getDataSourceType() {
       const endpoint = document.getElementById("data-endpoint")?.value || "";
+      if (endpoint === "propagation/tec/raw") return "tec";
+      if (endpoint.startsWith("propagation/")) return "absoltec";
       if (endpoint.startsWith("tec/") || endpoint.startsWith("stations/")) return "tec";
       return "absoltec";
     }
@@ -695,6 +744,22 @@
         required: ["data-year", "data-doy"],
         relevant: ["data-year", "data-doy", "data-format"],
       },
+      "propagation/calc": {
+        required: ["data-tec"],
+        relevant: ["data-tec", "data-signal-band", "data-f-hz", "data-format"],
+      },
+      "propagation/absoltec/raw": {
+        required: ["data-year", "data-doy", "data-station"],
+        relevant: ["data-year", "data-doy", "data-station", "data-signal-band", "data-f-hz", "data-format"],
+      },
+      "propagation/absoltec/statistics": {
+        required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+        relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-signal-band", "data-f-hz", "data-alpha", "data-format"],
+      },
+      "propagation/tec/raw": {
+        required: ["data-year", "data-doy", "data-station", "data-satellite"],
+        relevant: ["data-year", "data-doy", "data-station", "data-satellite", "data-observable", "data-signal-band", "data-f-hz", "data-format"],
+      },
     };
 
     const plotEndpointRules = {
@@ -771,6 +836,10 @@
       "data-source": "source",
       "data-alpha": "alpha",
       "data-format": "format",
+      "data-signal-band": "signal_band",
+      "data-f-hz": "f_hz",
+      "data-tec": "tec",
+      "data-observable": "observable",
     };
 
     const plotFieldLabels = {
@@ -1071,6 +1140,33 @@
       const satellite = document.getElementById("data-satellite").value;
       const source = document.getElementById("data-source").value;
       const alpha = document.getElementById("data-alpha").value;
+
+      // Propagation endpoints (proxied to tec-stat) — explicit per-endpoint param sets.
+      if (endpoint.startsWith("propagation/")) {
+        if (endpoint === "propagation/calc") {
+          qpAppend(params, "tec", document.getElementById("data-tec").value);
+        } else if (endpoint === "propagation/absoltec/raw") {
+          qpAppend(params, "year", year);
+          qpAppend(params, "doy", doy);
+          qpAppend(params, "station", station);
+        } else if (endpoint === "propagation/absoltec/statistics") {
+          qpAppend(params, "year", year);
+          qpAppend(params, "doy_start", doyStart);
+          qpAppend(params, "doy_end", doyEnd);
+          qpAppend(params, "station", station);
+          qpAppend(params, "alpha", alpha);
+        } else if (endpoint === "propagation/tec/raw") {
+          qpAppend(params, "year", year);
+          qpAppend(params, "doy", doy);
+          qpAppend(params, "station", station);
+          qpAppend(params, "satellite", satellite);
+          qpAppend(params, "observable", document.getElementById("data-observable").value);
+        }
+        qpAppend(params, "signal_band", document.getElementById("data-signal-band").value);
+        qpAppend(params, "f_hz", document.getElementById("data-f-hz").value);
+        qpAppend(params, "format", document.getElementById("data-format").value);
+        return "/analysis/api/" + endpoint + "?" + params.toString();
+      }
 
       qpAppend(params, "year", year);
 

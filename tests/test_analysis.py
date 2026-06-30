@@ -122,6 +122,83 @@ def test_analysis_proxy_forwards_api_request(client: TestClient, monkeypatch):
         app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_analysis_proxy_forwards_propagation_calc(client: TestClient, monkeypatch):
+    import app.analysis as analysis_module
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    class FakeResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.content = b'{"nt": 2e17, "b_k": 1.0, "gdd": -1.0}'
+            self.headers = {"content-type": "application/json"}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            assert method == "GET"
+            assert url == "http://tec-backend:8000/propagation/calc?tec=20&signal_band=GPS_L1"
+            return FakeResponse()
+
+    monkeypatch.setattr(analysis_module.cfg, "ANALYSIS_API_BASE_URL", "http://tec-backend:8000")
+    monkeypatch.setattr(analysis_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        response = client.get("/analysis/api/propagation/calc?tec=20&signal_band=GPS_L1")
+        assert response.status_code == 200
+        assert response.json()["b_k"] == 1.0
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_analysis_page_exposes_propagation_endpoints(client: TestClient):
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        response = client.get("/analysis")
+        assert response.status_code == 200
+
+        html = response.text
+        # Dropdown options for the proxied tec-stat propagation endpoints.
+        assert 'value="propagation/calc"' in html
+        assert 'value="propagation/absoltec/raw"' in html
+        assert 'value="propagation/absoltec/statistics"' in html
+        assert 'value="propagation/tec/raw"' in html
+        # New input fields + rules + URL-builder wiring.
+        assert 'id="data-signal-band"' in html
+        assert 'id="data-f-hz"' in html
+        assert 'id="data-tec"' in html
+        assert 'id="data-observable"' in html
+        assert '"propagation/calc": {' in html
+        assert 'required: ["data-tec"]' in html
+        assert 'if (endpoint.startsWith("propagation/")) {' in html
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
     from app.auth import get_current_user
     from app.main import app
