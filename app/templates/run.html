@@ -11,10 +11,13 @@
 </div>
 
 <!-- ── Two-column layout: form left, output right ─────────────────── -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start;">
+<!-- minmax(0,1fr): a plain 1fr track has min-width:auto, so an unwrappable
+     Recent Runs range string would blow out the right column and collapse
+     the form to zero width. -->
+<div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start;">
 
   <!-- Left: Flag configuration form -->
-  <div class="card">
+  <div class="card" style="min-width:0;">
     <div class="card-header">
       <div class="card-title">{{ t('run_configuration') }}</div>
     </div>
@@ -297,7 +300,7 @@
   </div>
 
   <!-- Right: Job output panel (filled by HTMX after submission) -->
-  <div>
+  <div style="min-width:0;">
     <div id="job-output">
       {% if active_job %}
       {% set job = active_job %}
