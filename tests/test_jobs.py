@@ -479,6 +479,91 @@ class TestStartJob:
         )
         assert response.status_code == 400
 
+    def _start_abstec_dockur_job_data(self, **overrides):
+        return self._start_abstec_job_data(runner="dockur", **overrides)
+
+    @pytest.fixture
+    def dockur_env(self, monkeypatch):
+        monkeypatch.setattr("app.jobs.cfg.ABSTEC_DOCKUR_JOBS_PATH_HOST", "/data/dockur-jobs")
+        monkeypatch.setattr("app.jobs.cfg.ABSTEC_DOCKUR_VM_CONTAINER", "abstec-xp")
+
+    @patch("app.jobs.start_container", return_value="container_dockur_vm_up")
+    @patch("app.jobs.ensure_container_running", return_value="running")
+    def test_dockur_job_checks_vm_and_starts_when_already_running(
+        self, mock_ensure, mock_start, operator_client, dockur_env
+    ):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_dockur_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        mock_ensure.assert_called_once_with("abstec-xp")
+        assert mock_start.called
+        # No boot notice when the VM was already up.
+        assert b"started automatically" not in response.content
+
+    @patch("app.jobs.start_container", return_value="container_dockur_vm_started")
+    @patch("app.jobs.ensure_container_running", return_value="started")
+    def test_dockur_job_autostarts_stopped_vm_and_shows_notice(
+        self, mock_ensure, mock_start, operator_client, dockur_env
+    ):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_dockur_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        mock_ensure.assert_called_once_with("abstec-xp")
+        assert mock_start.called
+        assert b"started automatically" in response.content
+
+    @patch("app.jobs.start_container", return_value="container_dockur_vm_missing")
+    @patch("app.jobs.ensure_container_running", return_value="not_found")
+    def test_dockur_job_rejected_when_vm_container_missing(
+        self, mock_ensure, mock_start, operator_client, dockur_env
+    ):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_dockur_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"does not exist" in response.content
+        assert not mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_dockur_vm_error")
+    @patch("app.jobs.ensure_container_running", side_effect=RuntimeError("daemon down"))
+    def test_dockur_job_returns_500_when_vm_start_fails(
+        self, mock_ensure, mock_start, operator_client, dockur_env
+    ):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_dockur_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 500
+        assert b"daemon down" in response.content
+        assert not mock_start.called
+
+    @patch("app.jobs.start_container", return_value="container_abstec_wine")
+    @patch("app.jobs.ensure_container_running", return_value="running")
+    def test_non_dockur_abstec_job_skips_vm_check(
+        self, mock_ensure, mock_start, operator_client, dockur_env
+    ):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        assert not mock_ensure.called
+
     @patch("app.jobs.start_container", return_value="container_dat_parquet")
     def test_dat_parquet_uses_tecsuite_env_paths(self, mock_start, operator_client, db):
         response = operator_client.post(

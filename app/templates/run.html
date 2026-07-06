@@ -851,6 +851,10 @@
       });
 
       syncSelect(siteSelect, siteHidden, siteChips);
+
+      // Batch mode auto-discovers stations; --site is only valid for
+      // single-run mode, so lock the selector while batch days are set.
+      siteSelect.disabled = selectedValues(daysSelect).length > 0;
     }
 
     yearSelect.addEventListener("change", function () {

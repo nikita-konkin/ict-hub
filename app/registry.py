@@ -333,8 +333,13 @@ CONVERTERS: dict[str, dict] = {
                     ("auto", "auto"),
                     ("wine", "wine"),
                     ("direct", "direct"),
+                    ("dockur", "dockur (Windows XP VM)"),
                 ],
-                "help": "Execution backend for absolTEC.exe.",
+                "help": (
+                    "Execution backend for absolTEC.exe. 'dockur' dispatches jobs to the "
+                    "Windows XP VM and requires ABSTEC_DOCKUR_JOBS_PATH_HOST plus a running "
+                    "abstec-xp container sharing the same in/out paths."
+                ),
             },
             {
                 "name": "--execution-timeout-seconds",
@@ -432,6 +437,20 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
         cmd.extend(["-c", conv["cfg_path"]])
     if "tecs_path" in conv:
         cmd.extend(["-t", conv["tecs_path"]])
+
+    # Wire the dockur XP runner: mount the shared jobs directory into the
+    # abstec-suite container and point the runner at it. The XP VM must mount
+    # the same jobs dir (/shared/jobs) and the same DAT in / output out paths.
+    if converter_name == "abstec-suite" and str(form_data.get("runner", "")).strip() == "dockur":
+        if not cfg.ABSTEC_DOCKUR_JOBS_PATH_HOST:
+            raise ValueError(
+                "Runner 'dockur' requires ABSTEC_DOCKUR_JOBS_PATH_HOST to be set in .env "
+                "(host path of abstec-suite/dockur/jobs shared with the XP VM)."
+            )
+        volumes[str(cfg.ABSTEC_DOCKUR_JOBS_PATH_HOST)] = {"bind": "/data/jobs", "mode": "rw"}
+        cmd.extend(["--dockur-jobs-dir", "/data/jobs"])
+        if cfg.ABSTEC_DOCKUR_GUEST_DAT_PATH:
+            cmd.extend(["--dockur-guest-dat-path", cfg.ABSTEC_DOCKUR_GUEST_DAT_PATH])
 
     # Persist tec-suite output using env-configured host path (no --out flag).
     if converter_name == "tec-suite" and cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST:

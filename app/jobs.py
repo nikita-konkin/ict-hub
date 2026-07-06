@@ -41,7 +41,13 @@ from app.data_indexer_client import (
     list_rinex_server_structure_async,
     list_tecsuite_output_structure_async,
 )
-from app.runner import list_running_containers, start_container, stop_container, stream_logs
+from app.runner import (
+    ensure_container_running,
+    list_running_containers,
+    start_container,
+    stop_container,
+    stream_logs,
+)
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -691,6 +697,7 @@ async def start_job(
     # Convert form data to a regular dict for processing
     form_dict = {k: v for k, v in form.items() if k != "converter_name"}
     dat_parquet_source_note = ""
+    vm_notice = ""
 
     if converter_name == "tec-suite":
         root_host = cfg.RINEX_DATA_PATH_HOST.strip()
@@ -715,6 +722,66 @@ async def start_job(
             )
         form_dict["dat_path"] = dat_root_host
         form_dict["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
+        # Batch mode auto-discovers stations per day; run_absoltec rejects
+        # --days combined with --site, so fail fast with a friendly message.
+        if str(form_dict.get("days", "")).strip() and str(form_dict.get("site", "")).strip():
+            return HTMLResponse(
+                '<div class="alert alert-danger">Days (batch mode) cannot be combined with a Site '
+                "selection — batch runs auto-discover stations for each day. Clear the Site "
+                "selection, or use Day Of Year (single run) together with Site.</div>",
+                status_code=400,
+            )
+        # The XP guest executes jobs one at a time from a single shared queue:
+        # parallel dockur runs gain nothing, blow through timeouts while queued,
+        # and can cross-rename same-prefix station outputs from the shared out
+        # folder. Allow only one dockur job at a time.
+        if str(form_dict.get("runner", "")).strip() == "dockur":
+            running_abstec = (
+                db.query(JobRun)
+                .filter(JobRun.converter == "abstec-suite", JobRun.status == "running")
+                .all()
+            )
+            if any(j.flags.get("runner") == "dockur" for j in running_abstec):
+                return HTMLResponse(
+                    '<div class="alert alert-danger">Another AbsTEC dockur job is already '
+                    "running. The Windows XP VM processes jobs strictly one at a time from a "
+                    "single queue, so a parallel dockur run would only sit in the queue, hit "
+                    "its execution timeout, and risk mixing outputs of stations that share a "
+                    "4-character prefix. Wait for the running job to finish or stop it first.</div>",
+                    status_code=400,
+                )
+            # The guest watcher only runs while the XP VM container is up, so
+            # a stopped VM would silently burn the whole execution timeout.
+            # Start it here if it exists but is not running.
+            vm_name = cfg.ABSTEC_DOCKUR_VM_CONTAINER.strip()
+            try:
+                vm_state = ensure_container_running(vm_name)
+            except Exception as exc:
+                logger.error("Failed to start XP VM container %r: %s", vm_name, exc)
+                return HTMLResponse(
+                    f'<div class="alert alert-danger">Could not start the Windows XP VM '
+                    f"container '{vm_name}': {exc}</div>",
+                    status_code=500,
+                )
+            if vm_state == "not_found":
+                return HTMLResponse(
+                    f'<div class="alert alert-danger">The Windows XP VM container '
+                    f"'{vm_name}' does not exist, so no guest is available to execute "
+                    "dockur jobs. Create it first from the abstec-suite folder with "
+                    "<code>docker compose -f docker-compose.dockur.yml up -d abstec-xp</code> "
+                    "(first boot installs XP and takes 10&ndash;20 minutes; watch "
+                    "port 8006).</div>",
+                    status_code=400,
+                )
+            if vm_state == "started":
+                logger.info("XP VM container %r was stopped; started it for this job", vm_name)
+                vm_notice = (
+                    f"The Windows XP VM container '{vm_name}' was stopped and has been "
+                    "started automatically. Windows XP needs a minute or two to boot "
+                    "before its job watcher picks up the first station, so the first "
+                    "run takes correspondingly longer — make sure the execution "
+                    "timeout has enough headroom."
+                )
     elif converter_name == "dat-parquet-handler":
         direction = str(form_dict.get("direction", "dat-to-parquet")).strip() or "dat-to-parquet"
         profile_name = str(form.get("dataset_profile", "tecsuite")).strip() or "tecsuite"
@@ -880,7 +947,7 @@ async def start_job(
     # Return the SSE monitoring panel. HTMX will swap this into #job-output.
     response = templates.TemplateResponse(
         "job_panel.html",
-        template_context(request, job=job, converter=conv),
+        template_context(request, job=job, converter=conv, vm_notice=vm_notice),
     )
     return apply_lang_cookie(request, response)
 

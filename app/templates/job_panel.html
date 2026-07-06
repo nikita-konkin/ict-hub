@@ -13,6 +13,11 @@
      data-converter-label="{{ converter.label }}"
      style="margin-bottom:16px;">
 
+  {% if vm_notice is defined and vm_notice %}
+  <!-- One-off notice from job start (e.g. the XP VM was auto-started) -->
+  <div class="alert alert-warning" style="margin-bottom:16px;">{{ vm_notice }}</div>
+  {% endif %}
+
   <!-- Header row: job metadata + stop / dismiss buttons -->
   <div class="card" style="margin-bottom:16px;">
     <div class="card-body" style="padding:16px 20px;">

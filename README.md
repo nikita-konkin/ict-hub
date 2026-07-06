@@ -260,6 +260,15 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `PARQUET_OUTPUT_ABSTEC_DATA_PATH` | `/app/abstec_parquet_out`    | Container path for AbsTEC Parquet output       |
 | `PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER` | `/mnt/abstec-parquet-out` | Path inside converter-hub for browsing AbsTEC Parquet output |
 
+### AbsTEC dockur XP Runner (optional)
+Enables the "dockur (Windows XP VM)" option in the AbsTEC Suite **Runner** dropdown. Requires the `abstec-xp` VM from `abstec-suite/docker-compose.dockur.yml` to exist and share the same DAT input / output host paths (see `abstec-suite/README.dockur.md`). When a dockur job is submitted the hub checks the VM container and starts it automatically if it is stopped (a notice is shown, since XP needs a minute or two to boot before the first station runs); if the container does not exist at all, the job is rejected with setup instructions.
+
+| Variable           | Default                                  | Description                                   |
+|--------------------|------------------------------------------|-----------------------------------------------|
+| `ABSTEC_DOCKUR_JOBS_PATH_HOST` | ``                               | Host path of `abstec-suite/dockur/jobs` (the job queue shared with the XP VM). Empty disables the dockur runner. |
+| `ABSTEC_DOCKUR_GUEST_DAT_PATH` | `` (runner default `W:\in\`)     | DAT input path as seen from inside the XP guest |
+| `ABSTEC_DOCKUR_VM_CONTAINER` | `abstec-xp`                        | Name of the XP VM container the hub auto-starts before dispatching a dockur job |
+
 ### Analysis Integration
 | Variable           | Default                                  | Description                                   |
 |--------------------|------------------------------------------|-----------------------------------------------|

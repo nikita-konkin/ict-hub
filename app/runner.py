@@ -140,6 +140,38 @@ def start_container(
     return container.id
 
 
+def ensure_container_running(name: str) -> str:
+    """
+    Ensure the named container exists and is running, starting it if needed.
+
+    Returns:
+      "running"   — already running, nothing done
+      "started"   — existed but was stopped/paused; it has been (re)started
+      "not_found" — no container with that name exists
+
+    Raises docker.errors.DockerException if the daemon is unreachable or the
+    start itself fails.
+    """
+    client = docker.from_env()
+    try:
+        container = client.containers.get(name)
+    except docker.errors.NotFound:
+        return "not_found"
+    container.reload()
+    state = container.attrs.get("State", {}) or {}
+    if bool(state.get("Paused", False)):
+        logger.info("Container %s is paused; unpausing", name)
+        container.unpause()
+        return "started"
+    if bool(state.get("Running", False)):
+        return "running"
+    logger.info(
+        "Container %s is %s; starting it", name, state.get("Status", "unknown")
+    )
+    container.start()
+    return "started"
+
+
 async def stream_logs(
     container_id: str,
     progress_patterns: list[str],

@@ -58,6 +58,16 @@ services:
       ABSTEC_OUTPUT_DATA_PATH_HOST: ${ABSTEC_OUTPUT_DATA_PATH_HOST:-}
       ABSTEC_OUTPUT_DATA_PATH: ${ABSTEC_OUTPUT_DATA_PATH:-/app/abstec_out}
       ABSTEC_OUTPUT_DATA_PATH_CONTAINER: ${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
+      # ── AbsTEC dockur XP runner (optional) ───────────────────────────────
+      # Host path of abstec-suite/dockur/jobs — the job queue shared with the
+      # Windows XP VM (abstec-xp mounts it as /shared/jobs). Leave empty to
+      # keep the "dockur" runner option disabled.
+      ABSTEC_DOCKUR_JOBS_PATH_HOST: ${ABSTEC_DOCKUR_JOBS_PATH_HOST:-}
+      # Optional DAT input path as seen from inside the XP guest (default W:\in\).
+      ABSTEC_DOCKUR_GUEST_DAT_PATH: ${ABSTEC_DOCKUR_GUEST_DAT_PATH:-}
+      # Name of the XP VM container; the hub auto-starts it if it is stopped
+      # when a dockur job is submitted.
+      ABSTEC_DOCKUR_VM_CONTAINER: ${ABSTEC_DOCKUR_VM_CONTAINER:-abstec-xp}
       # ── DAT <-> Parquet output persistence ───────────────────────────────
       PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST: ${PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST:-}
       PARQUET_OUTPUT_TECSUITE_DATA_PATH: ${PARQUET_OUTPUT_TECSUITE_DATA_PATH:-/app/tecsuite_parquet_out}

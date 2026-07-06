@@ -46,6 +46,20 @@ ABSTEC_OUTPUT_DATA_PATH: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH", "/app/abstec
 # Path inside converter-hub container used to browse AbsTEC output folders.
 ABSTEC_OUTPUT_DATA_PATH_CONTAINER: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH_CONTAINER", "")
 
+# Host path of the dockur XP runner's shared jobs directory (abstec-suite/dockur/jobs,
+# also mounted into the XP VM as /shared/jobs). Required for the "dockur" runner
+# option of the AbsTEC Suite converter.
+ABSTEC_DOCKUR_JOBS_PATH_HOST: str = os.getenv("ABSTEC_DOCKUR_JOBS_PATH_HOST", "")
+
+# Optional: DAT input path as seen from inside the XP guest (dia line 1).
+# Leave empty to use the runner's default (W:\in\).
+ABSTEC_DOCKUR_GUEST_DAT_PATH: str = os.getenv("ABSTEC_DOCKUR_GUEST_DAT_PATH", "")
+
+# Name of the dockur XP VM container (abstec-suite/docker-compose.dockur.yml).
+# Before dispatching a dockur job the hub checks this container and starts it
+# if it exists but is stopped, so the guest watcher can pick the job up.
+ABSTEC_DOCKUR_VM_CONTAINER: str = os.getenv("ABSTEC_DOCKUR_VM_CONTAINER", "abstec-xp")
+
 # Host path where DAT -> Parquet output from TEC-Suite input should be persisted.
 PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST: str = os.getenv("PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
 
