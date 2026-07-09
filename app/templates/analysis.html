@@ -145,12 +145,39 @@
             <input id="tecmap-height" class="form-input" type="number" min="50" max="2000" step="1" value="350">
           </div>
           <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-interp">Interpolation</label>
+            <select id="tecmap-interp" class="form-select">
+              <option value="linear" selected>linear (Delaunay triangulation)</option>
+              <option value="kriging">kriging (ordinary, exp. variogram per frame)</option>
+            </select>
+            <div class="param-hint">Map construction principle. Kriging fits an exponential variogram to each frame's samples, weights noisy measurements via the nugget effect and relaxes to the field mean away from data (no nearest-neighbour plateaus).</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="tecmap-field">Field</label>
             <select id="tecmap-field" class="form-select">
               <option value="vtec" selected>VTEC [TECU]</option>
               <option value="vtec_gradient">|∇VTEC| [TECU / 100 km]</option>
+              <option value="gdd">GDD |D| [ns/GHz]</option>
+              <option value="b_k">B_k coherence bandwidth [MHz]</option>
             </select>
-            <div class="param-hint">VTEC magnitude or its spatial-gradient magnitude. Gradient is computed on the smoothed grid.</div>
+            <div class="param-hint">VTEC, its spatial-gradient magnitude, or propagation fields derived pointwise from VTEC (GDD, B_k).</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-signal-band">Signal band (GDD / B_k)</label>
+            <select id="tecmap-signal-band" class="form-select">
+              <option value="gps_l1" selected>GPS L1 (1575.42 MHz)</option>
+              <option value="gps_l2">GPS L2 (1227.60 MHz)</option>
+              <option value="gps_l5">GPS L5 (1176.45 MHz)</option>
+              <option value="galileo_e1">Galileo E1 (1575.42 MHz)</option>
+              <option value="galileo_e5a">Galileo E5a (1176.45 MHz)</option>
+              <option value="galileo_e5b">Galileo E5b (1207.14 MHz)</option>
+              <option value="galileo_e5">Galileo E5 AltBOC (1191.795 MHz)</option>
+              <option value="bds_b1i">BeiDou B1I (1561.098 MHz)</option>
+              <option value="bds_b1c">BeiDou B1C (1575.42 MHz)</option>
+              <option value="bds_b2a">BeiDou B2a (1176.45 MHz)</option>
+              <option value="bds_b2i">BeiDou B2I (1207.14 MHz)</option>
+            </select>
+            <div class="param-hint">Carrier frequency used only when Field is GDD or B_k.</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="tecmap-vtec-smooth">VTEC smooth (epochs)</label>
@@ -176,11 +203,63 @@
             </select>
             <div class="param-hint">If the selected basemap source is unavailable, the GIF now falls back to plain lat/lon rendering.</div>
           </div>
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+            <label class="form-label" for="tecmap-basemap-alpha">Basemap opacity</label>
+            <input id="tecmap-basemap-alpha" class="form-input" type="number" min="0" max="1" step="0.05" value="0.28">
+            <div class="param-hint">Opacity of the geographic tile layer under the field (0 = invisible, 1 = fully opaque). Default 0.28.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+            <label class="form-label" for="tecmap-field-alpha">Field opacity (optional)</label>
+            <input id="tecmap-field-alpha" class="form-input" type="number" min="0" max="1" step="0.05" placeholder="auto">
+            <div class="param-hint">Opacity of the colour field itself. Empty = automatic (0.72 over a basemap, 0.95 without). Lower it to see more map detail through the field.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+            <label class="form-label" for="tecmap-format">Output format</label>
+            <select id="tecmap-format" class="form-select">
+              <option value="gif" selected>GIF (animated)</option>
+              <option value="mp4">MP4 (H.264 video)</option>
+              <option value="webm">WebM (VP9 video)</option>
+            </select>
+            <div class="param-hint">MP4/WebM: full 24-bit colour (no GIF palette banding) and much smaller files for long ranges.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+            <label class="form-label" for="tecmap-quality">Quality</label>
+            <select id="tecmap-quality" class="form-select">
+              <option value="standard" selected>standard (fast)</option>
+              <option value="high">high (adaptive palette + dithering, full DPI)</option>
+            </select>
+            <div class="param-hint">High: better GIF palette (Floyd–Steinberg) and no automatic DPI reduction on long ranges. Slower encode.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-upsample">Grid upsample</label>
+            <select id="tecmap-upsample" class="form-select">
+              <option value="1">1× (off)</option>
+              <option value="2" selected>2× (default)</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+            </select>
+            <div class="param-hint">Render-grid upsampling: the coverage mask is evaluated at render resolution, so the field edge stays a smooth union of circles (rendering only, no new data).</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+            <label class="form-label" for="tecmap-dpi">Frame DPI (optional)</label>
+            <input id="tecmap-dpi" class="form-input" type="number" min="50" max="300" step="10" placeholder="auto">
+            <div class="param-hint">Explicit render DPI (50–300). Empty = automatic (120, reduced for long standard-quality GIFs).</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-show-accuracy">Show accuracy on map</label>
+            <select id="tecmap-show-accuracy" class="form-select">
+              <option value="off" selected>off</option>
+              <option value="on">on (LOSO RMSE per frame)</option>
+            </select>
+            <div class="param-hint">Annotates each frame with its leave-one-station-out accuracy: every station is excluded in turn and predicted from the others; the RMSE (TECU) quantifies map fidelity at reference points.</div>
+          </div>
         </div>
       </details>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">Run TEC Map</button>
+        <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot">Download PNG frame (300 dpi)</button>
+        <button id="tecmap-validate" type="button" class="btn btn-secondary">Validate accuracy (LOSO)</button>
         <a id="tecmap-last-url" href="#" class="btn btn-ghost" style="display:none;" target="_blank" rel="noopener">Open request URL</a>
       </div>
     </form>
@@ -191,11 +270,13 @@
       <div id="tecmap-plot" style="width:100%; height:520px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface-2); display:none;"></div>
       <div id="tecmap-gif-wrap" style="display:none;">
         <img id="tecmap-gif" alt="TEC Map animation" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:block;">
+        <video id="tecmap-video" controls loop muted playsinline style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:none;"></video>
         <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap;">
           <a id="tecmap-gif-download" class="btn btn-secondary" href="#" download="tec_map.gif" style="display:none;">Download GIF</a>
         </div>
       </div>
     </div>
+    <div id="tecmap-validate-result" style="margin-top:14px; display:none;"></div>
   </div>
 </div>
 
@@ -2393,8 +2474,17 @@
     const heightEl = document.getElementById("tecmap-height");
     const basemapEl = document.getElementById("tecmap-basemap");
     const fieldEl = document.getElementById("tecmap-field");
+    const signalBandEl = document.getElementById("tecmap-signal-band");
+    const interpEl = document.getElementById("tecmap-interp");
+    const basemapAlphaEl = document.getElementById("tecmap-basemap-alpha");
+    const fieldAlphaEl = document.getElementById("tecmap-field-alpha");
+    const formatEl = document.getElementById("tecmap-format");
+    const qualityEl = document.getElementById("tecmap-quality");
+    const upsampleEl = document.getElementById("tecmap-upsample");
+    const dpiEl = document.getElementById("tecmap-dpi");
     const vtecSmoothEl = document.getElementById("tecmap-vtec-smooth");
     const normalizeStationsEl = document.getElementById("tecmap-normalize-stations");
+    const showAccuracyEl = document.getElementById("tecmap-show-accuracy");
     const stationHintEl = document.getElementById("tecmap-station-hint");
     const availYearEl = document.getElementById("tecmap-avail-year");
     const availDoyEl = document.getElementById("tecmap-avail-doy");
@@ -2407,6 +2497,10 @@
     const plotEl = document.getElementById("tecmap-plot");
     const gifWrapEl = document.getElementById("tecmap-gif-wrap");
     const gifImgEl = document.getElementById("tecmap-gif");
+    const videoEl = document.getElementById("tecmap-video");
+    const framePngBtn = document.getElementById("tecmap-frame-png");
+    const validateBtn = document.getElementById("tecmap-validate");
+    const validateResultEl = document.getElementById("tecmap-validate-result");
     const gifDownloadEl = document.getElementById("tecmap-gif-download");
     const lastUrlEl = document.getElementById("tecmap-last-url");
 
@@ -2681,7 +2775,7 @@
     }
 
     async function runGif(url) {
-      setStatus("info", "Rendering GIF…");
+      setStatus("info", "Rendering animation…");
       const controller = new AbortController();
       const timeoutMs = 900000; // 15 min; full-day + multiple stations can be heavy
       const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
@@ -2693,21 +2787,35 @@
       }
       if (!res.ok) {
         const text = await res.text();
-        throw new Error("GIF failed (" + res.status + "): " + text);
+        throw new Error("Animation failed (" + res.status + "): " + text);
       }
+
+      const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
+      const isVideo = contentType.indexOf("video/") === 0;
+      const ext = contentType.indexOf("webm") >= 0 ? "webm" : (isVideo ? "mp4" : "gif");
 
       const blob = await res.blob();
       if (lastGifObjectUrl) URL.revokeObjectURL(lastGifObjectUrl);
       lastGifObjectUrl = URL.createObjectURL(blob);
 
-      if (gifImgEl) gifImgEl.src = lastGifObjectUrl;
+      if (gifImgEl) {
+        gifImgEl.style.display = isVideo ? "none" : "block";
+        gifImgEl.src = isVideo ? "" : lastGifObjectUrl;
+      }
+      if (videoEl) {
+        videoEl.style.display = isVideo ? "block" : "none";
+        videoEl.src = isVideo ? lastGifObjectUrl : "";
+        if (isVideo) videoEl.play().catch(function () {});
+      }
       if (gifWrapEl) gifWrapEl.style.display = "block";
       if (gifDownloadEl) {
         gifDownloadEl.href = lastGifObjectUrl;
+        gifDownloadEl.setAttribute("download", "tec_map." + ext);
+        gifDownloadEl.textContent = "Download " + ext.toUpperCase();
         gifDownloadEl.style.display = "";
       }
       if (outputEl) outputEl.style.display = "block";
-      setStatus("success", "GIF ready.");
+      setStatus("success", ext.toUpperCase() + " ready.");
     }
 
     function buildRequestUrl() {
@@ -2747,8 +2855,15 @@
       addNumberParam(params, "grid_resolution_deg", gridResEl);
       addNumberParam(params, "smoothing_sigma", sigmaEl);
 
+      const interpValue = clean(interpEl ? interpEl.value : "") || "linear";
+      if (interpValue !== "linear") params.set("interpolation", interpValue);
+
       const fieldValue = clean(fieldEl ? fieldEl.value : "") || "vtec";
       if (fieldValue && fieldValue !== "vtec") params.set("field", fieldValue);
+      if (fieldValue === "gdd" || fieldValue === "b_k") {
+        const bandValue = clean(signalBandEl ? signalBandEl.value : "") || "gps_l1";
+        if (bandValue !== "gps_l1") params.set("signal_band", bandValue);
+      }
 
       const smoothEpochs = Number(vtecSmoothEl ? vtecSmoothEl.value : "");
       if (Number.isFinite(smoothEpochs) && smoothEpochs > 0) {
@@ -2758,6 +2873,9 @@
       const normalizeValue = clean(normalizeStationsEl ? normalizeStationsEl.value : "") || "off";
       if (normalizeValue && normalizeValue !== "off") params.set("normalize_stations", normalizeValue);
 
+      const showAccuracyValue = clean(showAccuracyEl ? showAccuracyEl.value : "") || "off";
+      if (showAccuracyValue === "on") params.set("show_accuracy", "true");
+
       if (mode === "range") {
         const startText = clean(startTimeEl ? startTimeEl.value : "");
         const endText = clean(endTimeEl ? endTimeEl.value : "");
@@ -2765,6 +2883,24 @@
         params.set("start_time", startText);
         params.set("end_time", endText);
         if (basemapEl) params.set("basemap", clean(basemapEl.value) || "false");
+
+        const basemapAlphaValue = Number(basemapAlphaEl ? basemapAlphaEl.value : "");
+        if (Number.isFinite(basemapAlphaValue) && basemapAlphaValue >= 0 && basemapAlphaValue <= 1 && basemapAlphaValue !== 0.28) {
+          params.set("basemap_alpha", String(basemapAlphaValue));
+        }
+        const fieldAlphaValue = Number(fieldAlphaEl && fieldAlphaEl.value !== "" ? fieldAlphaEl.value : NaN);
+        if (Number.isFinite(fieldAlphaValue) && fieldAlphaValue >= 0 && fieldAlphaValue <= 1) {
+          params.set("field_alpha", String(fieldAlphaValue));
+        }
+
+        const fmtValue = clean(formatEl ? formatEl.value : "") || "gif";
+        if (fmtValue !== "gif") params.set("format", fmtValue);
+        const qualityValue = clean(qualityEl ? qualityEl.value : "") || "standard";
+        if (qualityValue !== "standard") params.set("quality", qualityValue);
+        const upsampleValue = clean(upsampleEl ? upsampleEl.value : "") || "2";
+        if (upsampleValue !== "2") params.set("upsample", upsampleValue);
+        const dpiValue = Number(dpiEl ? dpiEl.value : "");
+        if (Number.isFinite(dpiValue) && dpiValue >= 50) params.set("frame_dpi", String(Math.floor(dpiValue)));
         return "/tec-map/gif?" + params.toString();
       }
 
@@ -2772,6 +2908,162 @@
       if (!tsText) throw new Error("Snapshot mode requires timestamp.");
       params.set("timestamp", tsText);
       return "/tec-map/snapshot?" + params.toString();
+    }
+
+    function buildFrameUrl() {
+      const url = buildRequestUrl();
+      if (!url.startsWith("/tec-map/snapshot?")) {
+        throw new Error("Switch Mode to 'snapshot' to export a high-resolution PNG frame.");
+      }
+      const params = new URLSearchParams(url.slice("/tec-map/snapshot?".length));
+      params.set("dpi", "300");
+      const upsampleValue = clean(upsampleEl ? upsampleEl.value : "") || "2";
+      if (upsampleValue !== "2") params.set("upsample", upsampleValue);
+      return "/tec-map/frame?" + params.toString();
+    }
+
+    if (framePngBtn) {
+      framePngBtn.addEventListener("click", async function () {
+        let url = "";
+        try {
+          url = buildFrameUrl();
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+          return;
+        }
+        setLastUrl(url);
+        setStatus("info", "Rendering PNG frame (300 dpi)…");
+        try {
+          const res = await fetch(url, { credentials: "same-origin" });
+          if (!res.ok) {
+            throw new Error("Frame failed (" + res.status + "): " + (await res.text()));
+          }
+          const blob = await res.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = "tec_map_frame.png";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 30000);
+          setStatus("success", "PNG frame downloaded (300 dpi).");
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+        }
+      });
+    }
+
+    function buildValidateUrl() {
+      const url = buildRequestUrl();
+      let params;
+      if (url.startsWith("/tec-map/gif?")) {
+        params = new URLSearchParams(url.slice("/tec-map/gif?".length));
+      } else {
+        // Snapshot mode: validate the single frame bin containing the timestamp.
+        params = new URLSearchParams(url.slice("/tec-map/snapshot?".length));
+        const ts = params.get("timestamp") || "";
+        params.delete("timestamp");
+        params.set("start_time", ts);
+        params.set("end_time", ts);
+      }
+      // Rendering-only parameters are meaningless for cross-validation.
+      for (const key of ["basemap", "basemap_alpha", "field_alpha", "format", "quality",
+                         "upsample", "frame_dpi", "field", "signal_band", "show_accuracy", "interpolation"]) {
+        params.delete(key);
+      }
+      params.set("interpolation", "both");
+      return "/tec-map/validate?" + params.toString();
+    }
+
+    function fmtMetric(value) {
+      return (value === null || value === undefined || !Number.isFinite(Number(value)))
+        ? "—" : Number(value).toFixed(2);
+    }
+
+    function renderValidationTable(payload) {
+      if (!validateResultEl) return;
+      const results = payload && payload.results ? payload.results : {};
+      const methods = Object.keys(results);
+      if (!methods.length) {
+        validateResultEl.style.display = "";
+        validateResultEl.innerHTML = "<div class=\"param-hint\">Validation returned no results.</div>";
+        return;
+      }
+
+      const stations = new Set();
+      methods.forEach((m) => (results[m].per_station || []).forEach((row) => stations.add(row.station)));
+      const stationList = Array.from(stations).sort();
+      const byMethodStation = {};
+      methods.forEach((m) => {
+        byMethodStation[m] = {};
+        (results[m].per_station || []).forEach((row) => { byMethodStation[m][row.station] = row; });
+      });
+
+      let html = "<h4 style=\"margin:0 0 6px;\">LOSO cross-validation (criterion #1: accuracy at reference points)</h4>";
+      html += "<div class=\"param-hint\" style=\"margin-bottom:8px;\">Each station excluded in turn and predicted from the rest. Errors in TECU over in-coverage points; targets: 0.5–1 TECU (quiet), 1.5–2 TECU (disturbed).</div>";
+      html += "<div class=\"table-wrap\"><table style=\"font-size:12px;\"><thead><tr><th>Station</th>";
+      methods.forEach((m) => { html += "<th colspan=\"4\" style=\"text-align:center;\">" + m + "</th>"; });
+      html += "</tr><tr><th></th>";
+      methods.forEach(() => { html += "<th>N</th><th>Bias</th><th>MAE</th><th>RMSE</th>"; });
+      html += "</tr></thead><tbody>";
+
+      stationList.forEach((station) => {
+        html += "<tr><td>" + station.toUpperCase() + "</td>";
+        methods.forEach((m) => {
+          const row = byMethodStation[m][station] || {};
+          html += "<td>" + (row.n ?? "—") + "</td><td>" + fmtMetric(row.bias_tecu) + "</td><td>"
+                + fmtMetric(row.mae_tecu) + "</td><td>" + fmtMetric(row.rmse_tecu) + "</td>";
+        });
+        html += "</tr>";
+      });
+
+      html += "<tr style=\"font-weight:600; border-top:2px solid var(--border);\"><td>Overall</td>";
+      methods.forEach((m) => {
+        const o = results[m].overall || {};
+        html += "<td>" + (o.n ?? "—") + "</td><td>" + fmtMetric(o.bias_tecu) + "</td><td>"
+              + fmtMetric(o.mae_tecu) + "</td><td>" + fmtMetric(o.rmse_tecu) + "</td>";
+      });
+      html += "</tr></tbody></table></div>";
+
+      const outOfCoverage = methods
+        .map((m) => (results[m].overall || {}).n_out_of_coverage || 0)
+        .reduce((a, b) => Math.max(a, b), 0);
+      if (outOfCoverage > 0) {
+        html += "<div class=\"param-hint\" style=\"margin-top:6px;\">" + outOfCoverage
+              + " point(s) fell outside the 300 km coverage of the remaining stations and were excluded from the metrics.</div>";
+      }
+
+      validateResultEl.style.display = "";
+      validateResultEl.innerHTML = html;
+    }
+
+    if (validateBtn) {
+      validateBtn.addEventListener("click", async function () {
+        let url = "";
+        try {
+          url = buildValidateUrl();
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+          return;
+        }
+        setLastUrl(url);
+        setStatus("info", "Running LOSO cross-validation (linear + kriging)…");
+        validateBtn.disabled = true;
+        try {
+          const res = await fetch(url, { credentials: "same-origin" });
+          if (!res.ok) {
+            throw new Error("Validation failed (" + res.status + "): " + (await res.text()));
+          }
+          const payload = await res.json();
+          renderValidationTable(payload);
+          setStatus("success", "LOSO cross-validation done.");
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+        } finally {
+          validateBtn.disabled = false;
+        }
+      });
     }
 
     async function initAvailableDataUi() {

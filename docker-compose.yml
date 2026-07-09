@@ -125,12 +125,13 @@ services:
       - "host.docker.internal:host-gateway"
 
     # ── Resource limits ───────────────────────────────────────────────────
-    # The web service itself is very lightweight; these are conservative
-    # defaults for a local-network tool. Adjust freely.
+    # TEC-map rendering loads per-day GNSS dataframes (~0.5 GB peak for a
+    # 10-station day) and renders hundreds of matplotlib frames, so the old
+    # 1G limit caused OOM kills on multi-day GIF requests. Adjust freely.
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 4G
 
     healthcheck:
       test: ["CMD", "python", "-c",

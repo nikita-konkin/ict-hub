@@ -539,3 +539,462 @@ def test_build_snapshot_plotly_json_uses_jet_colorscale():
     assert contour_trace["zsmooth"] == "best"
     assert ipp_trace["marker"]["colorscale"][0][1] == "#0000ff"
     assert ipp_trace["marker"]["colorscale"][-1][1] == "#ff0000"
+
+
+def _simple_frame_summary() -> pd.DataFrame:
+    frame_summary = pd.DataFrame(
+        [
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "aksu",
+                "site_lat": 55.8,
+                "site_lon": 49.1,
+                "ipp_lat": 55.9,
+                "ipp_lon": 49.2,
+                "vtec_tecu": 10.0,
+                "samples": 4,
+            },
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "alme",
+                "site_lat": 54.9,
+                "site_lon": 52.3,
+                "ipp_lat": 55.0,
+                "ipp_lon": 52.4,
+                "vtec_tecu": 30.0,
+                "samples": 4,
+            },
+            {
+                "frame_time": "2026-01-02 00:00:00",
+                "station": "arsk",
+                "site_lat": 56.1,
+                "site_lon": 49.9,
+                "ipp_lat": 56.2,
+                "ipp_lon": 50.0,
+                "vtec_tecu": 20.0,
+                "samples": 4,
+            },
+        ]
+    )
+    frame_summary["frame_time"] = pd.to_datetime(frame_summary["frame_time"])
+    return frame_summary
+
+
+def test_gdd_and_bk_field_transforms_match_tec_stat_formulas():
+    from app.tec_map_fields import compute_bk_grid, compute_gdd_grid, resolve_signal_band
+
+    band, f_hz = resolve_signal_band("GPS_L1")
+    assert band == "gps_l1"
+    assert abs(f_hz - 1575.42e6) < 1.0
+
+    gdd = compute_gdd_grid(np.array([[30.0, 6.0], [0.0, np.nan]]), f_hz)
+    # 30 TECU @ L1 -> |D| = 9.83 ns/GHz; 6 TECU -> 1.97 ns/GHz (tec-stat formulas)
+    assert abs(gdd[0, 0] - 9.83) < 0.01
+    assert abs(gdd[0, 1] - 1.966) < 0.01
+    assert gdd[1, 0] == 0.0
+    assert np.isnan(gdd[1, 1])
+
+    b_k = compute_bk_grid(np.array([[30.0, 0.01]]), f_hz)
+    # 30 TECU @ L1 -> B_k = 124.3 MHz; below-threshold VTEC is masked.
+    assert abs(b_k[0, 0] - 124.35) < 0.5
+    assert np.isnan(b_k[0, 1])
+
+    try:
+        resolve_signal_band("nonexistent_band")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("resolve_signal_band must reject unknown bands")
+
+
+def test_build_animation_gif_bytes_renders_gdd_field():
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(field="gdd", signal_band="gps_l5", frame_dpi=50)
+
+    gif_bytes = build_animation_gif_bytes(
+        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
+    )
+
+    assert gif_bytes[:6] == b"GIF89a"
+    assert len(gif_bytes) > 1000
+
+
+def test_build_snapshot_plotly_json_gdd_uses_transformed_scale_and_points():
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(field="gdd", signal_band="gps_l1")
+
+    payload = build_snapshot_plotly_json(
+        frame_summary=_simple_frame_summary(),
+        frame_time=pd.Timestamp("2026-01-02 00:00:00"),
+        pipeline=pipeline,
+        render=render,
+        include_grid=True,
+    )
+
+    heatmap = next(trace for trace in payload["data"] if trace.get("type") == "heatmap")
+    assert "ns/GHz" in heatmap["colorbar"]["title"]["text"] or "ns/GHz" in str(heatmap["colorbar"]["title"])
+
+    ipp_trace = next(trace for trace in payload["data"] if trace.get("name") == "IPP samples")
+    colors = ipp_trace["marker"]["color"]
+    # Per-IPP values are GDD-transformed VTEC: 30 TECU -> ~9.83 ns/GHz.
+    assert any(abs(float(c) - 9.83) < 0.05 for c in colors if c is not None)
+
+
+def test_upsample_grid_preserves_nan_mask_and_values():
+    from app.tec_map_render import upsample_coordinates, upsample_grid
+
+    grid = np.array(
+        [
+            [1.0, 2.0, np.nan],
+            [3.0, 4.0, np.nan],
+            [np.nan, np.nan, np.nan],
+        ]
+    )
+    upsampled = upsample_grid(grid, 2)
+    assert upsampled.shape == (6, 6)
+    # Valid corner keeps its value; interior stays within the input range.
+    assert abs(upsampled[0, 0] - 1.0) < 1e-9
+    finite = upsampled[np.isfinite(upsampled)]
+    assert finite.min() >= 1.0 - 1e-9 and finite.max() <= 4.0 + 1e-9
+    # The all-NaN corner must stay masked.
+    assert np.isnan(upsampled[-1, -1])
+
+    lon, lat = np.meshgrid(np.array([0.0, 1.0, 2.0]), np.array([10.0, 11.0, 12.0]))
+    up_lon, up_lat = upsample_coordinates(lon, lat, 2)
+    assert up_lon.shape == (6, 6)
+    assert abs(up_lon[0, 0] - 0.0) < 1e-9 and abs(up_lon[0, -1] - 2.0) < 1e-9
+    assert abs(up_lat[0, 0] - 10.0) < 1e-9 and abs(up_lat[-1, 0] - 12.0) < 1e-9
+
+
+def test_build_animation_gif_bytes_high_quality_and_upsample():
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(frame_dpi=50, gif_high_quality=True, upsample_factor=2)
+
+    gif_bytes = build_animation_gif_bytes(
+        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
+    )
+
+    assert gif_bytes[:6] == b"GIF89a"
+    assert len(gif_bytes) > 1000
+
+
+def test_build_animation_bytes_mp4_when_imageio_available():
+    try:
+        import imageio.v2  # noqa: F401
+        import imageio_ffmpeg  # noqa: F401
+    except ImportError:
+        import pytest
+
+        pytest.skip("imageio/imageio-ffmpeg not installed")
+
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(frame_dpi=50, animation_format="mp4")
+
+    video_bytes = build_animation_gif_bytes(
+        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
+    )
+
+    # MP4 container: 'ftyp' box near the start of the file.
+    assert b"ftyp" in video_bytes[:64]
+    assert len(video_bytes) > 1000
+
+
+def test_color_overrides_apply_to_animation_color_scale():
+    from app.tec_map_render import TecMapRenderConfig as _RC
+    from app.tec_map_render import _apply_color_overrides
+
+    render = _RC(color_min=0.0, color_max=50.0)
+    assert _apply_color_overrides(5.0, 25.0, render) == (0.0, 50.0)
+
+    bad = _RC(color_min=10.0, color_max=1.0)
+    try:
+        _apply_color_overrides(5.0, 25.0, bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("color_min >= color_max must raise ValueError")
+
+
+def test_build_frame_image_bytes_renders_png_and_svg():
+    from app.tec_map_render import build_frame_image_bytes
+
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    render = TecMapRenderConfig(field="gdd", signal_band="gps_l1", frame_dpi=150, upsample_factor=2)
+
+    png_bytes = build_frame_image_bytes(
+        frame_summary=_simple_frame_summary(),
+        frame_time=pd.Timestamp("2026-01-02 00:00:00"),
+        pipeline=pipeline,
+        render=render,
+        image_format="png",
+    )
+    assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+    with Image.open(BytesIO(png_bytes)) as image:
+        # 150 dpi must give a visibly larger canvas than the 50 dpi GIF frames.
+        assert image.width > 700
+
+    svg_bytes = build_frame_image_bytes(
+        frame_summary=_simple_frame_summary(),
+        frame_time=pd.Timestamp("2026-01-02 00:00:00"),
+        pipeline=pipeline,
+        render=render,
+        image_format="svg",
+    )
+    assert b"<svg" in svg_bytes[:1024]
+
+
+def test_coverage_edge_is_round_at_render_resolution():
+    from app.tec_map_render import compute_field_grid, great_circle_distance_km
+
+    frame = pd.DataFrame(
+        [
+            {
+                "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+                "station": "aksu",
+                "site_lat": 55.0,
+                "site_lon": 50.0,
+                "ipp_lat": 55.0,
+                "ipp_lon": 50.0,
+                "vtec_tecu": 10.0,
+                "samples": 4,
+            }
+        ]
+    )
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0)
+    grid_lon, grid_lat = np.meshgrid(np.arange(45.0, 55.5, 1.0), np.arange(50.0, 60.5, 1.0))
+
+    grid, plot_lon, plot_lat = compute_field_grid(frame, grid_lon, grid_lat, pipeline, None, upsample_factor=4)
+    assert grid.shape == plot_lon.shape == plot_lat.shape
+    assert grid.shape[0] == grid_lon.shape[0] * 4
+
+    distances = great_circle_distance_km(plot_lon, plot_lat, np.array([50.0]), np.array([55.0]))[..., 0]
+    finite = np.isfinite(grid)
+    # Cells well inside the 300-km circle are covered; cells well outside are cut.
+    # The margin absorbs the soft mask edge (sigma 0.85 base cells) and the fine
+    # cell size (~0.25 deg ≈ 28 km).
+    assert finite[distances <= 220.0].all()
+    assert not finite[distances >= 380.0].any()
+    # The boundary must follow the circle, not coarse 1-deg cells: covered-cell
+    # counts per row change gradually (no >40%-of-width jumps between rows).
+    row_counts = finite.sum(axis=1)
+    inside = row_counts > 0
+    jumps = np.abs(np.diff(row_counts[inside]))
+    assert jumps.max() <= max(2, int(0.4 * finite.shape[1]))
+
+
+def test_kriging_reproduces_smooth_field_and_fits_variogram():
+    from app.tec_map_kriging import fit_exponential_variogram, kriging_interpolate, pairwise_distances_km
+
+    rng = np.random.default_rng(42)
+    pts_lon = rng.uniform(45.0, 55.0, 40)
+    pts_lat = rng.uniform(50.0, 60.0, 40)
+    # Smooth large-scale field: linear trend in lon/lat.
+    truth = lambda lon, lat: 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+    values = truth(pts_lon, pts_lat)
+
+    d = pairwise_distances_km(pts_lon, pts_lat)
+    nugget, sill, range_km = fit_exponential_variogram(d, values)
+    assert nugget >= 0.0 and sill > 0.0 and 50.0 <= range_km <= 2000.0
+
+    grid_lon, grid_lat = np.meshgrid(np.linspace(46.0, 54.0, 17), np.linspace(51.0, 59.0, 17))
+    predicted = kriging_interpolate(pts_lon, pts_lat, values, grid_lon, grid_lat)
+    assert predicted.shape == grid_lon.shape
+    assert np.isfinite(predicted).all()
+    # Interior prediction error stays well below the field's dynamic range (~10 TECU).
+    err = np.abs(predicted - truth(grid_lon, grid_lat))
+    assert float(np.median(err)) < 1.0
+
+    # Constant field must be reproduced (kriging weights sum to 1).
+    const = kriging_interpolate(pts_lon, pts_lat, np.full(40, 7.5), grid_lon, grid_lat)
+    assert np.allclose(const, 7.5, atol=1e-6)
+
+
+def test_interpolate_frame_dispatches_to_kriging():
+    from app.tec_map_render import interpolate_frame
+
+    rng = np.random.default_rng(1)
+    rows = []
+    for i in range(12):
+        rows.append({
+            "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+            "station": f"st{i:02d}",
+            "site_lat": 55.0, "site_lon": 50.0,
+            "ipp_lat": float(rng.uniform(52.0, 58.0)),
+            "ipp_lon": float(rng.uniform(46.0, 54.0)),
+            "vtec_tecu": float(rng.uniform(8.0, 12.0)),
+            "samples": 4,
+        })
+    frame = pd.DataFrame(rows)
+    grid_lon, grid_lat = np.meshgrid(np.linspace(45.0, 55.0, 11), np.linspace(51.0, 59.0, 9))
+
+    linear_pipeline = TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0)
+    kriging_pipeline = TecMapConfig(interpolation_method="kriging", smoothing_sigma=0.0)
+    full = np.ones(grid_lon.shape, dtype=bool)
+    linear_grid = interpolate_frame(frame, grid_lon, grid_lat, linear_pipeline, coverage_mask=full)
+    kriging_grid = interpolate_frame(frame, grid_lon, grid_lat, kriging_pipeline, coverage_mask=full)
+
+    assert np.isfinite(kriging_grid).all()
+    # Methods must differ (kriging has no nearest-neighbour plateaus) but stay
+    # in the same physical range.
+    assert not np.allclose(linear_grid, kriging_grid)
+    assert kriging_grid.min() > 4.0 and kriging_grid.max() < 16.0
+
+    # Small frames fall back to the linear path without raising.
+    tiny = frame.head(4)
+    fallback_grid = interpolate_frame(tiny, grid_lon, grid_lat, kriging_pipeline, coverage_mask=full)
+    assert np.isfinite(fallback_grid).all()
+
+
+def test_build_animation_gif_bytes_renders_with_kriging():
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15, interpolation_method="kriging")
+    render = TecMapRenderConfig(frame_dpi=50)
+    gif_bytes = build_animation_gif_bytes(frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render)
+    assert gif_bytes[:6] == b"GIF89a"
+
+
+def _loso_frame_summary(n_stations: int = 12, *, plane: bool = True, seed: int = 7) -> pd.DataFrame:
+    """Synthetic single-frame summary: n stations on a smooth (planar) VTEC field."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_stations):
+        lon = float(rng.uniform(46.0, 54.0))
+        lat = float(rng.uniform(52.0, 58.0))
+        vtec = 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0) if plane else 7.5
+        rows.append({
+            "frame_time": pd.Timestamp("2026-01-02 09:00:00"),
+            "station": f"st{i:02d}",
+            "site_lat": lat, "site_lon": lon,
+            "ipp_lat": lat, "ipp_lon": lon,
+            "vtec_tecu": float(vtec),
+            "samples": 4,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_loso_cross_validation_recovers_smooth_field():
+    from app.tec_map_validation import loso_cross_validate, summarize_validation
+
+    frame_summary = _loso_frame_summary(12, plane=True)
+    for method in ("linear", "kriging"):
+        pipeline = TecMapConfig(interpolation_method=method, smoothing_sigma=0.0)
+        cv = loso_cross_validate(frame_summary, pipeline)
+        assert len(cv) == 12
+        assert set(cv["station"]) == set(frame_summary["station"])
+        summary = summarize_validation(cv)
+        overall = summary["overall"]
+        # A planar field must be reconstructed to well under the quiet-time
+        # target of 0.5-1 TECU (interior points are interpolated exactly;
+        # hull points extrapolate via nearest/mean and dominate the RMSE).
+        assert overall["n"] >= 10
+        assert overall["rmse_tecu"] < 2.0, f"{method}: rmse={overall['rmse_tecu']}"
+        assert abs(overall["bias_tecu"]) < 1.5
+
+    # Constant field: every prediction equals the constant, errors ~0.
+    const_summary = _loso_frame_summary(12, plane=False)
+    for method in ("linear", "kriging"):
+        pipeline = TecMapConfig(interpolation_method=method, smoothing_sigma=0.0)
+        metrics = summarize_validation(loso_cross_validate(const_summary, pipeline))["overall"]
+        assert metrics["rmse_tecu"] < 1e-6, f"{method}: rmse={metrics['rmse_tecu']}"
+
+
+def test_loso_flags_out_of_coverage_points():
+    from app.tec_map_validation import loso_cross_validate, summarize_validation
+
+    frame_summary = _loso_frame_summary(8, plane=True)
+    # One remote station: > 300 km from every other IPP (~6 deg of latitude).
+    remote = frame_summary.iloc[[0]].copy()
+    remote["station"] = "far1"
+    remote["ipp_lat"] = 64.0
+    remote["site_lat"] = 64.0
+    frame_summary = pd.concat([frame_summary, remote], ignore_index=True)
+
+    pipeline = TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0)
+    cv = loso_cross_validate(frame_summary, pipeline)
+    far_rows = cv[cv["station"] == "far1"]
+    assert len(far_rows) == 1
+    assert not bool(far_rows["in_coverage"].iloc[0])
+
+    summary = summarize_validation(cv)
+    assert summary["overall"]["n_out_of_coverage"] == 1
+    # The out-of-coverage point must not contaminate the headline metrics.
+    assert summary["overall"]["n"] == len(cv) - 1
+
+
+def test_predict_at_points_dispatch_and_small_frame_fallback():
+    from app.tec_map_validation import predict_at_points
+
+    rng = np.random.default_rng(3)
+    lon = rng.uniform(46.0, 54.0, 12)
+    lat = rng.uniform(52.0, 58.0, 12)
+    values = 10.0 + rng.normal(0.0, 2.0, 12)
+    target_lon = np.array([50.0])
+    target_lat = np.array([55.0])
+
+    linear = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="linear"))
+    kriging = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="kriging"))
+    assert np.isfinite(linear).all() and np.isfinite(kriging).all()
+    assert abs(float(linear[0]) - float(kriging[0])) > 1e-9
+
+    # 2 training points: nearest fallback, never raises.
+    tiny = predict_at_points(lon[:2], lat[:2], values[:2], target_lon, target_lat, TecMapConfig(interpolation_method="kriging"))
+    assert np.isfinite(tiny).all()
+
+
+def test_frame_accuracy_label_format_and_minimum_size():
+    from app.tec_map_validation import frame_accuracy_label
+
+    pipeline = TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0)
+    frame = _loso_frame_summary(10, plane=True)
+    label = frame_accuracy_label(frame, pipeline)
+    assert label is not None
+    assert label.startswith("LOSO RMSE ") and "TECU" in label and "(n=" in label
+
+    # Below MIN_STATIONS_FOR_LOSO no label is produced.
+    assert frame_accuracy_label(frame.head(3), pipeline) is None
+
+
+def test_render_frame_with_accuracy_annotation():
+    from app.tec_map_render import build_frame_image_bytes
+
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+    frame_summary = _loso_frame_summary(10, plane=True)
+
+    plain = build_frame_image_bytes(
+        frame_summary=frame_summary,
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=TecMapRenderConfig(frame_dpi=60),
+    )
+    annotated = build_frame_image_bytes(
+        frame_summary=frame_summary,
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=TecMapRenderConfig(frame_dpi=60, show_accuracy=True),
+    )
+    assert annotated[:8] == b"\x89PNG\r\n\x1a\n"
+    assert annotated != plain
+
+    # SVG keeps the label as text — verify the actual annotation content.
+    annotated_svg = build_frame_image_bytes(
+        frame_summary=frame_summary,
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=TecMapRenderConfig(frame_dpi=60, show_accuracy=True),
+        image_format="svg",
+    )
+    assert b"LOSO RMSE" in annotated_svg
+
+
+def test_snapshot_plotly_json_includes_accuracy_annotation():
+    frame_summary = _loso_frame_summary(10, plane=True)
+    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
+
+    payload = build_snapshot_plotly_json(
+        frame_summary=frame_summary,
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=TecMapRenderConfig(show_accuracy=True),
+        include_grid=True,
+    )
+    annotations = payload["layout"].get("annotations", [])
+    assert any("LOSO RMSE" in str(a.get("text", "")) for a in annotations)

@@ -282,30 +282,50 @@ Smaller values give finer grids and smoother-looking maps, but increase CPU, mem
 
 ### VTEC Interpolation
 
-Interpolation uses SciPy `griddata` on IPP positions:
+The interpolation principle is selected per request via `interpolation`
+(query parameter on `/tec-map/gif`, `/tec-map/snapshot`, `/tec-map/frame`):
 
-- primary method: `linear`
-- fallback method: `nearest`
+**`interpolation=linear` (default)** — SciPy `griddata` on IPP positions:
 
-Behavior:
+- if there are at least 3 samples, Delaunay-linear interpolation first
+- where linear returns gaps (outside the convex hull), fill with
+  nearest-neighbor interpolation — note this produces flat plateaus that
+  extend the nearest sample value; interpret map edges accordingly
+- if there are fewer than 3 samples, use nearest-neighbor directly
 
-- if there are at least 3 samples, try linear interpolation first
-- where linear returns gaps, fill with nearest-neighbor interpolation
-- if there are fewer than 3 samples, use nearest-neighbor interpolation directly
+**`interpolation=kriging`** — ordinary kriging on the sphere
+(`app/tec_map_kriging.py`):
+
+- an exponential variogram `γ(h) = nugget + sill·(1 − exp(−h/range))` is
+  fitted to each frame's own samples (binned empirical semivariogram,
+  `scipy.optimize.curve_fit`); on failure it falls back to literature-based
+  defaults — range 300 km, nugget 5% of the sample variance
+- the nugget effect de-weights noisy individual samples instead of passing
+  through them exactly
+- away from the sample cloud the prediction relaxes towards the field mean —
+  no nearest-neighbour plateaus
+- frames with fewer than 8 samples fall back to the linear path
+- cost: one (n+1)×(n+1) solve per frame (n = samples per frame, typically
+  30–100) — render time is essentially unchanged
 
 ### Coverage Mask
 
 The map is not allowed to extend infinitely away from the IPP sample cloud.
 
-The service first builds a hard coverage mask using minimum great-circle distance from each grid cell to the nearest IPP:
+The service builds a hard coverage mask using minimum great-circle distance from each grid cell to the nearest IPP:
 
 - default coverage radius: `ipp_gradient_radius_km = 300 km`
 
-Then it softens the binary mask slightly:
+Order of operations (since July 2026): the field is interpolated, smoothed and
+(for derived fields) transformed on the base grid **without** the coverage
+cut; it is then bilinearly upsampled by `upsample` (default 2), and the mask
+is evaluated at that render resolution and applied last. Because the mask is
+the exact union of 300-km circles computed on the fine grid, the field edge
+follows smooth circle arcs instead of the stair-stepped outline of coarse
+grid cells (`upsample=1` reproduces the old coarse-cell edge).
 
-- internal mask smoothing in grid-cell units
-
-This is why edges are rounded somewhat instead of being a hard staircase.
+A slight Gaussian softening of the binary mask (in grid-cell units, scaled by
+the upsample factor) additionally anti-aliases the boundary.
 
 ### Gaussian Smoothing
 
@@ -468,6 +488,105 @@ Tradeoffs:
 - makes geographic context easier to read
 - increases render cost
 - can reduce apparent color intensity because the VTEC layer is blended over map tiles
+
+### `field` and `signal_band`
+
+`field` selects the scalar rendered on the map. All fields start from the same
+smoothed VTEC grid; derived fields are computed per frame after smoothing:
+
+- `vtec` (default) — VTEC magnitude [TECU]
+- `vtec_gradient` — spatial-gradient magnitude |∇VTEC| [TECU / 100 km]
+- `gdd` — group delay dispersion magnitude |D| [ns/GHz], pointwise transform
+  `|D| = 3·80.5·N_t / (2·c·π·f³)` with `N_t = VTEC·10¹⁶`
+- `b_k` — coherence bandwidth [MHz], `B_k = sqrt(c·f³ / (80.5·π·N_t))`;
+  cells with VTEC < 0.1 TECU are masked (B_k diverges as TEC → 0)
+
+`signal_band` picks the carrier frequency `f` for `gdd`/`b_k`
+(`gps_l1` default; also `gps_l2`, `gps_l5`, `galileo_e1`, `galileo_e5a`,
+`galileo_e5b`, `galileo_e5`, `bds_b1i`, `bds_b1c`, `bds_b2a`, `bds_b2i`).
+Formulas and constants mirror `tec-stat/app/services/propagation.py`
+(implementation: `app/tec_map_fields.py` — keep the two in sync).
+
+Because `gdd`/`b_k` are pointwise transforms of VTEC, per-IPP markers are
+drawn on the same colour scale as the field; for `vtec_gradient` they are
+position-only neutral dots.
+
+### Output quality controls (`format`, `quality`, `upsample`, `frame_dpi`, `color_min`/`color_max`)
+
+Animation endpoint (`/tec-map/gif`):
+
+- `format=gif|mp4|webm` — container for the animation. `mp4` (H.264, CRF 18)
+  and `webm` (VP9, CRF 30) keep full 24-bit colour (no GIF palette banding)
+  and are typically several times smaller than the equivalent GIF for long
+  ranges. Requires `imageio` + `imageio-ffmpeg` (bundled ffmpeg binary).
+- `quality=standard|high` — `high` switches GIF quantization from FASTOCTREE
+  to an adaptive MEDIANCUT palette with Floyd–Steinberg dithering (smoother
+  gradients, slower encode) and disables the automatic DPI reduction applied
+  to long standard-quality GIF ranges. Video formats always keep full DPI.
+- `upsample=1..4` (default 2) — render-grid upsampling. The field is
+  interpolated/smoothed on the base grid, bilinearly upsampled, and the
+  coverage mask is then evaluated **at render resolution** as the exact
+  great-circle union of 300-km circles around the IPPs. This keeps the field
+  edge a smooth scalloped curve instead of the stair-stepped outline of
+  coarse grid cells. Purely a rendering refinement — no new data is invented.
+- `frame_dpi=50..300` — explicit render DPI (default 120 with automatic
+  reduction for long standard GIFs).
+- `color_min` / `color_max` — explicit colour-scale limits in the field's
+  units. Overrides the quantile-based limits; use to keep several exports
+  (e.g. different days) on an identical colour scale.
+
+### Static frame export (`/tec-map/frame`)
+
+Publication-quality single frame — same parameters as `/tec-map/snapshot`
+plus `dpi` (50–600, default 200), `image_format=png|svg`, `upsample`,
+`basemap` and `color_min`/`color_max`. Returns the frame rendered through the
+same Matplotlib pipeline as one animation frame. Intended for article figures
+(300–600 dpi PNG for print, SVG for vector post-processing).
+
+### Accuracy validation — LOSO cross-validation (`/tec-map/validate`, `show_accuracy`)
+
+Implements map-quality criterion #1 "accuracy at reference points": for every
+frame each station is excluded in turn, the field is predicted at its IPP from
+the remaining stations (same interpolation dispatch as the map itself,
+`app/tec_map_validation.py`), and the prediction error is the leave-one-station-out
+(LOSO) accuracy. Errors are always in TECU on the VTEC field — derived fields
+(gdd, b_k) are deterministic transforms of VTEC.
+
+`GET /tec-map/validate` takes the same period/station/pipeline parameters as
+`/tec-map/gif` plus:
+
+- `interpolation=linear|kriging|both` (default `both` — validates both methods
+  side by side; kriging fits the variogram once per frame and reuses it for
+  every leave-one-out subset)
+- `format=json|csv` — JSON returns `overall` / `per_station` / `per_frame`
+  bias-MAE-RMSE summaries; CSV returns the flat per-point table
+  (`frame_time, station, vtec_obs, vtec_pred, error, n_train, in_coverage`)
+
+Points whose excluded IPP falls outside the 300 km coverage radius of the
+remaining stations are flagged `in_coverage=false` and excluded from the
+headline metrics (the rendered map masks those areas out anyway); their count
+is reported separately. Frames with fewer than 4 stations are skipped.
+
+`show_accuracy=true` on `/tec-map/gif`, `/tec-map/snapshot` and
+`/tec-map/frame` annotates each rendered frame with its LOSO accuracy
+("LOSO RMSE 0.82 TECU (n=9)") in the top-left corner — one LOSO pass per frame
+at render time. In the Analysis UI: the "Show accuracy on map" select and the
+"Validate accuracy (LOSO)" button (renders the per-station comparison table
+for linear vs kriging).
+
+Literature targets for mid-latitude regional maps: cross-validation RMSE
+0.5–1 TECU in quiet conditions, 1.5–2 TECU in disturbed conditions
+(Ogryzek et al., 2020). Note the relative-VTEC caveat: LOSO validates the
+internal consistency of the field and the interpolation quality, not the
+absolute calibration (no external DCB catalogs in ict-hub).
+
+### Request guard rails (GIF)
+
+- multi-day ranges are processed **day by day** (load → level → frame summary),
+  so peak memory is bounded by one day regardless of the range length
+- station names that exist in none of the requested days → HTTP 400
+- more than 40 stations per request → HTTP 413
+- more than 800 estimated frames → HTTP 413 (shorten range or raise `frame_minutes`)
 
 ## Performance Notes
 

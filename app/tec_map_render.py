@@ -11,7 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 import json
+import logging
 import math
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
@@ -21,7 +24,7 @@ import numpy as np
 import pandas as pd
 from PIL import GifImagePlugin, Image
 from scipy.interpolate import griddata
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, zoom
 
 import matplotlib
 
@@ -33,7 +36,17 @@ import plotly.graph_objects as go
 from _plotly_utils.utils import PlotlyJSONEncoder
 
 from app.tec_map_pipeline import TecMapConfig
+from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
+from app.tec_map_validation import frame_accuracy_label
+from app.tec_map_fields import (
+    compute_bk_grid,
+    compute_gdd_grid,
+    resolve_signal_band,
+    signal_band_label,
+)
 
+
+logger = logging.getLogger(__name__)
 
 TILE_SIZE_PX = 256
 WEB_MERCATOR_MAX_LAT_DEG = 85.05112878
@@ -67,7 +80,11 @@ class TecMapRenderConfig:
     # Which scalar field to render. Supported:
     #   "vtec"          — VTEC magnitude [TECU] (default)
     #   "vtec_gradient" — |∇VTEC| spatial-gradient magnitude [TECU / 100 km]
+    #   "gdd"           — group delay dispersion magnitude |D| [ns/GHz] at `signal_band`
+    #   "b_k"           — coherence bandwidth B_k [MHz] at `signal_band`
     field: str = "vtec"
+    # Carrier band for the derived propagation fields (see tec_map_fields).
+    signal_band: str = "gps_l1"
 
     basemap_enabled: bool = False
     basemap_mode: str = "off"
@@ -78,6 +95,23 @@ class TecMapRenderConfig:
 
     frame_dpi: int = 120
     gif_frame_duration_seconds: float = 0.8
+
+    # Animation container: "gif" (default), "mp4" (H.264) or "webm" (VP9).
+    # Video formats avoid the 256-colour GIF palette entirely.
+    animation_format: str = "gif"
+    # True → GIF frames use an adaptive MEDIANCUT palette with Floyd–Steinberg
+    # dithering (smoother gradients, slower encode) instead of FASTOCTREE.
+    gif_high_quality: bool = False
+    # Bilinear grid upsampling factor applied before contouring (1 = off).
+    # Smooths contour edges and the coverage-mask boundary at high DPI.
+    upsample_factor: int = 1
+    # Explicit colour-scale overrides. When set they replace the corresponding
+    # quantile-based limit, keeping figures comparable across requests.
+    color_min: float | None = None
+    color_max: float | None = None
+    # Annotate every rendered frame with its leave-one-station-out accuracy
+    # ("LOSO RMSE … TECU"). Adds one LOSO pass per frame at render time.
+    show_accuracy: bool = False
 
     # Basemap cache root. If None, cache-backed basemap modes are unavailable.
     basemap_cache_root: Path | None = None
@@ -159,9 +193,9 @@ def ipp_coverage_mask(
     return np.min(distances, axis=-1) <= float(pipeline.ipp_gradient_radius_km)
 
 
-def soften_coverage_mask(mask: np.ndarray, pipeline: TecMapConfig) -> np.ndarray:
+def soften_coverage_mask(mask: np.ndarray, pipeline: TecMapConfig, scale: float = 1.0) -> np.ndarray:
     mask_bool = np.asarray(mask, dtype=bool)
-    sigma_cells = float(getattr(pipeline, "coverage_mask_smoothing_cells", 0.0) or 0.0)
+    sigma_cells = float(getattr(pipeline, "coverage_mask_smoothing_cells", 0.0) or 0.0) * max(float(scale), 1.0)
     if sigma_cells <= 0 or mask_bool.size == 0:
         return mask_bool
 
@@ -205,9 +239,19 @@ def compute_vtec_gradient_magnitude(
     return magnitude_per_km * 100.0  # TECU per 100 km
 
 
-def _field_render_spec(field: str) -> dict[str, Any]:
+def _field_render_spec(field: str, signal_band: str = "gps_l1") -> dict[str, Any]:
     """
-    Per-field rendering metadata: matplotlib cmap, plotly colorscale, colorbar label, title prefix.
+    Per-field rendering metadata and transforms.
+
+    Keys:
+      matplotlib_cmap / plotly_colorscale / colorbar_label / title_prefix / hover_unit
+      vmin_floor      — fixed lower colour limit for derived fields (None → quantile)
+      grid_transform  — callable(grid, grid_lon, grid_lat) -> derived grid, or None
+      point_transform — callable(vtec_values) -> per-IPP values on the field's colour
+                        scale, or None when per-point values are not comparable
+                        (IPP markers are then drawn as neutral position-only dots)
+      derived_scale   — True → colour limits come from the transformed grids
+                        (VTEC keeps its 5–95% quantiles over raw samples)
     """
     name = (field or "vtec").strip().lower()
     if name == "vtec_gradient":
@@ -218,6 +262,37 @@ def _field_render_spec(field: str) -> dict[str, Any]:
             "title_prefix": "|∇VTEC| map",
             "hover_unit": "TECU/100km",
             "vmin_floor": 0.0,
+            "grid_transform": compute_vtec_gradient_magnitude,
+            "point_transform": None,
+            "derived_scale": True,
+        }
+    if name == "gdd":
+        band, f_hz = resolve_signal_band(signal_band)
+        band_label = signal_band_label(band)
+        return {
+            "matplotlib_cmap": "inferno",
+            "plotly_colorscale": "Inferno",
+            "colorbar_label": f"|D| [ns/GHz] — {band_label}",
+            "title_prefix": f"GDD map ({band_label})",
+            "hover_unit": "ns/GHz",
+            "vmin_floor": 0.0,
+            "grid_transform": lambda grid, grid_lon, grid_lat: compute_gdd_grid(grid, f_hz),
+            "point_transform": lambda values: compute_gdd_grid(np.asarray(values, dtype=float), f_hz),
+            "derived_scale": True,
+        }
+    if name == "b_k":
+        band, f_hz = resolve_signal_band(signal_band)
+        band_label = signal_band_label(band)
+        return {
+            "matplotlib_cmap": "viridis",
+            "plotly_colorscale": "Viridis",
+            "colorbar_label": f"B_k [MHz] — {band_label}",
+            "title_prefix": f"B_k map ({band_label})",
+            "hover_unit": "MHz",
+            "vmin_floor": None,
+            "grid_transform": lambda grid, grid_lon, grid_lat: compute_bk_grid(grid, f_hz),
+            "point_transform": lambda values: compute_bk_grid(np.asarray(values, dtype=float), f_hz),
+            "derived_scale": True,
         }
     return {
         "matplotlib_cmap": TEC_MAP_MATPLOTLIB_CMAP,
@@ -226,6 +301,9 @@ def _field_render_spec(field: str) -> dict[str, Any]:
         "title_prefix": "VTEC map",
         "hover_unit": "TECU",
         "vmin_floor": None,
+        "grid_transform": None,
+        "point_transform": lambda values: np.asarray(values, dtype=float),
+        "derived_scale": False,
     }
 
 
@@ -239,16 +317,143 @@ def interpolate_frame(
     points = frame[["ipp_lon", "ipp_lat"]].to_numpy()
     values = frame["vtec_tecu"].to_numpy()
 
-    if len(frame) >= 3:
-        primary = griddata(points, values, (grid_lon, grid_lat), method=pipeline.interpolation_method)
-        fallback = griddata(points, values, (grid_lon, grid_lat), method=pipeline.fallback_interpolation_method)
-        interpolated = np.where(np.isnan(primary), fallback, primary)
+    method = str(pipeline.interpolation_method or "linear").strip().lower()
+    if method == "kriging" and len(frame) >= MIN_POINTS_FOR_KRIGING:
+        interpolated = kriging_interpolate(
+            frame["ipp_lon"].to_numpy(),
+            frame["ipp_lat"].to_numpy(),
+            values,
+            grid_lon,
+            grid_lat,
+        )
     else:
-        interpolated = griddata(points, values, (grid_lon, grid_lat), method=pipeline.fallback_interpolation_method)
+        # Delaunay-linear with nearest fill (also the small-frame fallback for kriging).
+        griddata_method = "linear" if method == "kriging" else pipeline.interpolation_method
+        if len(frame) >= 3:
+            primary = griddata(points, values, (grid_lon, grid_lat), method=griddata_method)
+            fallback = griddata(points, values, (grid_lon, grid_lat), method=pipeline.fallback_interpolation_method)
+            interpolated = np.where(np.isnan(primary), fallback, primary)
+        else:
+            interpolated = griddata(points, values, (grid_lon, grid_lat), method=pipeline.fallback_interpolation_method)
 
     if coverage_mask is None:
         coverage_mask = ipp_coverage_mask(frame, grid_lon, grid_lat, pipeline)
     return np.where(coverage_mask, interpolated, np.nan)
+
+
+def upsample_grid(grid: np.ndarray, factor: int) -> np.ndarray:
+    """
+    Bilinear upsampling of a lon/lat grid that preserves the NaN coverage mask.
+
+    Values are zoomed with zero-filled NaNs alongside a validity weight, then
+    renormalized (same trick as smooth_grid) so coverage edges do not darken.
+    Cells whose interpolated validity falls below 0.5 stay NaN.
+    """
+    factor = int(factor)
+    if factor <= 1 or grid.ndim != 2:
+        return grid
+
+    valid = np.isfinite(grid)
+    filled = np.where(valid, grid, 0.0)
+    zoomed_values = zoom(filled, factor, order=1, mode="nearest")
+    zoomed_weight = zoom(valid.astype(float), factor, order=1, mode="nearest")
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        upsampled = zoomed_values / zoomed_weight
+    upsampled[zoomed_weight < 0.5] = np.nan
+    return upsampled
+
+
+def upsample_coordinates(grid_lon: np.ndarray, grid_lat: np.ndarray, factor: int) -> tuple[np.ndarray, np.ndarray]:
+    """Zoom coordinate meshes to match upsample_grid output (linear → exact)."""
+    factor = int(factor)
+    if factor <= 1:
+        return grid_lon, grid_lat
+    return (
+        zoom(np.asarray(grid_lon, dtype=float), factor, order=1, mode="nearest"),
+        zoom(np.asarray(grid_lat, dtype=float), factor, order=1, mode="nearest"),
+    )
+
+
+def compute_field_grid(
+    frame: pd.DataFrame,
+    grid_lon: np.ndarray,
+    grid_lat: np.ndarray,
+    pipeline: TecMapConfig,
+    grid_transform: Any = None,
+    *,
+    upsample_factor: int = 1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Full per-frame grid pipeline. Returns (grid, plot_lon, plot_lat) at render
+    resolution (base grid × upsample_factor).
+
+    Order matters for edge quality: the field is interpolated, smoothed and
+    (optionally) transformed on the base grid *without* the coverage cut, then
+    bilinearly upsampled, and only then clipped by the exact great-circle
+    coverage mask evaluated at render resolution. Evaluating the mask on the
+    fine grid keeps the boundary a smooth union of 300-km circles instead of
+    the stair-stepped outline of coarse grid cells.
+    """
+    no_cut = np.ones(grid_lon.shape, dtype=bool)
+    grid = interpolate_frame(frame, grid_lon, grid_lat, pipeline, coverage_mask=no_cut)
+    grid = smooth_grid(grid, pipeline.smoothing_sigma)
+    if pipeline.enforce_nonnegative_vtec:
+        grid = np.where(np.isfinite(grid), np.maximum(grid, 0.0), grid)
+    if grid_transform is not None:
+        grid = grid_transform(grid, grid_lon, grid_lat)
+
+    grid = upsample_grid(grid, upsample_factor)
+    plot_lon, plot_lat = upsample_coordinates(grid_lon, grid_lat, upsample_factor)
+
+    coverage_mask = ipp_coverage_mask(frame, plot_lon, plot_lat, pipeline)
+    coverage_mask = soften_coverage_mask(coverage_mask, pipeline, scale=float(upsample_factor))
+    grid = np.where(coverage_mask, grid, np.nan)
+    return grid, plot_lon, plot_lat
+
+
+def _derived_color_limits(field_spec: dict[str, Any], grids: list[np.ndarray]) -> tuple[float, float]:
+    """Colour limits for derived fields: vmin_floor (or 5% quantile) → 95% quantile."""
+    finite_values: list[np.ndarray] = []
+    for grid in grids:
+        if np.isfinite(grid).any():
+            finite_values.append(grid[np.isfinite(grid)].ravel())
+    if not finite_values:
+        return 0.0, 1.0
+
+    stacked = np.concatenate(finite_values)
+    vmax = float(np.quantile(stacked, 0.95))
+    if not np.isfinite(vmax) or vmax <= 0.0:
+        vmax = float(np.nanmax(stacked)) if stacked.size else 1.0
+    vmin_floor = field_spec.get("vmin_floor")
+    vmin = float(vmin_floor) if vmin_floor is not None else float(np.quantile(stacked, 0.05))
+    if vmin >= vmax:
+        vmin = float(vmin_floor) if vmin_floor is not None else 0.0
+    if math.isclose(vmin, vmax):
+        vmax = vmin + 1.0
+    return vmin, vmax
+
+
+def _vtec_color_limits(frame_summary: pd.DataFrame, pipeline: TecMapConfig) -> tuple[float, float]:
+    """Colour limits for raw VTEC: 5–95% quantile over the selection's samples."""
+    vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
+    vmin, vmax = float(vmin), float(vmax)
+    if math.isclose(vmin, vmax):
+        vmin -= 1.0
+        vmax += 1.0
+    if pipeline.enforce_nonnegative_vtec:
+        vmin = max(vmin, 0.0)
+    return vmin, vmax
+
+
+def _apply_color_overrides(vmin: float, vmax: float, render: TecMapRenderConfig) -> tuple[float, float]:
+    if render.color_min is not None:
+        vmin = float(render.color_min)
+    if render.color_max is not None:
+        vmax = float(render.color_max)
+    if vmin >= vmax:
+        raise ValueError(f"Invalid colour limits: color_min={vmin} must be below color_max={vmax}.")
+    return vmin, vmax
 
 
 # ---------------------------------------------------------------------------
@@ -593,8 +798,10 @@ def render_frame_png_bytes(
     pipeline: TecMapConfig,
     render: TecMapRenderConfig,
     field_spec: dict[str, Any] | None = None,
+    image_format: str = "png",
+    accuracy_label: str | None = None,
 ) -> bytes:
-    spec = field_spec or _field_render_spec(render.field)
+    spec = field_spec or _field_render_spec(render.field, render.signal_band)
     plot_cmap = spec["matplotlib_cmap"]
     colorbar_label = spec["colorbar_label"]
     title_prefix = spec["title_prefix"]
@@ -674,10 +881,10 @@ def render_frame_png_bytes(
         label="Stations",
         zorder=3,
     )
-    if spec is not None and spec["title_prefix"] != "VTEC map":
-        # Gradient (or other non-VTEC) mode: render IPP markers as position-only
-        # neutral dots, since their per-point VTEC values are not on the same
-        # colour scale as the rendered field.
+    point_transform = spec.get("point_transform")
+    if point_transform is None:
+        # Fields without comparable per-point values (e.g. |∇VTEC|): render IPP
+        # markers as position-only neutral dots.
         sample_plot = ax.scatter(
             sample_x,
             sample_y,
@@ -691,7 +898,7 @@ def render_frame_png_bytes(
         sample_plot = ax.scatter(
             sample_x,
             sample_y,
-            c=frame["vtec_tecu"],
+            c=point_transform(frame["vtec_tecu"].to_numpy()),
             cmap=plot_cmap,
             vmin=vmin,
             vmax=vmax,
@@ -742,6 +949,18 @@ def render_frame_png_bytes(
     ax.legend(loc="upper right")
 
     fig.colorbar(mesh if mesh is not None else sample_plot, ax=ax, label=colorbar_label)
+    if accuracy_label:
+        ax.text(
+            0.01,
+            0.985,
+            accuracy_label,
+            transform=ax.transAxes,
+            fontsize=8,
+            color="black",
+            va="top",
+            zorder=6,
+            bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none", "pad": 1.5},
+        )
     if basemap_layer is not None:
         ax.text(
             0.01,
@@ -754,7 +973,7 @@ def render_frame_png_bytes(
         )
 
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=render.frame_dpi)
+    fig.savefig(buf, format=image_format, dpi=render.frame_dpi)
     plt.close(fig)
     return buf.getvalue()
 
@@ -807,77 +1026,99 @@ def build_animation_gif_bytes(
 
     station_positions = frame_summary.groupby("station", as_index=False).agg(site_lat=("site_lat", "first"), site_lon=("site_lon", "first"))
 
-    field_spec = _field_render_spec(render.field)
-    is_gradient_field = (render.field or "").strip().lower() == "vtec_gradient"
+    field_spec = _field_render_spec(render.field, render.signal_band)
+    grid_transform = field_spec.get("grid_transform")
 
-    # Pass 1: build the per-frame grid (and, for gradient mode, the derived field).
+    animation_format = (render.animation_format or "gif").strip().lower()
+    if animation_format not in {"gif", "mp4", "webm"}:
+        raise ValueError(f"Unsupported animation format: {render.animation_format!r}. Use gif, mp4 or webm.")
+
+    # Pass 1: build the per-frame grid (and, for derived fields, transform it).
     computed_frames: list[tuple[pd.Timestamp, pd.DataFrame, np.ndarray]] = []
+    plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
     for frame_time, frame in frame_groups:
-        coverage_mask = ipp_coverage_mask(frame, grid_lon, grid_lat, pipeline)
-        coverage_mask = soften_coverage_mask(coverage_mask, pipeline)
-        grid = interpolate_frame(frame, grid_lon, grid_lat, pipeline, coverage_mask=coverage_mask)
-        grid = smooth_grid(grid, pipeline.smoothing_sigma)
-        grid = np.where(coverage_mask, grid, np.nan)
-        if pipeline.enforce_nonnegative_vtec:
-            grid = np.where(np.isfinite(grid), np.maximum(grid, 0.0), grid)
-
-        if is_gradient_field:
-            grid = compute_vtec_gradient_magnitude(grid, grid_lon, grid_lat)
-            grid = np.where(coverage_mask, grid, np.nan)
-
+        grid, _, _ = compute_field_grid(
+            frame, grid_lon, grid_lat, pipeline, grid_transform, upsample_factor=render.upsample_factor
+        )
         computed_frames.append((pd.Timestamp(frame_time), frame, grid))
 
     # Determine global colour limits from the actual field that will be plotted.
-    if is_gradient_field:
-        finite_values: list[np.ndarray] = []
-        for _, _, grid in computed_frames:
-            if np.isfinite(grid).any():
-                finite_values.append(grid[np.isfinite(grid)].ravel())
-        if finite_values:
-            stacked = np.concatenate(finite_values)
-            vmax = float(np.quantile(stacked, 0.95))
-            if not np.isfinite(vmax) or vmax <= 0.0:
-                vmax = float(np.nanmax(stacked)) if stacked.size else 1.0
-            vmin = 0.0
-        else:
-            vmin, vmax = 0.0, 1.0
-        if math.isclose(vmin, vmax):
-            vmax = vmin + 1.0
+    if field_spec.get("derived_scale"):
+        vmin, vmax = _derived_color_limits(field_spec, [grid for _, _, grid in computed_frames])
     else:
-        vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
-        if math.isclose(float(vmin), float(vmax)):
-            vmin -= 1.0
-            vmax += 1.0
-        if pipeline.enforce_nonnegative_vtec:
-            vmin = max(float(vmin), 0.0)
+        vmin, vmax = _vtec_color_limits(frame_summary, pipeline)
+    vmin, vmax = _apply_color_overrides(vmin, vmax, render)
 
-    duration_ms = max(int(round(render.gif_frame_duration_seconds * 1000.0)), 20)
+    # Pass 2: render each frame against the shared colour scale.
+    total_frames = len(computed_frames)
+
+    def rendered_png_frames():
+        for idx, (frame_time, frame, grid) in enumerate(computed_frames):
+            if idx % 25 == 0:
+                logger.info("tec-map render: frame %d/%d (%s)", idx + 1, total_frames, frame_time)
+            yield render_frame_png_bytes(
+                frame_time=frame_time,
+                frame=frame,
+                station_positions=station_positions,
+                grid_lon=plot_grid_lon,
+                grid_lat=plot_grid_lat,
+                grid=grid,
+                bounds=bounds,
+                color_limits=(float(vmin), float(vmax)),
+                basemap_layer=basemap_layer,
+                pipeline=pipeline,
+                render=render,
+                field_spec=field_spec,
+                accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
+            )
+
+    duration_seconds = max(float(render.gif_frame_duration_seconds), 0.02)
+    if animation_format == "gif":
+        return _encode_gif(
+            rendered_png_frames(),
+            duration_ms=int(round(duration_seconds * 1000.0)),
+            high_quality=render.gif_high_quality,
+        )
+    return _encode_video(
+        rendered_png_frames(),
+        video_format=animation_format,
+        frame_duration_seconds=duration_seconds,
+    )
+
+
+ANIMATION_MEDIA_TYPES = {
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+}
+
+
+def _encode_gif(png_frames, *, duration_ms: int, high_quality: bool) -> bytes:
+    """
+    Stream PNG frames into an animated GIF.
+
+    high_quality=True uses an adaptive MEDIANCUT palette with Floyd–Steinberg
+    dithering (smoother colour gradients, slower); otherwise FASTOCTREE without
+    dithering (the original fast path).
+    """
     out = BytesIO()
     wrote_any_frame = False
 
-    # Pass 2: render each frame against the shared colour scale.
-    for idx, (frame_time, frame, grid) in enumerate(computed_frames):
-        png_bytes = render_frame_png_bytes(
-            frame_time=frame_time,
-            frame=frame,
-            station_positions=station_positions,
-            grid_lon=grid_lon,
-            grid_lat=grid_lat,
-            grid=grid,
-            bounds=bounds,
-            color_limits=(float(vmin), float(vmax)),
-            basemap_layer=basemap_layer,
-            pipeline=pipeline,
-            render=render,
-            field_spec=field_spec,
-        )
-
+    for idx, png_bytes in enumerate(png_frames):
         with Image.open(BytesIO(png_bytes)) as frame_image:
-            paletted = frame_image.quantize(
-                colors=256,
-                method=Image.Quantize.FASTOCTREE,
-                dither=Image.Dither.NONE,
-            )
+            if high_quality:
+                # MEDIANCUT requires RGB input; dithering hides palette banding.
+                paletted = frame_image.convert("RGB").quantize(
+                    colors=256,
+                    method=Image.Quantize.MEDIANCUT,
+                    dither=Image.Dither.FLOYDSTEINBERG,
+                )
+            else:
+                paletted = frame_image.quantize(
+                    colors=256,
+                    method=Image.Quantize.FASTOCTREE,
+                    dither=Image.Dither.NONE,
+                )
             try:
                 paletted.info["background"] = 0
                 paletted.info.pop("transparency", None)
@@ -890,7 +1131,7 @@ def build_animation_gif_bytes(
                         out.write(chunk)
                 for chunk in GifImagePlugin.getdata(
                     paletted,
-                    duration=duration_ms,
+                    duration=max(duration_ms, 20),
                     disposal=2,
                     include_color_table=(idx > 0),
                 ):
@@ -904,6 +1145,130 @@ def build_animation_gif_bytes(
 
     out.write(b";")
     return out.getvalue()
+
+
+def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: float) -> bytes:
+    """
+    Stream PNG frames into an MP4 (H.264) or WebM (VP9) container via
+    imageio/imageio-ffmpeg. Full 24-bit colour — no GIF palette banding —
+    and typically several times smaller than the equivalent GIF.
+    """
+    try:
+        import imageio.v2 as imageio
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise RuntimeError(
+            "MP4/WebM export requires the 'imageio' and 'imageio-ffmpeg' packages."
+        ) from exc
+
+    fps = min(max(1.0 / max(frame_duration_seconds, 1e-3), 0.5), 60.0)
+    if video_format == "mp4":
+        codec = "libx264"
+        output_params = ["-crf", "18", "-preset", "medium"]
+    else:
+        codec = "libvpx-vp9"
+        output_params = ["-crf", "30", "-b:v", "0"]
+
+    # The ffmpeg writer needs a seekable file, not a pipe.
+    tmp = tempfile.NamedTemporaryFile(suffix=f".{video_format}", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    wrote_any_frame = False
+    try:
+        writer = imageio.get_writer(
+            tmp_path,
+            fps=fps,
+            codec=codec,
+            quality=None,
+            pixelformat="yuv420p",
+            macro_block_size=1,
+            output_params=output_params,
+        )
+        try:
+            for png_bytes in png_frames:
+                with Image.open(BytesIO(png_bytes)) as frame_image:
+                    frame_array = np.asarray(frame_image.convert("RGB"))
+                # yuv420p requires even dimensions: crop at most one row/column.
+                frame_array = frame_array[
+                    : frame_array.shape[0] // 2 * 2,
+                    : frame_array.shape[1] // 2 * 2,
+                ]
+                writer.append_data(frame_array)
+                wrote_any_frame = True
+        finally:
+            writer.close()
+
+        if not wrote_any_frame:
+            raise RuntimeError("No frames were rendered.")
+        return Path(tmp_path).read_bytes()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def build_frame_image_bytes(
+    *,
+    frame_summary: pd.DataFrame,
+    frame_time: pd.Timestamp,
+    pipeline: TecMapConfig,
+    render: TecMapRenderConfig,
+    image_format: str = "png",
+) -> bytes:
+    """
+    Publication-quality single-frame image (PNG or SVG) at render.frame_dpi.
+
+    Same visual pipeline as one animation frame: field transforms, coverage
+    mask, optional upsampling and basemap. Colour limits come from this frame
+    (or from render.color_min/color_max when set, for cross-frame consistency).
+    """
+    fmt = (image_format or "png").strip().lower()
+    if fmt not in {"png", "svg"}:
+        raise ValueError(f"Unsupported image format: {image_format!r}. Use png or svg.")
+
+    frame = frame_summary[frame_summary["frame_time"] == frame_time].copy()
+    if frame.empty:
+        raise RuntimeError(f"No samples available for requested frame_time={frame_time}.")
+
+    bounds = _bounds_for_frame_summary(frame)
+    lon_min, lon_max, lat_min, lat_max = bounds
+    lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
+    lat_axis = np.arange(lat_min, lat_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
+    grid_lon, grid_lat = np.meshgrid(lon_axis, lat_axis)
+
+    field_spec = _field_render_spec(render.field, render.signal_band)
+    grid, plot_grid_lon, plot_grid_lat = compute_field_grid(
+        frame, grid_lon, grid_lat, pipeline, field_spec.get("grid_transform"), upsample_factor=render.upsample_factor
+    )
+
+    if field_spec.get("derived_scale"):
+        vmin, vmax = _derived_color_limits(field_spec, [grid])
+    else:
+        vmin, vmax = _vtec_color_limits(frame_summary, pipeline)
+    vmin, vmax = _apply_color_overrides(vmin, vmax, render)
+
+    station_positions = frame_summary.groupby("station", as_index=False).agg(
+        site_lat=("site_lat", "first"),
+        site_lon=("site_lon", "first"),
+    )
+    basemap_layer = load_basemap_layer(bounds, render)
+
+    return render_frame_png_bytes(
+        frame_time=pd.Timestamp(frame_time),
+        frame=frame,
+        station_positions=station_positions,
+        grid_lon=plot_grid_lon,
+        grid_lat=plot_grid_lat,
+        grid=grid,
+        bounds=bounds,
+        color_limits=(float(vmin), float(vmax)),
+        basemap_layer=basemap_layer,
+        pipeline=pipeline,
+        render=render,
+        field_spec=field_spec,
+        image_format=fmt,
+        accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
+    )
 
 
 def build_snapshot_plotly_json(
@@ -926,8 +1291,14 @@ def build_snapshot_plotly_json(
         site_lon=("site_lon", "first"),
     )
 
-    field_spec = _field_render_spec(render.field)
-    is_gradient_field = (render.field or "").strip().lower() == "vtec_gradient"
+    field_spec = _field_render_spec(render.field, render.signal_band)
+    grid_transform = field_spec.get("grid_transform")
+    is_derived_field = bool(field_spec.get("derived_scale"))
+    field_short = {
+        "vtec_gradient": "|∇VTEC|",
+        "gdd": "|D|",
+        "b_k": "B_k",
+    }.get((render.field or "").strip().lower(), "VTEC")
 
     fig = go.Figure()
 
@@ -936,40 +1307,17 @@ def build_snapshot_plotly_json(
         lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
         lat_axis = np.arange(lat_min, lat_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
         grid_lon, grid_lat = np.meshgrid(lon_axis, lat_axis)
-
-        coverage_mask = ipp_coverage_mask(frame, grid_lon, grid_lat, pipeline)
-        coverage_mask = soften_coverage_mask(coverage_mask, pipeline)
-        grid = interpolate_frame(frame, grid_lon, grid_lat, pipeline, coverage_mask=coverage_mask)
-        grid = smooth_grid(grid, pipeline.smoothing_sigma)
-        grid = np.where(coverage_mask, grid, np.nan)
-        if pipeline.enforce_nonnegative_vtec:
-            grid = np.where(np.isfinite(grid), np.maximum(grid, 0.0), grid)
-
-        if is_gradient_field:
-            grid = compute_vtec_gradient_magnitude(grid, grid_lon, grid_lat)
-            grid = np.where(coverage_mask, grid, np.nan)
-        grid_for_scale = grid
+        grid_for_scale, _, _ = compute_field_grid(frame, grid_lon, grid_lat, pipeline, grid_transform)
 
     # Shared colour scale. For VTEC: 5–95% quantile over the full selection.
-    # For |∇VTEC|: 0 → 95% quantile of the snapshot's gradient values.
-    if is_gradient_field:
-        if grid_for_scale is not None and np.isfinite(grid_for_scale).any():
-            finite_vals = grid_for_scale[np.isfinite(grid_for_scale)]
-            vmax = float(np.quantile(finite_vals, 0.95))
-            if not np.isfinite(vmax) or vmax <= 0.0:
-                vmax = float(np.nanmax(finite_vals))
-            vmin = 0.0
-        else:
-            vmin, vmax = 0.0, 1.0
-        if math.isclose(vmin, vmax):
-            vmax = vmin + 1.0
+    # For derived fields: vmin_floor (or 5% quantile) → 95% quantile of the
+    # snapshot's transformed values.
+    if is_derived_field:
+        grids = [grid_for_scale] if grid_for_scale is not None else []
+        vmin, vmax = _derived_color_limits(field_spec, grids)
     else:
-        vmin, vmax = np.quantile(frame_summary["vtec_tecu"], [0.05, 0.95])
-        if math.isclose(float(vmin), float(vmax)):
-            vmin -= 1.0
-            vmax += 1.0
-        if pipeline.enforce_nonnegative_vtec:
-            vmin = max(float(vmin), 0.0)
+        vmin, vmax = _vtec_color_limits(frame_summary, pipeline)
+    vmin, vmax = _apply_color_overrides(vmin, vmax, render)
 
     if include_grid and grid_for_scale is not None:
         # Prefer strict-JSON safe z: replace NaN with None.
@@ -977,9 +1325,9 @@ def build_snapshot_plotly_json(
         for row in grid_for_scale:
             z_rows.append([float(v) if np.isfinite(v) else None for v in row])
 
-        heatmap_name = "|∇VTEC| (interpolated)" if is_gradient_field else "Interpolated VTEC"
+        heatmap_name = f"{field_short} (interpolated)" if is_derived_field else "Interpolated VTEC"
         hover_unit = field_spec["hover_unit"]
-        z_label = "|∇VTEC|" if is_gradient_field else "VTEC"
+        z_label = field_short
         fig.add_trace(
             go.Heatmap(
                 x=lon_axis,
@@ -1018,18 +1366,21 @@ def build_snapshot_plotly_json(
     )
 
     ipp_station_codes = [str(v).upper() for v in frame["station"].tolist()]
-    if is_gradient_field:
-        # Per-IPP VTEC values are not on the gradient colour scale; show positions only.
+    point_transform = field_spec.get("point_transform")
+    if point_transform is None:
+        # Per-IPP values are not on this field's colour scale; show positions only.
         ipp_marker: dict[str, Any] = {
             "size": 8,
             "color": "white",
             "line": {"color": "black", "width": 0.7},
         }
-        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>(per-IPP VTEC not on gradient scale)<extra></extra>"
+        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>(per-IPP values not on this scale)<extra></extra>"
     else:
+        point_values = point_transform(frame["vtec_tecu"].to_numpy())
+        point_values = [float(v) if np.isfinite(v) else None for v in np.asarray(point_values, dtype=float)]
         ipp_marker = {
             "size": 10,
-            "color": frame["vtec_tecu"],
+            "color": point_values,
             "colorscale": field_spec["plotly_colorscale"],
             "cmin": float(vmin),
             "cmax": float(vmax),
@@ -1040,7 +1391,10 @@ def build_snapshot_plotly_json(
             ipp_marker["colorbar"] = {"title": field_spec["colorbar_label"]}
         else:
             ipp_marker["showscale"] = False
-        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>VTEC %{marker.color:.2f} TECU<extra></extra>"
+        ipp_hover = (
+            "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>"
+            + field_short + " %{marker.color:.2f} " + field_spec["hover_unit"] + "<extra></extra>"
+        )
 
     fig.add_trace(
         go.Scatter(
@@ -1063,6 +1417,22 @@ def build_snapshot_plotly_json(
         margin={"l": 50, "r": 20, "t": 60, "b": 45},
         template="plotly_white",
     )
+
+    if render.show_accuracy:
+        accuracy_label = frame_accuracy_label(frame, pipeline)
+        if accuracy_label:
+            fig.add_annotation(
+                text=accuracy_label,
+                xref="paper",
+                yref="paper",
+                x=0.01,
+                y=0.99,
+                xanchor="left",
+                yanchor="top",
+                showarrow=False,
+                font={"size": 11, "color": "black"},
+                bgcolor="rgba(255,255,255,0.65)",
+            )
 
     # Requirement: based on Figure.to_plotly_json(); ensure strict JSON types.
     raw = fig.to_plotly_json()
