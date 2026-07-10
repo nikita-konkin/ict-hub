@@ -37,6 +37,7 @@ from _plotly_utils.utils import PlotlyJSONEncoder
 
 from app.tec_map_pipeline import TecMapConfig
 from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
+from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
 from app.tec_map_validation import frame_accuracy_label
 from app.tec_map_fields import (
     compute_bk_grid,
@@ -330,9 +331,18 @@ def interpolate_frame(
             grid_lon,
             grid_lat,
         )
+    elif method == "lpi" and len(frame) >= MIN_POINTS_FOR_LPI:
+        interpolated = lpi_interpolate(
+            frame["ipp_lon"].to_numpy(),
+            frame["ipp_lat"].to_numpy(),
+            values,
+            grid_lon,
+            grid_lat,
+            degree=int(getattr(pipeline, "lpi_degree", 1)),
+        )
     else:
-        # Delaunay-linear with nearest fill (also the small-frame fallback for kriging).
-        griddata_method = "linear" if method == "kriging" else pipeline.interpolation_method
+        # Delaunay-linear with nearest fill (also the small-frame fallback for kriging/LPI).
+        griddata_method = "linear" if method in {"kriging", "lpi"} else pipeline.interpolation_method
         if len(frame) >= 3:
             primary = griddata(points, values, (grid_lon, grid_lat), method=griddata_method)
             fallback = griddata(points, values, (grid_lon, grid_lat), method=pipeline.fallback_interpolation_method)
@@ -788,6 +798,13 @@ def apply_geographic_ticks(
     ax.set_ylabel("Latitude [deg]")
 
 
+def _interp_label(pipeline: TecMapConfig) -> str:
+    method = str(pipeline.interpolation_method or "linear").strip().lower()
+    if method == "lpi" and int(getattr(pipeline, "lpi_degree", 1)) >= 2:
+        return "interp lpi(deg 2)"
+    return f"interp {method}"
+
+
 def pipeline_params_label(pipeline: TecMapConfig, render: TecMapRenderConfig) -> str:
     """One-line caption with the model constants the map was built from."""
     parts = [
@@ -801,7 +818,7 @@ def pipeline_params_label(pipeline: TecMapConfig, render: TecMapRenderConfig) ->
             if pipeline.ipp_gradient_radius_km is not None
             else "R_cov off"
         ),
-        f"interp {str(pipeline.interpolation_method or 'linear').strip().lower()}",
+        _interp_label(pipeline),
     ]
     if int(pipeline.vtec_smooth_epochs or 0) > 0:
         parts.append(f"t-median {int(pipeline.vtec_smooth_epochs)} ep")

@@ -19,6 +19,9 @@ Includes a dedicated **data-indexer microservice** that provides fast XML-indexe
   - **Configurable cache TTL** — balance freshness vs. performance
   - **Background refresh** — optional async/sync indexing on startup
   - **Debug logging** — detailed real-time visibility into indexing operations
+- **IonMaps** — regional ionosphere maps (VTEC, |∇VTEC|, GDD, B_k) built from TEC-suite
+  parquet output, with animation export, kriging interpolation and built-in accuracy
+  validation (see [IonMaps methodology](#ionmaps-methodology) below)
 - **Fully Dockerised** — one `docker-compose up --build` and everything runs
 
 ---
@@ -61,6 +64,132 @@ TEC-Suite now reads folder options from `RINEX_DATA_PATH_HOST` and passes:
 - `--root /data/rinex/<YYYY_original>/<DDD>` when both year and day are selected
 
 The `--out` option is temporarily disabled and handled inside the TEC-Suite container.
+
+---
+
+## IonMaps methodology
+
+The **IonMaps** section (`/ionmaps`, endpoints under `/tec-map/*`) turns TEC-suite parquet
+output into regional maps of the ionosphere. The full engineering reference lives in
+[`docs/tec_map_service_overview.md`](docs/tec_map_service_overview.md); this is the
+method summary.
+
+### 1. VTEC restoration (per station, per day)
+
+1. **Input** — slant TEC time series per station+satellite link from TEC-suite [7]
+   parquet output (dual-frequency phase `TEC_phase` and code `TEC_code` combinations
+   [1], elevation/azimuth, receiver position from the parquet header). Samples below
+   the elevation cutoff `θ_min = 20°` are dropped.
+2. **Arc splitting** — each link is split into continuous phase arcs: a gap longer than
+   1.5× the sampling interval (or a validity-flag break) starts a new arc. Phase TEC is
+   precise but ambiguous; code TEC is absolute but noisy.
+3. **Phase-to-code leveling** — every arc is shifted by
+   `median(TEC_code − TEC_phase)` over the arc (arcs shorter than 3 valid samples are
+   discarded): `STEC = TEC_phase + shift`. This keeps phase precision on an absolute level.
+4. **Receiver bias (MSTD)** — the inter-frequency receiver bias is estimated by
+   minimising the standard deviation of night-time VTEC over a bias search grid
+   (a single-site technique in the spirit of the GEONET bias estimation in [6]) and
+   subtracted from STEC. Satellite biases are not assimilated (no external DCB
+   catalogues), so the VTEC scale is *relative*: spatial structure and dynamics are
+   correct, the absolute level may carry a common offset of a few TECU.
+5. **Thin-shell mapping** — STEC is projected to vertical with the single-layer model
+   [2, 3] at `h_ion = 350 km` (the shell height used by the MAPGPS/Madrigal maps [4]):
+   `VTEC = STEC / M(χ)`, `M(χ) = 1/√(1 − sin²χ)` where χ is the zenith angle at the
+   ionospheric pierce point (IPP). IPP coordinates are computed from elevation, azimuth
+   and `h_ion`; negative VTEC is clipped to 0.
+
+### 2. Map construction (per time frame)
+
+1. **Frame aggregation** — samples are binned into `ΔT = 15 min` frames (an order of
+   magnitude finer than the 2-hour IGS GIM cadence [5], analogous to the 5-min binning
+   of MAPGPS [4]); within a frame VTEC and IPP coordinates are averaged per station,
+   giving one measurement point per station per frame.
+2. **Spatial interpolation** onto a regular lon/lat grid (`Δ = 1°` default, bounds =
+   IPP cloud + 2° margin). Three selectable principles:
+   - **`linear`** (default) — Delaunay triangulation with linear interpolation inside
+     the convex hull, nearest-neighbour fill outside;
+   - **`kriging`** — ordinary kriging on the sphere with an exponential variogram
+     `γ(h) = nugget + sill·(1 − exp(−h/range))` fitted to each frame's own empirical
+     semivariogram (fallback on fit failure: range 300 km, nugget = 5% of sample
+     variance). Kriging weights noisy samples through the nugget effect and relaxes to
+     the field mean away from data instead of producing nearest-neighbour plateaus;
+   - **`lpi`** — local polynomial interpolation: a Gaussian-weighted (σ = 200 km)
+     degree-1 polynomial fitted at every grid node, with a slope ridge for degenerate
+     geometries (`lpi_degree=2` switches to a local quadric where the neighbourhood
+     holds ≥7 effective stations, dropping back to the plane elsewhere). Comparative
+     studies rank ordinary kriging and LPI as the two most accurate local methods for
+     ionosphere mapping [8].
+3. **Coverage mask** — the field is physically meaningful only near measurements: grid
+   cells farther than `R_cov = 300 km` (great-circle) from the nearest IPP are masked
+   out. The mask is evaluated at render resolution (with 2–4× bilinear upsampling of the
+   field), so the boundary is a smooth union of circles rather than pixel stair-steps.
+4. **Smoothing** — Gaussian filter with `σ_g = 1` grid cell (≈100 km at Δ=1°, matching
+   the published mid-latitude TEC decorrelation scale of 80–130 km [9]). Colour scale:
+   5–95% quantiles of the selection, or explicit `color_min`/`color_max` for cross-frame
+   comparability.
+
+### 3. Derived propagation fields
+
+Pointwise transforms of the VTEC grid (`N_t = VTEC·10¹⁶ el/m²`, frequencies from the
+signal-band table — GPS L1/L2/L5, GLONASS L1/L2 (FDMA centre, k=0) and L3, Galileo
+E1/E5a/E5b/E5, BeiDou B1I/B1C/B2a/B2I):
+
+- **GDD** — group delay dispersion magnitude `|D| = 3·80.5·N_t / (2·c·π·f³)` [ns/GHz];
+- **B_k** — coherence bandwidth `B_k = √(c·f³ / (80.5·π·N_t))` [MHz];
+- **|∇VTEC|** — horizontal gradient magnitude [TECU / 100 km] with per-latitude
+  correction of the longitudinal step.
+
+### 4. Accuracy validation (LOSO)
+
+Map quality is verified by **leave-one-station-out cross-validation**: for every frame
+each station is excluded in turn, the field is predicted at its IPP from the remaining
+stations with the same interpolator, and prediction errors (bias / MAE / RMSE, TECU) are
+aggregated overall, per station and per frame (`GET /tec-map/validate`,
+`interpolation=both` compares linear vs kriging). Reference accuracy levels for regional
+networks are 0.5–1 TECU in quiet and 1.5–2 TECU in disturbed conditions [8]. Excluded
+points that fall outside the coverage radius of the remaining stations are not counted.
+`show_accuracy=true` prints the per-frame LOSO RMSE directly on rendered maps;
+`show_params=true` prints the model constants as a caption. In practice the error budget
+is dominated by residual receiver calibration, not by the interpolator — LOSO doubles as
+an automatic station QC tool.
+
+### 5. Outputs
+
+- animation: GIF (standard/high palette) / MP4 (H.264) / WebM (VP9), `/tec-map/gif`;
+- interactive Plotly snapshot, `/tec-map/snapshot`;
+- publication-quality static frame PNG/SVG up to 600 dpi, `/tec-map/frame`;
+- validation report JSON/CSV, `/tec-map/validate`;
+- station positions + proximity grouping for the UI, `/tec-map/station-positions`.
+
+### References
+
+1. Афраймович Э.Л., Перевалова Н.П. *GPS-мониторинг верхней атмосферы Земли.* —
+   Иркутск: ГУ НЦ РВХ ВСНЦ СО РАМН, 2006. — 480 с. (dual-frequency TEC fundamentals)
+2. Mannucci A.J., Wilson B.D., Yuan D.N. et al. A global mapping technique for
+   GPS-derived ionospheric total electron content measurements // *Radio Science*. 1998.
+   Vol. 33, № 3. P. 565–582. (thin-shell model, mapping function)
+3. Schaer S. *Mapping and predicting the Earth's ionosphere using the Global Positioning
+   System.* PhD thesis. — Bern: Astronomical Institute, University of Bern, 1999. 205 p.
+   (single-layer model, GIM spherical-harmonic technique)
+4. Rideout W., Coster A. Automated GPS processing for global total electron content
+   data // *GPS Solutions*. 2006. Vol. 10, № 3. P. 219–228. (MAPGPS / Madrigal maps:
+   1°×1° binning, 5-min cadence, 350 km shell)
+5. Hernández-Pajares M., Juan J.M., Sanz J. et al. The IGS VTEC maps: a reliable source
+   of ionospheric information since 1998 // *Journal of Geodesy*. 2009. Vol. 83.
+   P. 263–275. (IGS GIM: 2.5°×5°, 2 h, 2–8 TECU accuracy)
+6. Ma X.F., Maruyama T. Derivation of TEC and estimation of instrumental biases from
+   GEONET in Japan // *Annales Geophysicae*. 2003. Vol. 21, № 10. P. 2083–2093.
+   (single-site receiver-bias estimation by minimising VTEC scatter)
+7. tec-suite: slant TEC computation from GNSS observation files.
+   https://github.com/gnss-lab/tec-suite
+8. Ogryzek M., Krypiak-Gregorczyk A., Wielgosz P. Optimal geostatistical methods for
+   interpolation of the ionosphere: a case study on the St Patrick's Day storm of
+   2015 // *Sensors*. 2020. Vol. 20, № 10. Art. 2840. (kriging vs polynomial methods,
+   cross-validation accuracy 0.5–2 TECU)
+9. Shim J., Scherliess L., Schunk R.W., Thompson D.C. Spatial correlations of
+   day-to-day ionospheric total electron content variability obtained from ground-based
+   GPS // *Journal of Geophysical Research: Space Physics*. 2008. Vol. 113, № A9.
+   A09309. (mid-latitude decorrelation length 80–130 km)
 
 ---
 

@@ -49,6 +49,9 @@ class TecMapConfig:
     # Gridding
     grid_resolution_deg: float = 1.0
     interpolation_method: str = "linear"
+    # Polynomial degree for interpolation_method="lpi": 1 = local plane
+    # (default), 2 = local quadric where the neighbourhood is dense enough.
+    lpi_degree: int = 1
     fallback_interpolation_method: str = "nearest"
     ipp_gradient_radius_km: float | None = 300.0
     smoothing_sigma: float = 1.0

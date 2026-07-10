@@ -112,12 +112,16 @@ def _parse_interpolation(value: str | None) -> str:
         return "linear"
     if text in {"kriging", "krige", "ok", "ordinary_kriging"}:
         return "kriging"
-    raise ValueError("Unsupported interpolation. Use one of: linear, kriging.")
+    if text in {"lpi", "local_polynomial", "local-polynomial", "loess", "lwr"}:
+        return "lpi"
+    raise ValueError("Unsupported interpolation. Use one of: linear, kriging, lpi.")
 
 
 def _parse_validation_interpolations(value: str | None) -> list[str]:
-    text = str(value or "both").strip().lower()
-    if text in {"", "both", "all", "compare"}:
+    text = str(value or "all").strip().lower()
+    if text in {"", "all", "compare"}:
+        return ["linear", "kriging", "lpi"]
+    if text == "both":
         return ["linear", "kriging"]
     return [_parse_interpolation(text)]
 
@@ -370,7 +374,13 @@ def tec_map_gif(
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
     interpolation: str = Query(
         default="linear",
-        description="Grid interpolation: linear (Delaunay + nearest fill) or kriging (ordinary kriging, exponential variogram fitted per frame).",
+        description="Grid interpolation: linear (Delaunay + nearest fill), kriging (ordinary kriging, exponential variogram fitted per frame) or lpi (local degree-1 polynomial, Gaussian kernel).",
+    ),
+    lpi_degree: int = Query(
+        default=1,
+        ge=1,
+        le=2,
+        description="Polynomial degree for interpolation=lpi: 1 = local plane, 2 = local quadric where the station neighbourhood is dense enough.",
     ),
     vtec_smooth_epochs: int = Query(
         default=0,
@@ -450,6 +460,7 @@ def tec_map_gif(
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
         interpolation_method=interp_mode,
+        lpi_degree=int(lpi_degree),
         vtec_smooth_epochs=int(vtec_smooth_epochs),
         normalize_stations=normalize_mode,
     )
@@ -634,7 +645,13 @@ def tec_map_snapshot(
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
     interpolation: str = Query(
         default="linear",
-        description="Grid interpolation: linear (Delaunay + nearest fill) or kriging (ordinary kriging, exponential variogram fitted per frame).",
+        description="Grid interpolation: linear (Delaunay + nearest fill), kriging (ordinary kriging, exponential variogram fitted per frame) or lpi (local degree-1 polynomial, Gaussian kernel).",
+    ),
+    lpi_degree: int = Query(
+        default=1,
+        ge=1,
+        le=2,
+        description="Polynomial degree for interpolation=lpi: 1 = local plane, 2 = local quadric where the station neighbourhood is dense enough.",
     ),
     vtec_smooth_epochs: int = Query(
         default=0,
@@ -687,6 +704,7 @@ def tec_map_snapshot(
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
         interpolation_method=interp_mode,
+        lpi_degree=int(lpi_degree),
         vtec_smooth_epochs=int(vtec_smooth_epochs),
         normalize_stations=normalize_mode,
     )
@@ -759,7 +777,13 @@ def tec_map_frame(
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
     interpolation: str = Query(
         default="linear",
-        description="Grid interpolation: linear (Delaunay + nearest fill) or kriging (ordinary kriging, exponential variogram fitted per frame).",
+        description="Grid interpolation: linear (Delaunay + nearest fill), kriging (ordinary kriging, exponential variogram fitted per frame) or lpi (local degree-1 polynomial, Gaussian kernel).",
+    ),
+    lpi_degree: int = Query(
+        default=1,
+        ge=1,
+        le=2,
+        description="Polynomial degree for interpolation=lpi: 1 = local plane, 2 = local quadric where the station neighbourhood is dense enough.",
     ),
     vtec_smooth_epochs: int = Query(
         default=0,
@@ -802,6 +826,10 @@ def tec_map_frame(
         default=False,
         description="Annotate the frame with its leave-one-station-out accuracy (LOSO RMSE in TECU).",
     ),
+    show_params: bool = Query(
+        default=False,
+        description="Print the map-model parameters as a caption under the map.",
+    ),
 ):
     """
     Publication-quality static frame (PNG/SVG) — same visual pipeline as one
@@ -834,6 +862,7 @@ def tec_map_frame(
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
         interpolation_method=interp_mode,
+        lpi_degree=int(lpi_degree),
         vtec_smooth_epochs=int(vtec_smooth_epochs),
         normalize_stations=normalize_mode,
     )
@@ -857,6 +886,7 @@ def tec_map_frame(
         color_min=color_min,
         color_max=color_max,
         show_accuracy=bool(show_accuracy),
+        show_params=bool(show_params),
     )
 
     try:
@@ -914,8 +944,14 @@ def tec_map_validate(
     grid_resolution_deg: float = Query(default=1.0, gt=0.0, le=10.0),
     smoothing_sigma: float = Query(default=1.0, ge=0.0, le=20.0),
     interpolation: str = Query(
-        default="both",
-        description="Interpolation methods to validate: linear, kriging or both (default).",
+        default="all",
+        description="Interpolation methods to validate: linear, kriging, lpi, both (linear+kriging) or all (default: all three).",
+    ),
+    lpi_degree: int = Query(
+        default=1,
+        ge=1,
+        le=2,
+        description="Polynomial degree for the lpi method: 1 = local plane, 2 = local quadric where dense enough.",
     ),
     vtec_smooth_epochs: int = Query(
         default=0,
@@ -990,6 +1026,7 @@ def tec_map_validate(
         ionosphere_height_km=float(ionosphere_height_km),
         grid_resolution_deg=float(grid_resolution_deg),
         smoothing_sigma=float(smoothing_sigma),
+        lpi_degree=int(lpi_degree),
         vtec_smooth_epochs=int(vtec_smooth_epochs),
         normalize_stations=normalize_mode,
     )

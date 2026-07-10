@@ -308,6 +308,29 @@ The interpolation principle is selected per request via `interpolation`
 - cost: one (n+1)×(n+1) solve per frame (n = samples per frame, typically
   30–100) — render time is essentially unchanged
 
+**`interpolation=lpi`** — local polynomial interpolation
+(`app/tec_map_lpi.py`; aliases: `local_polynomial`, `loess`, `lwr`):
+
+- moving weighted least squares: at every grid node a degree-1 polynomial
+  (local plane) is fitted to the frame's samples with Gaussian distance
+  weights, `w = exp(−½(d/σ)²)`, σ = 200 km — between the mid-latitude TEC
+  decorrelation length (80–130 km) and the 300 km coverage radius
+- `lpi_degree=2` (query parameter, default 1) fits a local quadric instead —
+  tracks curvature (e.g. the midday TEC bump) better, but only at nodes with
+  at least 7 effective neighbours (weight ≥ 0.1, i.e. within ~2.1σ); sparser
+  nodes silently drop to the degree-1 plane, so the boundary behaviour never
+  degrades. Degree 2 is more sensitive to residual station biases
+- the local basis is centred at the target (intercept = prediction) and a
+  scale-aware ridge on the slope terms shrinks the plane towards a weighted
+  mean when the neighbourhood geometry is degenerate (e.g. collinear
+  stations) — no runaway gradients
+- targets far outside the sample cloud fall back to the nearest sample
+  (the coverage mask hides them anyway)
+- frames with fewer than 4 samples fall back to the linear path
+- comparative studies (Ogryzek et al., 2020) rank LPI and ordinary kriging as
+  the two most accurate local methods, LPI marginally ahead in quiet
+  conditions; cost: one batched 3×3 solve per grid node — negligible
+
 ### Coverage Mask
 
 The map is not allowed to extend infinitely away from the IPP sample cloud.
@@ -558,9 +581,9 @@ the remaining stations (same interpolation dispatch as the map itself,
 `GET /tec-map/validate` takes the same period/station/pipeline parameters as
 `/tec-map/gif` plus:
 
-- `interpolation=linear|kriging|both` (default `both` — validates both methods
-  side by side; kriging fits the variogram once per frame and reuses it for
-  every leave-one-out subset)
+- `interpolation=linear|kriging|lpi|both|all` (default `all` — validates all
+  three methods side by side; `both` = linear+kriging; kriging fits the
+  variogram once per frame and reuses it for every leave-one-out subset)
 - `format=json|csv` — JSON returns `overall` / `per_station` / `per_frame`
   bias-MAE-RMSE summaries; CSV returns the flat per-point table
   (`frame_time, station, vtec_obs, vtec_pred, error, n_train, in_coverage`)

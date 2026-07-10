@@ -129,8 +129,10 @@
             <select id="tecmap-interp" class="form-select">
               <option value="linear" selected>linear (Delaunay triangulation)</option>
               <option value="kriging">kriging (ordinary, exp. variogram per frame)</option>
+              <option value="lpi">local polynomial (LPI, degree 1)</option>
+              <option value="lpi2">local polynomial (LPI, degree 2)</option>
             </select>
-            <div class="param-hint">Map construction principle. Kriging fits an exponential variogram to each frame's samples, weights noisy measurements via the nugget effect and relaxes to the field mean away from data (no nearest-neighbour plateaus).</div>
+            <div class="param-hint">Map construction principle. Kriging fits an exponential variogram to each frame's samples, weights noisy measurements via the nugget effect and relaxes to the field mean away from data. LPI fits a Gaussian-weighted local plane at every grid node (σ = 200 km) — with ordinary kriging, one of the two most accurate local methods in comparative studies. Degree 2 fits a local quadric where the station neighbourhood is dense enough (≥7 within ~2σ) and falls back to the plane elsewhere; it can track the midday TEC bump better but is more sensitive to station biases.</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="tecmap-field">Field</label>
@@ -766,7 +768,12 @@
       addNumberParam(params, "smoothing_sigma", sigmaEl);
 
       const interpValue = clean(interpEl ? interpEl.value : "") || "linear";
-      if (interpValue !== "linear") params.set("interpolation", interpValue);
+      if (interpValue === "lpi2") {
+        params.set("interpolation", "lpi");
+        params.set("lpi_degree", "2");
+      } else if (interpValue !== "linear") {
+        params.set("interpolation", interpValue);
+      }
 
       const fieldValue = clean(fieldEl ? fieldEl.value : "") || "vtec";
       if (fieldValue && fieldValue !== "vtec") params.set("field", fieldValue);
@@ -885,7 +892,7 @@
                          "upsample", "frame_dpi", "field", "signal_band", "show_accuracy", "show_params", "interpolation"]) {
         params.delete(key);
       }
-      params.set("interpolation", "both");
+      params.set("interpolation", "all");
       return "/tec-map/validate?" + params.toString();
     }
 
@@ -961,7 +968,7 @@
           return;
         }
         setLastUrl(url);
-        setStatus("info", "Running LOSO cross-validation (linear + kriging)…");
+        setStatus("info", "Running LOSO cross-validation (linear + kriging + LPI)…");
         validateBtn.disabled = true;
         try {
           const res = await fetch(url, { credentials: "same-origin" });

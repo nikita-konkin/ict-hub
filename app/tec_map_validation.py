@@ -31,6 +31,7 @@ from app.tec_map_kriging import (
     kriging_interpolate,
     pairwise_distances_km,
 )
+from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
 from app.tec_map_pipeline import TecMapConfig
 
 logger = logging.getLogger(__name__)
@@ -77,10 +78,18 @@ def predict_at_points(
             kriging_interpolate(train_lon, train_lat, train_values, target_lon, target_lat, variogram=variogram),
             dtype=float,
         )
+    if method == "lpi" and len(train_values) >= MIN_POINTS_FOR_LPI:
+        return np.asarray(
+            lpi_interpolate(
+                train_lon, train_lat, train_values, target_lon, target_lat,
+                degree=int(getattr(pipeline, "lpi_degree", 1)),
+            ),
+            dtype=float,
+        )
 
     train_points = np.column_stack([train_lon, train_lat])
     if len(train_values) >= 3:
-        griddata_method = "linear" if method == "kriging" else pipeline.interpolation_method
+        griddata_method = "linear" if method in {"kriging", "lpi"} else pipeline.interpolation_method
         primary = griddata(train_points, train_values, (target_lon, target_lat), method=griddata_method)
         fallback = griddata(
             train_points, train_values, (target_lon, target_lat), method=pipeline.fallback_interpolation_method

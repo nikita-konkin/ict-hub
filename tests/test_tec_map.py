@@ -875,7 +875,7 @@ def test_loso_cross_validation_recovers_smooth_field():
     from app.tec_map_validation import loso_cross_validate, summarize_validation
 
     frame_summary = _loso_frame_summary(12, plane=True)
-    for method in ("linear", "kriging"):
+    for method in ("linear", "kriging", "lpi"):
         pipeline = TecMapConfig(interpolation_method=method, smoothing_sigma=0.0)
         cv = loso_cross_validate(frame_summary, pipeline)
         assert len(cv) == 12
@@ -889,9 +889,16 @@ def test_loso_cross_validation_recovers_smooth_field():
         assert overall["rmse_tecu"] < 2.0, f"{method}: rmse={overall['rmse_tecu']}"
         assert abs(overall["bias_tecu"]) < 1.5
 
+    # LPI fits a local plane, so a planar field is reproduced essentially
+    # exactly even at hull points where linear/kriging degrade.
+    lpi_metrics = summarize_validation(
+        loso_cross_validate(frame_summary, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0))
+    )["overall"]
+    assert lpi_metrics["rmse_tecu"] < 0.05, f"lpi: rmse={lpi_metrics['rmse_tecu']}"
+
     # Constant field: every prediction equals the constant, errors ~0.
     const_summary = _loso_frame_summary(12, plane=False)
-    for method in ("linear", "kriging"):
+    for method in ("linear", "kriging", "lpi"):
         pipeline = TecMapConfig(interpolation_method=method, smoothing_sigma=0.0)
         metrics = summarize_validation(loso_cross_validate(const_summary, pipeline))["overall"]
         assert metrics["rmse_tecu"] < 1e-6, f"{method}: rmse={metrics['rmse_tecu']}"
@@ -932,12 +939,15 @@ def test_predict_at_points_dispatch_and_small_frame_fallback():
 
     linear = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="linear"))
     kriging = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="kriging"))
-    assert np.isfinite(linear).all() and np.isfinite(kriging).all()
+    lpi = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="lpi"))
+    assert np.isfinite(linear).all() and np.isfinite(kriging).all() and np.isfinite(lpi).all()
     assert abs(float(linear[0]) - float(kriging[0])) > 1e-9
+    assert abs(float(lpi[0]) - float(linear[0])) > 1e-9
 
     # 2 training points: nearest fallback, never raises.
-    tiny = predict_at_points(lon[:2], lat[:2], values[:2], target_lon, target_lat, TecMapConfig(interpolation_method="kriging"))
-    assert np.isfinite(tiny).all()
+    for method in ("kriging", "lpi"):
+        tiny = predict_at_points(lon[:2], lat[:2], values[:2], target_lon, target_lat, TecMapConfig(interpolation_method=method))
+        assert np.isfinite(tiny).all()
 
 
 def test_frame_accuracy_label_format_and_minimum_size():
@@ -983,6 +993,105 @@ def test_render_frame_with_accuracy_annotation():
         image_format="svg",
     )
     assert b"LOSO RMSE" in annotated_svg
+
+
+def test_lpi_interpolation_plane_constant_and_degenerate_geometry():
+    from app.tec_map_lpi import lpi_interpolate
+    from app.tec_map_render import interpolate_frame
+
+    rng = np.random.default_rng(11)
+    pts_lon = rng.uniform(45.0, 55.0, 30)
+    pts_lat = rng.uniform(50.0, 60.0, 30)
+    truth = lambda lon, lat: 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+    values = truth(pts_lon, pts_lat)
+
+    grid_lon, grid_lat = np.meshgrid(np.linspace(46.0, 54.0, 17), np.linspace(51.0, 59.0, 17))
+    predicted = lpi_interpolate(pts_lon, pts_lat, values, grid_lon, grid_lat)
+    assert predicted.shape == grid_lon.shape
+    assert np.isfinite(predicted).all()
+    # A degree-1 fit reproduces a plane almost exactly across the whole grid.
+    assert float(np.abs(predicted - truth(grid_lon, grid_lat)).max()) < 0.05
+
+    # Constant field -> the constant everywhere (weights sum out).
+    const = lpi_interpolate(pts_lon, pts_lat, np.full(30, 7.5), grid_lon, grid_lat)
+    assert np.allclose(const, 7.5, atol=1e-6)
+
+    # Collinear stations (degenerate east-west geometry): the slope ridge must
+    # keep the solve stable and predictions within the sample range.
+    col_lon = np.linspace(46.0, 54.0, 10)
+    col_lat = np.full(10, 55.0)
+    col_values = np.linspace(5.0, 15.0, 10)
+    col = lpi_interpolate(col_lon, col_lat, col_values, grid_lon, grid_lat)
+    assert np.isfinite(col).all()
+    assert col.min() > 0.0 and col.max() < 25.0
+
+    # A target far outside the cloud falls back to the nearest sample.
+    far = lpi_interpolate(pts_lon, pts_lat, values, np.array([120.0]), np.array([10.0]))
+    assert np.isfinite(far).all()
+
+    # interpolate_frame dispatch: lpi differs from linear, stays in range.
+    frame = pd.DataFrame({
+        "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+        "station": [f"st{i:02d}" for i in range(30)],
+        "site_lat": pts_lat, "site_lon": pts_lon,
+        "ipp_lat": pts_lat, "ipp_lon": pts_lon,
+        "vtec_tecu": values, "samples": 4,
+    })
+    full = np.ones(grid_lon.shape, dtype=bool)
+    lpi_grid = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0), coverage_mask=full)
+    linear_grid = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0), coverage_mask=full)
+    assert not np.allclose(lpi_grid, linear_grid)
+    assert np.isfinite(lpi_grid).all()
+
+    # Tiny frame falls back to the linear path without raising.
+    tiny_grid = interpolate_frame(frame.head(3), grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0), coverage_mask=full)
+    assert np.isfinite(tiny_grid).all()
+
+
+def test_lpi_degree2_quadric_and_fallback_ladder():
+    from app.tec_map_lpi import lpi_interpolate
+    from app.tec_map_render import interpolate_frame
+
+    rng = np.random.default_rng(21)
+    pts_lon = rng.uniform(45.0, 55.0, 60)
+    pts_lat = rng.uniform(50.0, 60.0, 60)
+    # Curved field: a dome peaking at (50, 55) — like the midday TEC bump.
+    curved = lambda lon, lat: 30.0 - 0.35 * (lon - 50.0) ** 2 - 0.5 * (lat - 55.0) ** 2
+    values = curved(pts_lon, pts_lat)
+
+    # Dense interior: degree 2 must track the curvature clearly better.
+    grid_lon, grid_lat = np.meshgrid(np.linspace(48.0, 52.0, 9), np.linspace(53.0, 57.0, 9))
+    truth = curved(grid_lon, grid_lat)
+    err1 = float(np.abs(lpi_interpolate(pts_lon, pts_lat, values, grid_lon, grid_lat, degree=1) - truth).mean())
+    err2 = float(np.abs(lpi_interpolate(pts_lon, pts_lat, values, grid_lon, grid_lat, degree=2) - truth).mean())
+    assert err2 < err1 * 0.5, f"degree2 err={err2:.3f} vs degree1 err={err1:.3f}"
+
+    # A plane is inside the quadric's span: degree 2 reproduces it exactly too.
+    plane = 10.0 + 0.8 * (pts_lon - 50.0) + 0.5 * (pts_lat - 55.0)
+    plane_truth = 10.0 + 0.8 * (grid_lon - 50.0) + 0.5 * (grid_lat - 55.0)
+    plane_pred = lpi_interpolate(pts_lon, pts_lat, plane, grid_lon, grid_lat, degree=2)
+    assert float(np.abs(plane_pred - plane_truth).max()) < 0.05
+
+    # Sparse neighbourhood (5 points < MIN_POINTS_FOR_QUADRATIC): silently
+    # drops to the degree-1 fit — identical result, no crash.
+    few = slice(0, 5)
+    d1 = lpi_interpolate(pts_lon[few], pts_lat[few], values[few], grid_lon, grid_lat, degree=1)
+    d2 = lpi_interpolate(pts_lon[few], pts_lat[few], values[few], grid_lon, grid_lat, degree=2)
+    assert np.allclose(d1, d2)
+
+    # Dispatch: TecMapConfig.lpi_degree reaches the interpolator.
+    frame = pd.DataFrame({
+        "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+        "station": [f"st{i:02d}" for i in range(60)],
+        "site_lat": pts_lat, "site_lon": pts_lon,
+        "ipp_lat": pts_lat, "ipp_lon": pts_lon,
+        "vtec_tecu": values, "samples": 4,
+    })
+    full = np.ones(grid_lon.shape, dtype=bool)
+    g1 = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", lpi_degree=1, smoothing_sigma=0.0), coverage_mask=full)
+    g2 = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", lpi_degree=2, smoothing_sigma=0.0), coverage_mask=full)
+    assert not np.allclose(g1, g2)
+    assert float(np.abs(g2 - truth).mean()) < float(np.abs(g1 - truth).mean())
 
 
 def test_show_params_caption_appears_under_map():
