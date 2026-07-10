@@ -502,8 +502,11 @@ smoothed VTEC grid; derived fields are computed per frame after smoothing:
   cells with VTEC < 0.1 TECU are masked (B_k diverges as TEC → 0)
 
 `signal_band` picks the carrier frequency `f` for `gdd`/`b_k`
-(`gps_l1` default; also `gps_l2`, `gps_l5`, `galileo_e1`, `galileo_e5a`,
-`galileo_e5b`, `galileo_e5`, `bds_b1i`, `bds_b1c`, `bds_b2a`, `bds_b2i`).
+(`gps_l1` default; also `gps_l2`, `gps_l5`, `glonass_l1`, `glonass_l2`,
+`glonass_l3`, `galileo_e1`, `galileo_e5a`, `galileo_e5b`, `galileo_e5`,
+`bds_b1i`, `bds_b1c`, `bds_b2a`, `bds_b2i`). GLONASS L1/L2 are FDMA; the
+table uses the k=0 centre frequencies (1602.0 / 1246.0 MHz), L3 is CDMA
+(1202.025 MHz).
 Formulas and constants mirror `tec-stat/app/services/propagation.py`
 (implementation: `app/tec_map_fields.py` — keep the two in sync).
 
@@ -574,11 +577,34 @@ at render time. In the Analysis UI: the "Show accuracy on map" select and the
 "Validate accuracy (LOSO)" button (renders the per-station comparison table
 for linear vs kriging).
 
+`show_params=true` (same three endpoints) prints the map-model constants as a
+caption line under the map: grid step, smoothing σg, frame length ΔT, h_ion,
+elevation cutoff, coverage radius, interpolation method, plus temporal median /
+station normalization / upsampling when active. The UI enables it by default
+("Show model parameters").
+
 Literature targets for mid-latitude regional maps: cross-validation RMSE
 0.5–1 TECU in quiet conditions, 1.5–2 TECU in disturbed conditions
 (Ogryzek et al., 2020). Note the relative-VTEC caveat: LOSO validates the
 internal consistency of the field and the interpolation quality, not the
 absolute calibration (no external DCB catalogs in ict-hub).
+
+### IonMaps page and station grouping
+
+The map-building UI lives on its own page, `GET /ionmaps` (template
+`ionmaps.html`, moved out of the Analysis page in July 2026). It is gated by
+the same "analysis" page permission as the `/tec-map/*` endpoints, so no user
+access changed.
+
+`GET /tec-map/station-positions?year&doy` (or `date=`) returns receiver
+lat/lon for every station with parquet data on that day — read from tec-suite
+parquet header metadata only, no data scan; results are cached per day
+(`refresh=true` bypasses). It also returns `groups`: greedy proximity
+clusters (default `group_radius_km=300`) ordered west-to-east, each with an
+anchor station and centre coordinates. The IonMaps "Available parquet data"
+block renders station chips grouped by these regions with one-click
+whole-group selection; if the endpoint fails the UI falls back to the flat
+chip list.
 
 ### Request guard rails (GIF)
 

@@ -20,10 +20,15 @@ TEC_TO_NT = 10.0 ** 16         # TECU -> electrons/m^2
 PROPAGATION_COEFF = 80.5
 
 # Carrier frequencies in Hz (same table as tec-stat SIGNAL_BAND_FREQUENCIES_HZ).
+# GLONASS L1/L2 are FDMA (f = f0 + k·Δf, k = −7…+6); the table uses the k=0
+# centre frequencies. L3 is CDMA with a fixed carrier.
 SIGNAL_BAND_FREQUENCIES_HZ: dict[str, float] = {
     "gps_l1": 1575.42e6,
     "gps_l2": 1227.60e6,
     "gps_l5": 1176.45e6,
+    "glonass_l1": 1602.0e6,
+    "glonass_l2": 1246.0e6,
+    "glonass_l3": 1202.025e6,
     "galileo_e1": 1575.42e6,
     "galileo_e5a": 1176.45e6,
     "galileo_e5b": 1207.14e6,
@@ -49,7 +54,7 @@ def resolve_signal_band(name: str | None) -> tuple[str, float]:
 def signal_band_label(band: str) -> str:
     """Human-readable band label, e.g. 'gps_l1' -> 'GPS L1'."""
     system, _, signal = band.partition("_")
-    system_names = {"gps": "GPS", "galileo": "Galileo", "bds": "BeiDou"}
+    system_names = {"gps": "GPS", "glonass": "GLONASS", "galileo": "Galileo", "bds": "BeiDou"}
     return f"{system_names.get(system, system.upper())} {signal.upper()}"
 
 

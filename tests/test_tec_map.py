@@ -985,6 +985,66 @@ def test_render_frame_with_accuracy_annotation():
     assert b"LOSO RMSE" in annotated_svg
 
 
+def test_show_params_caption_appears_under_map():
+    from app.tec_map_render import build_frame_image_bytes, pipeline_params_label
+
+    pipeline = TecMapConfig(
+        grid_resolution_deg=0.5,
+        smoothing_sigma=2.0,
+        frame_minutes=15,
+        interpolation_method="kriging",
+        normalize_stations="always",
+    )
+    render = TecMapRenderConfig(frame_dpi=60, upsample_factor=2, show_params=True)
+
+    label = pipeline_params_label(pipeline, render)
+    assert label.startswith("Model: ")
+    for token in ("grid 0.5°", "σg 2 cell", "ΔT 15 min", "h_ion 350 km",
+                  "θ_min 20°", "R_cov 300 km", "interp kriging",
+                  "normalize always", "upsample 2×"):
+        assert token in label, f"missing {token!r} in {label!r}"
+
+    svg = build_frame_image_bytes(
+        frame_summary=_loso_frame_summary(10, plane=True),
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=render,
+        image_format="svg",
+    )
+    assert b"Model:" in svg
+
+    # Plotly snapshot carries the caption as an annotation.
+    payload = build_snapshot_plotly_json(
+        frame_summary=_loso_frame_summary(10, plane=True),
+        frame_time=pd.Timestamp("2026-01-02 09:00:00"),
+        pipeline=pipeline,
+        render=TecMapRenderConfig(show_params=True),
+        include_grid=True,
+    )
+    annotations = payload["layout"].get("annotations", [])
+    assert any(str(a.get("text", "")).startswith("Model:") for a in annotations)
+
+
+def test_glonass_signal_bands_resolve_and_render_labels():
+    from app.tec_map_fields import compute_bk_grid, resolve_signal_band, signal_band_label
+
+    band, f_hz = resolve_signal_band("GLONASS_L1")
+    assert band == "glonass_l1"
+    assert abs(f_hz - 1602.0e6) < 1.0
+    assert signal_band_label(band) == "GLONASS L1"
+
+    _, f_l2 = resolve_signal_band("glonass_l2")
+    assert abs(f_l2 - 1246.0e6) < 1.0
+    _, f_l3 = resolve_signal_band("glonass_l3")
+    assert abs(f_l3 - 1202.025e6) < 1.0
+
+    # B_k scales as f^(3/2): GLONASS L1 sits slightly above GPS L1.
+    b_k_glo = compute_bk_grid(np.array([[30.0]]), f_hz)[0, 0]
+    b_k_gps = compute_bk_grid(np.array([[30.0]]), 1575.42e6)[0, 0]
+    assert b_k_glo > b_k_gps
+    assert abs(b_k_glo / b_k_gps - (1602.0 / 1575.42) ** 1.5) < 1e-6
+
+
 def test_snapshot_plotly_json_includes_accuracy_annotation():
     frame_summary = _loso_frame_summary(10, plane=True)
     pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)

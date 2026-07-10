@@ -17,7 +17,15 @@ from app import config as cfg
 from app.auth import get_current_user_or_401
 from app.models import User
 from app.tec_map_fields import resolve_signal_band
-from app.tec_map_pipeline import TecMapConfig, build_frame_summary, build_leveled_links, load_tecs_parquet
+from app.tec_map_kriging import _haversine_km
+from app.tec_map_pipeline import (
+    TecMapConfig,
+    _iter_station_day_parquet_files,
+    _parquet_header_metadata_from_schema,
+    build_frame_summary,
+    build_leveled_links,
+    load_tecs_parquet,
+)
 from app.tec_map_validation import loso_cross_validate, summarize_validation
 from app.tec_map_render import (
     ANIMATION_MEDIA_TYPES,
@@ -387,7 +395,7 @@ def tec_map_gif(
     ),
     signal_band: str = Query(
         default="gps_l1",
-        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, galileo_e1, bds_b2a).",
+        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, glonass_l1, galileo_e1, bds_b2a).",
     ),
     frame_dpi: int | None = Query(default=None, ge=50, le=300, description="Optional render DPI override."),
     format: str = Query(
@@ -414,6 +422,10 @@ def tec_map_gif(
     show_accuracy: bool = Query(
         default=False,
         description="Annotate each frame with its leave-one-station-out accuracy (LOSO RMSE in TECU).",
+    ),
+    show_params: bool = Query(
+        default=False,
+        description="Print the map-model parameters (grid, smoothing, frame length, h_ion, elevation cutoff, coverage radius, interpolation) as a caption under the map.",
     ),
 ):
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
@@ -505,6 +517,7 @@ def tec_map_gif(
         color_min=color_min,
         color_max=color_max,
         show_accuracy=bool(show_accuracy),
+        show_params=bool(show_params),
     )
 
     try:
@@ -642,11 +655,15 @@ def tec_map_snapshot(
     ),
     signal_band: str = Query(
         default="gps_l1",
-        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, galileo_e1, bds_b2a).",
+        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, glonass_l1, galileo_e1, bds_b2a).",
     ),
     show_accuracy: bool = Query(
         default=False,
         description="Annotate the snapshot with its leave-one-station-out accuracy (LOSO RMSE in TECU).",
+    ),
+    show_params: bool = Query(
+        default=False,
+        description="Print the map-model parameters as a caption under the map.",
     ),
 ):
     if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
@@ -678,7 +695,12 @@ def tec_map_snapshot(
         signal_band_mode, _ = resolve_signal_band(signal_band)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    render = TecMapRenderConfig(field=field_mode, signal_band=signal_band_mode, show_accuracy=bool(show_accuracy))
+    render = TecMapRenderConfig(
+        field=field_mode,
+        signal_band=signal_band_mode,
+        show_accuracy=bool(show_accuracy),
+        show_params=bool(show_params),
+    )
 
     # Snapshot is defined as the `frame_minutes` bin containing the requested timestamp.
     # Load only that bin range (half-open interval [frame_time, frame_time + frame_minutes)).
@@ -762,7 +784,7 @@ def tec_map_frame(
     ),
     signal_band: str = Query(
         default="gps_l1",
-        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, galileo_e1, bds_b2a).",
+        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, glonass_l1, galileo_e1, bds_b2a).",
     ),
     dpi: int = Query(default=200, ge=50, le=600, description="Render DPI (publication figures: 300–600)."),
     image_format: str = Query(default="png", description="Output image format: png or svg."),
@@ -1045,3 +1067,127 @@ def tec_map_validate(
             "results": {method: summarize_validation(cv) for method, cv in cv_by_method.items()},
         }
     )
+
+
+# Cache for station positions: reading one parquet schema per station is cheap
+# (~ms) but a day of ~100 stations adds up; positions never change for a day.
+_STATION_POSITIONS_CACHE: dict[tuple[str, int, int], dict[str, dict[str, float]]] = {}
+
+
+def _read_station_position(root: Path, year: int, doy: int, station: str) -> dict[str, float] | None:
+    """Station lat/lon from the tec-suite parquet header metadata (degrees)."""
+    import pyarrow.parquet as pq
+
+    for path in _iter_station_day_parquet_files(root, year, doy, station):
+        try:
+            meta = _parquet_header_metadata_from_schema(pq.read_schema(path))
+        except Exception:
+            continue
+        lon = meta.get("site_lon")
+        lat = meta.get("site_lat")
+        if lon is None or lat is None:
+            continue
+        return {"lat": float(lat), "lon": float(lon)}
+    return None
+
+
+def _group_stations_by_proximity(
+    positions: dict[str, dict[str, float]],
+    radius_km: float,
+) -> list[dict]:
+    """
+    Greedy geographic clustering: repeatedly take the station with the most
+    unassigned neighbours within `radius_km` as a group anchor. Groups are
+    returned west-to-east.
+    """
+    import numpy as np
+
+    names = sorted(positions)
+    lat = np.deg2rad(np.array([positions[n]["lat"] for n in names]))
+    lon = np.deg2rad(np.array([positions[n]["lon"] for n in names]))
+    within = (
+        _haversine_km(lon[:, None], lat[:, None], lon[None, :], lat[None, :]) <= float(radius_km)
+    )
+
+    unassigned = set(range(len(names)))
+    groups: list[dict] = []
+    while unassigned:
+        anchor = max(unassigned, key=lambda i: (sum(1 for j in unassigned if within[i][j]), -i))
+        members = sorted(j for j in unassigned if within[anchor][j])
+        unassigned -= set(members)
+        member_names = [names[j] for j in members]
+        groups.append(
+            {
+                "anchor": names[anchor],
+                "stations": member_names,
+                "center": {
+                    "lat": round(float(np.rad2deg(lat[members].mean())), 2),
+                    "lon": round(float(np.rad2deg(lon[members].mean())), 2),
+                },
+            }
+        )
+    groups.sort(key=lambda g: g["center"]["lon"])
+    return groups
+
+
+@router.get("/tec-map/station-positions")
+def tec_map_station_positions(
+    current_user: User = Depends(get_current_user_or_401),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    doy: int | None = Query(default=None, ge=1, le=366),
+    date: str | None = Query(default=None, description="Optional YYYY-MM-DD; overrides year/doy."),
+    group_radius_km: float = Query(
+        default=300.0,
+        ge=50.0,
+        le=2000.0,
+        description="Stations within this distance of a group anchor belong to one region group.",
+    ),
+    refresh: bool = Query(default=False, description="Bypass the in-process day cache."),
+):
+    """
+    Receiver positions for every station that has parquet data on the given
+    day (read from tec-suite parquet header metadata; no data scan), plus a
+    proximity grouping so nearby stations can be picked together in the UI.
+    """
+    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+        raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
+
+    data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
+    if not data_root:
+        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+
+    try:
+        day = _resolve_request_day(year=year, doy=doy, date=date, label="start")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    y = int(day.year)
+    d = int(day.timetuple().tm_yday)
+
+    cache_key = (data_root, y, d)
+    positions = None if refresh else _STATION_POSITIONS_CACHE.get(cache_key)
+    if positions is None:
+        day_dir = Path(data_root) / str(y) / f"{d:03d}"
+        if not day_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"No parquet data for {y}-{d:03d}.")
+        positions = {}
+        for station_dir in sorted(p for p in day_dir.iterdir() if p.is_dir()):
+            station = station_dir.name.lower()
+            position = _read_station_position(Path(data_root), y, d, station)
+            if position is not None:
+                positions[station] = position
+        if len(_STATION_POSITIONS_CACHE) > 32:
+            _STATION_POSITIONS_CACHE.clear()
+        _STATION_POSITIONS_CACHE[cache_key] = positions
+
+    groups = _group_stations_by_proximity(positions, float(group_radius_km)) if positions else []
+    return JSONResponse(
+        content={
+            "year": y,
+            "doy": d,
+            "group_radius_km": float(group_radius_km),
+            "positions": positions,
+            "groups": groups,
+        }
+    )
+
+

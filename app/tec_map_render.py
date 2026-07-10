@@ -112,6 +112,10 @@ class TecMapRenderConfig:
     # Annotate every rendered frame with its leave-one-station-out accuracy
     # ("LOSO RMSE … TECU"). Adds one LOSO pass per frame at render time.
     show_accuracy: bool = False
+    # Print the map-model parameters (grid step, smoothing, frame length,
+    # ionosphere height, elevation cutoff, coverage radius, interpolation)
+    # as a caption line under the map.
+    show_params: bool = False
 
     # Basemap cache root. If None, cache-backed basemap modes are unavailable.
     basemap_cache_root: Path | None = None
@@ -784,6 +788,30 @@ def apply_geographic_ticks(
     ax.set_ylabel("Latitude [deg]")
 
 
+def pipeline_params_label(pipeline: TecMapConfig, render: TecMapRenderConfig) -> str:
+    """One-line caption with the model constants the map was built from."""
+    parts = [
+        f"grid {pipeline.grid_resolution_deg:g}°",
+        f"σg {pipeline.smoothing_sigma:g} cell",
+        f"ΔT {int(pipeline.frame_minutes)} min",
+        f"h_ion {pipeline.ionosphere_height_km:g} km",
+        f"θ_min {pipeline.min_elevation_deg:g}°",
+        (
+            f"R_cov {pipeline.ipp_gradient_radius_km:g} km"
+            if pipeline.ipp_gradient_radius_km is not None
+            else "R_cov off"
+        ),
+        f"interp {str(pipeline.interpolation_method or 'linear').strip().lower()}",
+    ]
+    if int(pipeline.vtec_smooth_epochs or 0) > 0:
+        parts.append(f"t-median {int(pipeline.vtec_smooth_epochs)} ep")
+    if pipeline.normalize_stations and pipeline.normalize_stations != "off":
+        parts.append(f"normalize {pipeline.normalize_stations}")
+    if int(render.upsample_factor or 1) > 1:
+        parts.append(f"upsample {int(render.upsample_factor)}×")
+    return "Model: " + " · ".join(parts)
+
+
 def render_frame_png_bytes(
     *,
     frame_time: pd.Timestamp,
@@ -800,6 +828,7 @@ def render_frame_png_bytes(
     field_spec: dict[str, Any] | None = None,
     image_format: str = "png",
     accuracy_label: str | None = None,
+    params_label: str | None = None,
 ) -> bytes:
     spec = field_spec or _field_render_spec(render.field, render.signal_band)
     plot_cmap = spec["matplotlib_cmap"]
@@ -972,6 +1001,17 @@ def render_frame_png_bytes(
             bbox={"facecolor": "white", "alpha": 0.55, "edgecolor": "none", "pad": 1.0},
         )
 
+    if params_label:
+        fig.text(
+            0.01,
+            0.006,
+            params_label,
+            fontsize=7,
+            color="dimgray",
+            va="bottom",
+            ha="left",
+        )
+
     buf = BytesIO()
     fig.savefig(buf, format=image_format, dpi=render.frame_dpi)
     plt.close(fig)
@@ -1051,6 +1091,7 @@ def build_animation_gif_bytes(
 
     # Pass 2: render each frame against the shared colour scale.
     total_frames = len(computed_frames)
+    params_label = pipeline_params_label(pipeline, render) if render.show_params else None
 
     def rendered_png_frames():
         for idx, (frame_time, frame, grid) in enumerate(computed_frames):
@@ -1070,6 +1111,7 @@ def build_animation_gif_bytes(
                 render=render,
                 field_spec=field_spec,
                 accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
+                params_label=params_label,
             )
 
     duration_seconds = max(float(render.gif_frame_duration_seconds), 0.02)
@@ -1268,6 +1310,7 @@ def build_frame_image_bytes(
         field_spec=field_spec,
         image_format=fmt,
         accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
+        params_label=pipeline_params_label(pipeline, render) if render.show_params else None,
     )
 
 
@@ -1433,6 +1476,20 @@ def build_snapshot_plotly_json(
                 font={"size": 11, "color": "black"},
                 bgcolor="rgba(255,255,255,0.65)",
             )
+
+    if render.show_params:
+        fig.update_layout(margin={"l": 50, "r": 20, "t": 60, "b": 80})
+        fig.add_annotation(
+            text=pipeline_params_label(pipeline, render),
+            xref="paper",
+            yref="paper",
+            x=0.0,
+            y=-0.16,
+            xanchor="left",
+            yanchor="top",
+            showarrow=False,
+            font={"size": 10, "color": "gray"},
+        )
 
     # Requirement: based on Figure.to_plotly_json(); ensure strict JSON types.
     raw = fig.to_plotly_json()

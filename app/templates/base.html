@@ -1046,6 +1046,17 @@
         {{ t('nav_analysis') }}
       </a>
       {% endif %}
+      {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('analysis')) %}
+      <a href="/ionmaps" class="nav-link {% if '/ionmaps' in request.url.path %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="6"/>
+          <path d="M2 8h12"/>
+          <path d="M8 2c2.2 1.8 2.2 10.2 0 12"/>
+          <path d="M8 2c-2.2 1.8-2.2 10.2 0 12"/>
+        </svg>
+        {{ t('nav_ionmaps') }}
+      </a>
+      {% endif %}
       {% if current_user.is_admin or (current_user.can_access_page is defined and current_user.can_access_page('stations_map')) %}
       <a href="/stations-map" class="nav-link {% if '/stations-map' in request.url.path %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
