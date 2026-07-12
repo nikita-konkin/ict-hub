@@ -404,19 +404,11 @@ def _iter_station_day_parquet_files(root: Path, year: int, doy: int, station: st
     for station_dir in candidates:
         if not station_dir.exists() or not station_dir.is_dir():
             continue
-        selected: dict[str, Path] = {}
+        # Yield every shard including "__dupN" variants: session (re-upload)
+        # archives produce shards whose epochs complement the daily file, so
+        # dropping them loses data. Exact-duplicate rows are removed later in
+        # load_tecs_parquet.
         for path in sorted(station_dir.glob("*.parquet")):
-            canonical_stem = re.sub(r"__dup\d+$", "", path.stem, flags=re.IGNORECASE)
-            current = selected.get(canonical_stem)
-            if current is None:
-                selected[canonical_stem] = path
-                continue
-            # Prefer the unsuffixed shard when both canonical and "__dupN" variants exist.
-            current_has_dup_suffix = bool(re.search(r"__dup\d+$", current.stem, flags=re.IGNORECASE))
-            path_has_dup_suffix = bool(re.search(r"__dup\d+$", path.stem, flags=re.IGNORECASE))
-            if current_has_dup_suffix and not path_has_dup_suffix:
-                selected[canonical_stem] = path
-        for path in selected.values():
             yield path
 
 
@@ -555,6 +547,9 @@ def load_tecs_parquet(
     raw_links["datetime"] = pd.to_datetime(raw_links["datetime"], errors="coerce")
     raw_links = raw_links[raw_links["datetime"].notna()].copy()
     raw_links = raw_links.sort_values(["station", "satellite", "datetime"]).reset_index(drop=True)
+    # "__dupN" shards may repeat epochs already present in the canonical shard
+    # (same archive converted twice); keep one row per link epoch.
+    raw_links = raw_links.drop_duplicates(subset=["station", "satellite", "datetime"], keep="first").reset_index(drop=True)
 
     # Filter by time selection.
     # - ISO timestamps: absolute inclusive filter.

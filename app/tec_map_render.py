@@ -30,7 +30,27 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless/server rendering
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
+
+
+def _configure_map_fonts() -> None:
+    """Times New Roman for all map text (bundled TTFs cover the container)."""
+    fonts_dir = Path(__file__).resolve().parent / "fonts"
+    if fonts_dir.is_dir():
+        for ttf in fonts_dir.glob("*.ttf"):
+            try:
+                font_manager.fontManager.addfont(str(ttf))
+            except Exception:
+                logger.warning("failed to register font %s", ttf)
+    matplotlib.rcParams["font.family"] = "serif"
+    matplotlib.rcParams["font.serif"] = ["Times New Roman", "Liberation Serif", "DejaVu Serif"]
+    matplotlib.rcParams["font.size"] = 12.0  # default 10 + 2 pt
+
+
+_configure_map_fonts()
+
+PLOTLY_MAP_FONT_FAMILY = "Times New Roman, Liberation Serif, serif"
 
 import plotly.graph_objects as go
 from _plotly_utils.utils import PlotlyJSONEncoder
@@ -963,7 +983,7 @@ def render_frame_png_bytes(
                 label_x + width_units * 0.008,
                 label_y + height_units * 0.012,
                 str(row.station).upper(),
-                fontsize=8,
+                fontsize=10,
                 zorder=5,
                 bbox={"facecolor": "white", "alpha": 0.55, "edgecolor": "none", "pad": 1.2},
             )
@@ -977,7 +997,7 @@ def render_frame_png_bytes(
                 label_x + width_units * 0.006,
                 label_y - height_units * 0.008,
                 f"IPP {str(row.station).upper()}",
-                fontsize=7,
+                fontsize=9,
                 zorder=5,
                 bbox={"facecolor": "white", "alpha": 0.5, "edgecolor": "none", "pad": 1.0},
             )
@@ -1001,7 +1021,7 @@ def render_frame_png_bytes(
             0.985,
             accuracy_label,
             transform=ax.transAxes,
-            fontsize=8,
+            fontsize=10,
             color="black",
             va="top",
             zorder=6,
@@ -1013,7 +1033,7 @@ def render_frame_png_bytes(
             0.01,
             basemap_layer.attribution,
             transform=ax.transAxes,
-            fontsize=7,
+            fontsize=9,
             color="black",
             bbox={"facecolor": "white", "alpha": 0.55, "edgecolor": "none", "pad": 1.0},
         )
@@ -1023,7 +1043,7 @@ def render_frame_png_bytes(
             0.01,
             0.006,
             params_label,
-            fontsize=7,
+            fontsize=9,
             color="dimgray",
             va="bottom",
             ha="left",
@@ -1476,6 +1496,7 @@ def build_snapshot_plotly_json(
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
         margin={"l": 50, "r": 20, "t": 60, "b": 45},
         template="plotly_white",
+        font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 14},
     )
 
     if render.show_accuracy:
@@ -1490,7 +1511,7 @@ def build_snapshot_plotly_json(
                 xanchor="left",
                 yanchor="top",
                 showarrow=False,
-                font={"size": 11, "color": "black"},
+                font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 13, "color": "black"},
                 bgcolor="rgba(255,255,255,0.65)",
             )
 
@@ -1505,7 +1526,7 @@ def build_snapshot_plotly_json(
             xanchor="left",
             yanchor="top",
             showarrow=False,
-            font={"size": 10, "color": "gray"},
+            font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 12, "color": "gray"},
         )
 
     # Requirement: based on Figure.to_plotly_json(); ensure strict JSON types.

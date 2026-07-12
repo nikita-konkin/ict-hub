@@ -159,7 +159,11 @@ Also supported:
 
 Duplicate shard handling:
 
-- if both canonical parquet files and `__dupN` variants exist, the loader keeps one canonical copy per shard stem
+- the loader reads every shard including `__dupN` variants: session (re-upload) RINEX
+  archives produce shards whose epochs complement the daily file, so dropping variants
+  would lose data
+- exact duplicates are removed at the row level — one row is kept per
+  `(station, satellite, datetime)` after concatenation
 
 ## VTEC Calculation
 
