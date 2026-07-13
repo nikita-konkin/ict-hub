@@ -77,6 +77,29 @@ Snapshot semantics:
 - The snapshot uses the frame bucket that contains the requested timestamp.
 - Internally this is `datetime.floor(frame_minutes)`.
 
+### Per-Station Series Export
+
+`GET /tec-map/series`
+
+One file with the time series of the selected field for every requested
+station over the requested range: one row per `(frame_time, station)` — the
+same frame aggregation the map is built from (values at station IPPs, before
+any spatial interpolation, so gridding/interpolation parameters do not apply).
+
+Main inputs:
+
+- period/stations/pipeline parameters as in GIF range mode
+  (`min_elevation_deg`, `frame_minutes`, `ionosphere_height_km`,
+  `vtec_smooth_epochs`, `normalize_stations`, ...)
+- `field=vtec|gdd|b_k` (+ `signal_band` for gdd/b_k); `vtec_gradient` is
+  rejected — it is a spatial field of the interpolated map
+- `format=csv` (default) or `json`
+
+Output columns: `frame_time, station, site_lat, site_lon, ipp_lat, ipp_lon,
+samples, vtec_tecu` plus `gdd_ns_per_ghz` or `b_k_mhz` for derived fields.
+The IonMaps UI exposes this as the "Download station series (CSV)" button,
+which reuses the current TEC Map form values.
+
 ## Frontend/Auth Notes
 
 - Requests use ict-hub session auth.

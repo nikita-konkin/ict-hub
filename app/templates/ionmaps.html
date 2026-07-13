@@ -253,6 +253,7 @@
         <button type="submit" class="btn btn-primary">Run TEC Map</button>
         <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot">Download PNG frame (300 dpi)</button>
         <button id="tecmap-validate" type="button" class="btn btn-secondary">Validate accuracy (LOSO)</button>
+        <button id="tecmap-series" type="button" class="btn btn-secondary">Download station series (CSV)</button>
         <a id="tecmap-last-url" href="#" class="btn btn-ghost" style="display:none;" target="_blank" rel="noopener">Open request URL</a>
       </div>
     </form>
@@ -347,6 +348,7 @@
     const framePngBtn = document.getElementById("tecmap-frame-png");
     const validateBtn = document.getElementById("tecmap-validate");
     const validateResultEl = document.getElementById("tecmap-validate-result");
+    const seriesBtn = document.getElementById("tecmap-series");
     const gifDownloadEl = document.getElementById("tecmap-gif-download");
     const lastUrlEl = document.getElementById("tecmap-last-url");
 
@@ -894,6 +896,69 @@
       }
       params.set("interpolation", "all");
       return "/tec-map/validate?" + params.toString();
+    }
+
+    function buildSeriesUrl() {
+      const url = buildRequestUrl();
+      let params;
+      if (url.startsWith("/tec-map/gif?")) {
+        params = new URLSearchParams(url.slice("/tec-map/gif?".length));
+      } else {
+        // Snapshot mode: export the single frame bin containing the timestamp.
+        params = new URLSearchParams(url.slice("/tec-map/snapshot?".length));
+        const ts = params.get("timestamp") || "";
+        params.delete("timestamp");
+        params.set("start_time", ts);
+        params.set("end_time", ts);
+      }
+      // The series is taken at station IPPs before any spatial interpolation,
+      // so gridding/rendering parameters do not apply; field/signal_band stay.
+      for (const key of ["basemap", "basemap_alpha", "field_alpha", "format", "quality",
+                         "upsample", "frame_dpi", "show_accuracy", "show_params",
+                         "interpolation", "lpi_degree", "grid_resolution_deg",
+                         "smoothing_sigma", "color_min", "color_max"]) {
+        params.delete(key);
+      }
+      params.set("format", "csv");
+      return "/tec-map/series?" + params.toString();
+    }
+
+    if (seriesBtn) {
+      seriesBtn.addEventListener("click", async function () {
+        let url = "";
+        try {
+          url = buildSeriesUrl();
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+          return;
+        }
+        setLastUrl(url);
+        setStatus("info", "Exporting per-station series…");
+        seriesBtn.disabled = true;
+        try {
+          const res = await fetch(url, { credentials: "same-origin" });
+          if (!res.ok) {
+            throw new Error("Series export failed (" + res.status + "): " + (await res.text()));
+          }
+          const disposition = res.headers.get("Content-Disposition") || "";
+          const match = disposition.match(/filename="([^"]+)"/);
+          const filename = match ? match[1] : "tec_map_series.csv";
+          const blob = await res.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 30000);
+          setStatus("success", "Station series downloaded (" + filename + ").");
+        } catch (err) {
+          setStatus("error", err instanceof Error ? err.message : String(err));
+        } finally {
+          seriesBtn.disabled = false;
+        }
+      });
     }
 
     function fmtMetric(value) {

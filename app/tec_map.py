@@ -16,7 +16,7 @@ from dataclasses import replace
 from app import config as cfg
 from app.auth import get_current_user_or_401
 from app.models import User
-from app.tec_map_fields import resolve_signal_band
+from app.tec_map_fields import compute_bk_grid, compute_gdd_grid, resolve_signal_band
 from app.tec_map_kriging import _haversine_km
 from app.tec_map_pipeline import (
     TecMapConfig,
@@ -1103,6 +1103,190 @@ def tec_map_validate(
             },
             "results": {method: summarize_validation(cv) for method, cv in cv_by_method.items()},
         }
+    )
+
+
+# Per-station series export: value column name and units per field mode.
+_SERIES_FIELD_COLUMNS = {
+    "vtec": ("vtec_tecu", "TECU"),
+    "gdd": ("gdd_ns_per_ghz", "ns/GHz"),
+    "b_k": ("b_k_mhz", "MHz"),
+}
+
+
+@router.get("/tec-map/series")
+def tec_map_series(
+    current_user: User = Depends(get_current_user_or_401),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    doy: int | None = Query(default=None, ge=1, le=366),
+    date: str | None = Query(default=None, description="Optional YYYY-MM-DD; overrides year/doy."),
+    end_date: str | None = Query(default=None, description="Optional YYYY-MM-DD end day for multi-day ranges."),
+    stations: list[str] = Query(..., min_length=1),
+    start_time: str = Query(..., description="ISO timestamp or HH:MM:SS (UTC)."),
+    end_time: str = Query(..., description="ISO timestamp or HH:MM:SS (UTC)."),
+    min_elevation_deg: float = Query(default=20.0, ge=0.0, le=90.0),
+    sampling_interval_seconds: int = Query(default=300, ge=1, le=3600),
+    frame_minutes: int = Query(default=15, ge=1, le=240),
+    ionosphere_height_km: float = Query(default=350.0, ge=50.0, le=2000.0),
+    vtec_smooth_epochs: int = Query(default=0, ge=0, le=50),
+    normalize_stations: str = Query(
+        default="off",
+        description="Per-station VTEC median-shift: off (default), auto (only when MSTD bias failed), always.",
+    ),
+    field: str = Query(
+        default="vtec",
+        description="Series field: vtec (TECU), gdd (|D| in ns/GHz) or b_k (coherence bandwidth in MHz).",
+    ),
+    signal_band: str = Query(
+        default="gps_l1",
+        description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, glonass_l1, galileo_e1, bds_b2a).",
+    ),
+    format: str = Query(default="csv", description="Output format: csv (default) or json."),
+):
+    """
+    Per-station time series of the selected field over the requested range:
+    one row per (frame, station) — the same frame aggregation the map is built
+    from (values at station IPPs, before any spatial interpolation).
+    """
+    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+        raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
+
+    data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
+    if not data_root:
+        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+
+    output_format = str(format or "csv").strip().lower()
+    if output_format not in {"csv", "json"}:
+        raise HTTPException(status_code=400, detail="Unsupported format. Use csv or json.")
+
+    try:
+        normalize_mode = _parse_normalize_stations(normalize_stations)
+        field_mode = _parse_field(field)
+        signal_band_mode, frequency_hz = resolve_signal_band(signal_band)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if field_mode not in _SERIES_FIELD_COLUMNS:
+        raise HTTPException(
+            status_code=400,
+            detail="Per-station series are defined for vtec, gdd and b_k; vtec_gradient is a spatial field of the interpolated map.",
+        )
+
+    pipeline = TecMapConfig(
+        min_elevation_deg=float(min_elevation_deg),
+        sampling_interval_seconds=int(sampling_interval_seconds),
+        frame_minutes=int(frame_minutes),
+        ionosphere_height_km=float(ionosphere_height_km),
+        vtec_smooth_epochs=int(vtec_smooth_epochs),
+        normalize_stations=normalize_mode,
+    )
+
+    try:
+        range_start_day = _resolve_request_day(year=year, doy=doy, date=date, label="start")
+        range_end_day = pd.Timestamp(end_date).normalize() if end_date else range_start_day
+        if range_end_day < range_start_day:
+            raise ValueError("`end_date` must be on or after the start day.")
+        range_start_dt, range_end_dt = _resolve_gif_time_bounds(
+            start_day=range_start_day,
+            end_day=range_end_day,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if len(stations) > TEC_MAP_MAX_STATIONS_PER_REQUEST:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Too many stations: {len(stations)} > {TEC_MAP_MAX_STATIONS_PER_REQUEST}. "
+                "Reduce the station list or split the request."
+            ),
+        )
+    duration_minutes = (range_end_dt - range_start_dt).total_seconds() / 60.0
+    estimated_frames = int(math.ceil(duration_minutes / max(int(frame_minutes), 1)))
+    if estimated_frames > TEC_MAP_MAX_FRAMES_PER_REQUEST:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Requested range would produce ~{estimated_frames} frames "
+                f"(limit {TEC_MAP_MAX_FRAMES_PER_REQUEST}). Shorten the date range or increase frame_minutes."
+            ),
+        )
+
+    logger.info(
+        "tec-map series: %s..%s stations=%s field=%s band=%s format=%s",
+        range_start_dt,
+        range_end_dt,
+        ",".join(stations),
+        field_mode,
+        signal_band_mode,
+        output_format,
+    )
+
+    try:
+        found_stations = _validate_stations_for_range(
+            root=Path(data_root),
+            start_day=range_start_dt.normalize(),
+            end_day=range_end_dt.normalize(),
+            stations=stations,
+        )
+        frame_summary = _build_frame_summary_gif_range(
+            root=Path(data_root),
+            start_day=range_start_dt.normalize(),
+            end_day=range_end_dt.normalize(),
+            start_dt=range_start_dt,
+            end_dt=range_end_dt,
+            stations=found_stations,
+            pipeline=pipeline,
+        )
+        if frame_summary.empty:
+            raise FileNotFoundError("No samples found for the requested stations/time range.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("tec-map series: build failed")
+        raise HTTPException(status_code=500, detail=f"TEC map series export failed: {exc}") from exc
+
+    series = frame_summary.sort_values(["station", "frame_time"]).reset_index(drop=True)
+    value_column, value_unit = _SERIES_FIELD_COLUMNS[field_mode]
+    if field_mode == "gdd":
+        series[value_column] = compute_gdd_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
+    elif field_mode == "b_k":
+        series[value_column] = compute_bk_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
+
+    columns = ["frame_time", "station", "site_lat", "site_lon", "ipp_lat", "ipp_lon", "samples", "vtec_tecu"]
+    if value_column != "vtec_tecu":
+        columns.append(value_column)
+    series = series[[c for c in columns if c in series.columns]]
+
+    stamp = f"{range_start_dt:%Y%m%dT%H%M}_{range_end_dt:%Y%m%dT%H%M}"
+    band_suffix = f"_{signal_band_mode}" if field_mode in {"gdd", "b_k"} else ""
+    filename = f"tec_map_series_{field_mode}{band_suffix}_{stamp}.{output_format}"
+
+    if output_format == "json":
+        payload = series.copy()
+        payload["frame_time"] = payload["frame_time"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+        return JSONResponse(
+            content={
+                "field": field_mode,
+                "unit": value_unit,
+                "signal_band": signal_band_mode if field_mode in {"gdd", "b_k"} else None,
+                "start": range_start_dt.isoformat(),
+                "end": range_end_dt.isoformat(),
+                "frame_minutes": int(frame_minutes),
+                "stations": found_stations,
+                "rows": payload.to_dict(orient="records"),
+            },
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    csv_text = series.to_csv(index=False, date_format="%Y-%m-%dT%H:%M:%S", float_format="%.6g")
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
