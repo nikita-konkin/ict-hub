@@ -11,6 +11,7 @@ set -euo pipefail
 
 TAG="${1:-latest}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${ROOT}/ict-hub"
 
 echo "==> pulling converter-hub + data-indexer (tag: ${TAG})"
 IMAGE_TAG="${TAG}" docker compose pull converter-hub data-indexer

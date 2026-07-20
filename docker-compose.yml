@@ -17,9 +17,9 @@ services:
     restart: unless-stopped
 
     ports:
-      # Map host port 8080 → container port 8000.
-      # Access the UI at http://localhost:8080 (or any LAN IP:8080).
-      - "8080:8000"
+      # Map host port CONVERTER_HUB_HOST_PORT (default 8080) → container port 8000.
+      # Override in .env if 8080 is already taken on this host.
+      - "${CONVERTER_HUB_HOST_PORT:-8080}:8000"
 
     # Load environment variables from local .env file (and allow users to add
     # extra variables without editing docker-compose.yml).
