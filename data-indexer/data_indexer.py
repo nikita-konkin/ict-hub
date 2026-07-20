@@ -794,7 +794,7 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
             logger.debug(f"[ABSTEC] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
             return cached_result
 
-        logger.info(f"[ABSTEC] Cache STALE (age: {cache_age:.1f}s) â€” serving old result, refreshing in background")
+        logger.info(f"[ABSTEC] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
         _trigger_background_refresh('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
         return cached_result
 

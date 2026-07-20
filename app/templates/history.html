@@ -53,11 +53,11 @@
               {{ job.finished_at.strftime('%d %b %Y') }}<br>
               <span style="color:var(--text-dim);">{{ job.finished_at.strftime('%H:%M:%S') }}</span>
             {% else %}
-              <span style="color:var(--text-dim);">â€”</span>
+              <span style="color:var(--text-dim);">—</span>
             {% endif %}
           </td>
           <td class="td-mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ job.data_range or '' }}">
-            {{ job.data_range or 'â€”' }}
+            {{ job.data_range or '—' }}
           </td>
           <td class="td-mono">
             {% if job.duration_seconds is not none %}
