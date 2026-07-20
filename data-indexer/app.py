@@ -13,11 +13,15 @@ Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
 - DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
 - DATA_INDEXER_RUN_ON_STARTUP: Run initial indexing on startup (default: false)
-- INDEXER_RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
-- INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
-- INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
-- INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: TEC-suite parquet path (default: /mnt/tecsuite-parquet-out)
-- INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: AbsTEC parquet path (default: /mnt/abstec-parquet-out)
+- RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
+- TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
+- ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
+- PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER: TEC-suite parquet path (default: /mnt/tecsuite-parquet-out)
+- PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: AbsTEC parquet path (default: /mnt/abstec-parquet-out)
+
+These are shared with converter-hub's own env vars of the same name (see
+app/config.py in the repo root) so both services always agree on where each
+data type is mounted inside their respective containers.
 """
 
 import os
@@ -53,11 +57,11 @@ app = FastAPI(title="Data Indexer Service")
 
 # Default paths from environment variables
 DEFAULT_PATHS = {
-    'rinex': os.getenv('INDEXER_RINEX_DATA_PATH_CONTAINER', '/mnt/rinex-server'),
-    'tecsuite': os.getenv('INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER', '/mnt/tecsuite-out'),
-    'abstec': os.getenv('INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER', '/mnt/abstec-out'),
-    'parquet_tecsuite': os.getenv('INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER', '/mnt/tecsuite-parquet-out'),
-    'parquet_abstec': os.getenv('INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER', '/mnt/abstec-parquet-out')
+    'rinex': os.getenv('RINEX_DATA_PATH_CONTAINER', '/mnt/rinex-server'),
+    'tecsuite': os.getenv('TECSUITE_OUT_DAT_DATA_PATH_CONTAINER', '/mnt/tecsuite-out'),
+    'abstec': os.getenv('ABSTEC_OUTPUT_DATA_PATH_CONTAINER', '/mnt/abstec-out'),
+    'parquet_tecsuite': os.getenv('PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER', '/mnt/tecsuite-parquet-out'),
+    'parquet_abstec': os.getenv('PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER', '/mnt/abstec-parquet-out')
 }
 
 def dict_to_xml_response(data, root_element="data"):

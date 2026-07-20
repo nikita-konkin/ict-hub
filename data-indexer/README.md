@@ -35,16 +35,13 @@ The service uses the following environment variables (set in `.env` file):
   - `sync`: Run indexing synchronously before starting FastAPI (blocking, requires Docker rebuild)
 
 ### Data Paths
-- `INDEXER_RINEX_DATA_PATH_HOST`: Host path to RINEX data directory
-- `INDEXER_RINEX_DATA_PATH_CONTAINER`: Container path for RINEX data (default: `/mnt/rinex-server`)
-- `INDEXER_TECSUITE_OUT_DAT_DATA_PATH_HOST`: Host path to TEC-suite DAT output
-- `INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER`: Container path for TEC-suite DAT (default: `/mnt/tecsuite-out`)
-- `INDEXER_ABSTEC_OUTPUT_DATA_PATH_HOST`: Host path to AbsTEC output
-- `INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER`: Container path for AbsTEC (default: `/mnt/abstec-out`)
-- `INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST`: Host path to TEC-suite Parquet output
-- `INDEXER_PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER`: Container path for TEC-suite Parquet (default: `/mnt/tecsuite-parquet-out`)
-- `INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST`: Host path to AbsTEC Parquet output
-- `INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER`: Container path for AbsTEC Parquet (default: `/mnt/abstec-parquet-out`)
+Shared with converter-hub's own env vars of the same name (see `../.env.example`)
+so both services always agree on where each data type is mounted.
+- `RINEX_DATA_PATH_HOST` / `RINEX_DATA_PATH_CONTAINER` (container default: `/mnt/rinex-server`)
+- `TECSUITE_OUT_DAT_DATA_PATH_HOST` / `TECSUITE_OUT_DAT_DATA_PATH_CONTAINER` (container default: `/mnt/tecsuite-out`)
+- `ABSTEC_OUTPUT_DATA_PATH_HOST` / `ABSTEC_OUTPUT_DATA_PATH_CONTAINER` (container default: `/mnt/abstec-out`)
+- `PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST` / `PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER` (container default: `/mnt/tecsuite-parquet-out`)
+- `PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST` / `PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER` (container default: `/mnt/abstec-parquet-out`)
 
 ## Debug Logging
 
