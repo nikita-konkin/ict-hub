@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and push all 5 ict-hub images to Docker Hub (nikitaikonkin/*).
+# Build and push all 6 ict-hub images to Docker Hub (nikitaikonkin/*).
 # Run from the work PC after testing locally with `docker compose up --build`.
 #
 # Usage:
@@ -28,7 +28,7 @@ echo "==> building converter-hub + data-indexer"
 tag_and_push_version "ict-hub-converter"
 tag_and_push_version "ict-hub-data-indexer"
 
-for pair in "tec-suite:tec-suite" "dat-parquet-handler:dat-parquet-handler" "abstec-suite:abstec-suite"; do
+for pair in "tec-suite:tec-suite" "dat-parquet-handler:dat-parquet-handler" "abstec-suite:abstec-suite" "tec-stat:tec-backend"; do
   dir="${pair%%:*}"
   name="${pair##*:}"
   echo "==> building ${name}"

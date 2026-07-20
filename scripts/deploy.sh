@@ -10,6 +10,7 @@
 set -euo pipefail
 
 TAG="${1:-latest}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 echo "==> pulling converter-hub + data-indexer (tag: ${TAG})"
 IMAGE_TAG="${TAG}" docker compose pull converter-hub data-indexer
@@ -26,8 +27,12 @@ DAT_PARQUET_IMAGE="nikitaikonkin/dat-parquet-handler:${TAG}" \
 ABSTEC_SUITE_IMAGE="nikitaikonkin/abstec-suite:${TAG}" \
 docker compose up -d
 
+echo "==> pulling + restarting tec-backend (tec-stat, feeds ANALYSIS_API_BASE_URL)"
+(cd "${ROOT}/tec-stat" && IMAGE_TAG="${TAG}" docker compose pull && docker compose up -d)
+
 echo "==> pruning dangling images"
 docker image prune -f
 
 echo "==> done"
 docker compose ps
+(cd "${ROOT}/tec-stat" && docker compose ps)
