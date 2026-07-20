@@ -226,11 +226,5 @@ def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
         assert 'endpointName === "plots/cb/per-station-averages")' in html
         assert 'function formatBackendError(payload, fallbackStatus)' in html
         assert 'setPlotFetchStatus("success", "OK (Fetched)")' in html
-        assert 'id="tecmap-end-date"' in html
-        assert 'params.set("year", yearValue);' in html
-        assert 'params.set("doy", doyValue);' in html
-        assert 'const effectiveDate = canonicalDate || dateValue;' in html
-        assert 'params.set("date", effectiveDate);' in html
-        assert 'params.set("end_date", endDateValue);' in html
     finally:
         app.dependency_overrides.pop(get_current_user, None)

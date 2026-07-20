@@ -27,7 +27,7 @@ def test_tec_map_gif_route_accepts_range_query_shape(client, monkeypatch):
 
     def fake_load_tecs_parquet(**kwargs):
         load_calls.append(dict(kwargs))
-        return pd.DataFrame({"placeholder": [1]})
+        return pd.DataFrame({"placeholder": [1], "station": ["aksu"]})
 
     def fake_build_leveled_links(raw_links, config):
         return raw_links
@@ -54,6 +54,7 @@ def test_tec_map_gif_route_accepts_range_query_shape(client, monkeypatch):
     monkeypatch.setattr(tec_map_module, "build_leveled_links", fake_build_leveled_links)
     monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
     monkeypatch.setattr(tec_map_module, "build_animation_gif_bytes", lambda **kwargs: b"GIF89a-test")
+    monkeypatch.setattr(tec_map_module, "_validate_stations_for_range", lambda **kwargs: kwargs["stations"])
 
     app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
     try:
@@ -104,7 +105,7 @@ def test_tec_map_gif_route_supports_multi_day_range(client, monkeypatch):
 
     def fake_load_tecs_parquet(**kwargs):
         load_calls.append(dict(kwargs))
-        return pd.DataFrame({"placeholder": [1]})
+        return pd.DataFrame({"placeholder": [1], "station": ["aksu"]})
 
     def fake_build_leveled_links(raw_links, config):
         return raw_links
@@ -131,6 +132,7 @@ def test_tec_map_gif_route_supports_multi_day_range(client, monkeypatch):
     monkeypatch.setattr(tec_map_module, "build_leveled_links", fake_build_leveled_links)
     monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
     monkeypatch.setattr(tec_map_module, "build_animation_gif_bytes", lambda **kwargs: b"GIF89a-test")
+    monkeypatch.setattr(tec_map_module, "_validate_stations_for_range", lambda **kwargs: kwargs["stations"])
 
     app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
     try:
@@ -201,10 +203,11 @@ def test_tec_map_gif_route_accepts_cache_only_basemap_mode(client, monkeypatch):
     monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
     monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_CACHE_ROOT", "/mnt/cache")
     monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_TILE_SERVER_URL", "http://tiles.test/{z}/{x}/{y}.png")
-    monkeypatch.setattr(tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1]}))
+    monkeypatch.setattr(tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1], "station": ["aksu"]}))
     monkeypatch.setattr(tec_map_module, "build_leveled_links", lambda raw_links, config: raw_links)
     monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
     monkeypatch.setattr(tec_map_module, "build_animation_gif_bytes", fake_build_animation_gif_bytes)
+    monkeypatch.setattr(tec_map_module, "_validate_stations_for_range", lambda **kwargs: kwargs["stations"])
 
     app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
     try:
