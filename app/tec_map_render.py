@@ -65,6 +65,7 @@ from app.tec_map_fields import (
     resolve_signal_band,
     signal_band_label,
 )
+from app.tec_map_iri import iri_vtec_grid_for_frames
 
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,15 @@ class TecMapRenderConfig:
     # ionosphere height, elevation cutoff, coverage radius, interpolation)
     # as a caption line under the map.
     show_params: bool = False
+
+    # IRI reference-model comparison: "off" (default), "iri" (render the IRI
+    # climatological field itself, full extent — model validity is not limited
+    # by station coverage) or "difference" (empirical − IRI inside the
+    # empirical coverage mask, diverging colour scale, bias/RMSE annotation).
+    model_mode: str = "off"
+    # Explicit daily adjusted F10.7 for the IRI evaluation; None → automatic
+    # (spaceweather.gc.ca flux table with disk cache and default fallback).
+    f107_override: float | None = None
 
     # Basemap cache root. If None, cache-backed basemap modes are unavailable.
     basemap_cache_root: Path | None = None
@@ -488,6 +498,87 @@ def _apply_color_overrides(vmin: float, vmax: float, render: TecMapRenderConfig)
     if vmin >= vmax:
         raise ValueError(f"Invalid colour limits: color_min={vmin} must be below color_max={vmax}.")
     return vmin, vmax
+
+
+# ---------------------------------------------------------------------------
+# IRI reference-model comparison (render.model_mode = "iri" | "difference")
+# ---------------------------------------------------------------------------
+
+def model_field_grids(
+    frame_times: list[pd.Timestamp],
+    plot_lon: np.ndarray,
+    plot_lat: np.ndarray,
+    field_spec: dict[str, Any],
+    render: TecMapRenderConfig,
+) -> tuple[dict[pd.Timestamp, np.ndarray], dict[str, dict[str, float | str]]]:
+    """IRI model grids converted into the rendered field's units."""
+    raw_grids, f107_meta = iri_vtec_grid_for_frames(frame_times, plot_lon, plot_lat, render.f107_override)
+    transform = field_spec.get("grid_transform")
+    if transform is not None:
+        raw_grids = {ts: transform(grid, plot_lon, plot_lat) for ts, grid in raw_grids.items()}
+    return raw_grids, f107_meta
+
+
+def model_render_spec(field_spec: dict[str, Any], model_mode: str) -> dict[str, Any]:
+    """Adjust a field render spec for the requested model mode."""
+    spec = dict(field_spec)
+    if model_mode == "iri":
+        spec["title_prefix"] = f"{field_spec['title_prefix']} — IRI model"
+        # Empirical per-IPP values live on the *relative* VTEC scale and sit
+        # far below the absolute model level — colouring them on the model
+        # scale would just clip them at the bottom. Neutral markers instead.
+        spec["point_transform"] = None
+        return spec
+    if model_mode == "difference":
+        spec["matplotlib_cmap"] = "RdBu_r"
+        spec["plotly_colorscale"] = "RdBu_r"
+        spec["colorbar_label"] = f"Δ {field_spec['colorbar_label']} (obs − IRI)"
+        spec["title_prefix"] = f"{field_spec['title_prefix']} — obs − IRI"
+        spec["vmin_floor"] = None
+        # Per-IPP values are absolute field values, not differences — off scale.
+        spec["point_transform"] = None
+        spec["derived_scale"] = True
+    return spec
+
+
+def model_color_limits(grids: list[np.ndarray]) -> tuple[float, float]:
+    """Full finite min–max: the model field is smooth, quantile clipping only
+    creates artificial saturated regions."""
+    finite_values = [grid[np.isfinite(grid)].ravel() for grid in grids if np.isfinite(grid).any()]
+    if not finite_values:
+        return 0.0, 1.0
+    stacked = np.concatenate(finite_values)
+    vmin, vmax = float(stacked.min()), float(stacked.max())
+    if math.isclose(vmin, vmax):
+        vmin -= 1.0
+        vmax += 1.0
+    return vmin, vmax
+
+
+def difference_color_limits(grids: list[np.ndarray]) -> tuple[float, float]:
+    """Symmetric colour limits around zero from the 98% quantile of |Δ|."""
+    finite_values = [grid[np.isfinite(grid)].ravel() for grid in grids if np.isfinite(grid).any()]
+    if not finite_values:
+        return -1.0, 1.0
+    stacked = np.abs(np.concatenate(finite_values))
+    limit = float(np.quantile(stacked, 0.98))
+    if not np.isfinite(limit) or limit <= 0.0:
+        limit = float(stacked.max()) if stacked.size and stacked.max() > 0 else 1.0
+    return -limit, limit
+
+
+def model_difference_label(diff_grid: np.ndarray, unit: str) -> str | None:
+    """Per-frame difference statistics: 'obs − IRI: bias …, RMSE … <unit>'."""
+    values = diff_grid[np.isfinite(diff_grid)]
+    if values.size == 0:
+        return None
+    bias = float(values.mean())
+    rmse = float(np.sqrt(np.mean(values**2)))
+    return f"obs − IRI: bias {bias:+.2f}, RMSE {rmse:.2f} {unit}".rstrip()
+
+
+def _f107_caption(f107_meta: dict[str, dict[str, float | str]]) -> str:
+    return ", ".join(f"{day}: {meta['f107']} ({meta['source']})" for day, meta in sorted(f107_meta.items()))
 
 
 # ---------------------------------------------------------------------------
@@ -916,6 +1007,9 @@ def render_frame_png_bytes(
     masked_grid = np.ma.masked_invalid(grid)
     mesh = None
     if np.ma.count(masked_grid) > 0:
+        # extend="both": cells beyond the colour limits saturate at the end
+        # colours instead of being left unfilled (visible as white holes on
+        # fields with strong out-of-quantile areas, e.g. the IRI model).
         mesh = ax.contourf(
             plot_grid_x,
             plot_grid_y,
@@ -925,6 +1019,7 @@ def render_frame_png_bytes(
             alpha=overlay_alpha,
             antialiased=True,
             zorder=1,
+            extend="both",
         )
         ax.contour(
             plot_grid_x,
@@ -1111,16 +1206,38 @@ def build_animation_gif_bytes(
         raise ValueError(f"Unsupported animation format: {render.animation_format!r}. Use gif, mp4 or webm.")
 
     # Pass 1: build the per-frame grid (and, for derived fields, transform it).
+    model_mode = (render.model_mode or "off").strip().lower()
     computed_frames: list[tuple[pd.Timestamp, pd.DataFrame, np.ndarray]] = []
     plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
-    for frame_time, frame in frame_groups:
-        grid, _, _ = compute_field_grid(
-            frame, grid_lon, grid_lat, pipeline, grid_transform, upsample_factor=render.upsample_factor
+
+    model_grids: dict[pd.Timestamp, np.ndarray] = {}
+    f107_meta: dict[str, dict[str, float | str]] = {}
+    if model_mode != "off":
+        model_grids, f107_meta = model_field_grids(
+            [pd.Timestamp(ft) for ft, _ in frame_groups], plot_grid_lon, plot_grid_lat, field_spec, render
         )
-        computed_frames.append((pd.Timestamp(frame_time), frame, grid))
+
+    for frame_time, frame in frame_groups:
+        ts = pd.Timestamp(frame_time)
+        if model_mode == "iri":
+            grid = model_grids[ts]
+        else:
+            grid, _, _ = compute_field_grid(
+                frame, grid_lon, grid_lat, pipeline, grid_transform, upsample_factor=render.upsample_factor
+            )
+            if model_mode == "difference":
+                grid = grid - model_grids[ts]
+        computed_frames.append((ts, frame, grid))
+
+    if model_mode != "off":
+        field_spec = model_render_spec(field_spec, model_mode)
 
     # Determine global colour limits from the actual field that will be plotted.
-    if field_spec.get("derived_scale"):
+    if model_mode == "difference":
+        vmin, vmax = difference_color_limits([grid for _, _, grid in computed_frames])
+    elif model_mode == "iri":
+        vmin, vmax = model_color_limits([grid for _, _, grid in computed_frames])
+    elif field_spec.get("derived_scale"):
         vmin, vmax = _derived_color_limits(field_spec, [grid for _, _, grid in computed_frames])
     else:
         vmin, vmax = _vtec_color_limits(frame_summary, pipeline)
@@ -1129,6 +1246,20 @@ def build_animation_gif_bytes(
     # Pass 2: render each frame against the shared colour scale.
     total_frames = len(computed_frames)
     params_label = pipeline_params_label(pipeline, render) if render.show_params else None
+    if params_label and f107_meta:
+        params_label = f"{params_label} | IRI F10.7: {_f107_caption(f107_meta)}"
+
+    def _frame_annotation(frame: pd.DataFrame, grid: np.ndarray) -> str | None:
+        parts: list[str] = []
+        if render.show_accuracy:
+            loso = frame_accuracy_label(frame, pipeline)
+            if loso:
+                parts.append(loso)
+        if model_mode == "difference":
+            diff = model_difference_label(grid, field_spec.get("hover_unit", ""))
+            if diff:
+                parts.append(diff)
+        return "\n".join(parts) or None
 
     def rendered_png_frames():
         for idx, (frame_time, frame, grid) in enumerate(computed_frames):
@@ -1147,7 +1278,7 @@ def build_animation_gif_bytes(
                 pipeline=pipeline,
                 render=render,
                 field_spec=field_spec,
-                accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
+                accuracy_label=_frame_annotation(frame, grid),
                 params_label=params_label,
             )
 
@@ -1316,11 +1447,35 @@ def build_frame_image_bytes(
     grid_lon, grid_lat = np.meshgrid(lon_axis, lat_axis)
 
     field_spec = _field_render_spec(render.field, render.signal_band)
-    grid, plot_grid_lon, plot_grid_lat = compute_field_grid(
-        frame, grid_lon, grid_lat, pipeline, field_spec.get("grid_transform"), upsample_factor=render.upsample_factor
-    )
+    model_mode = (render.model_mode or "off").strip().lower()
 
-    if field_spec.get("derived_scale"):
+    model_grid: np.ndarray | None = None
+    f107_meta: dict[str, dict[str, float | str]] = {}
+    if model_mode != "off":
+        plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
+        model_grids, f107_meta = model_field_grids(
+            [pd.Timestamp(frame_time)], plot_grid_lon, plot_grid_lat, field_spec, render
+        )
+        model_grid = model_grids[pd.Timestamp(frame_time)]
+
+    if model_mode == "iri":
+        grid = model_grid
+        plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
+    else:
+        grid, plot_grid_lon, plot_grid_lat = compute_field_grid(
+            frame, grid_lon, grid_lat, pipeline, field_spec.get("grid_transform"), upsample_factor=render.upsample_factor
+        )
+        if model_mode == "difference":
+            grid = grid - model_grid
+
+    if model_mode != "off":
+        field_spec = model_render_spec(field_spec, model_mode)
+
+    if model_mode == "difference":
+        vmin, vmax = difference_color_limits([grid])
+    elif model_mode == "iri":
+        vmin, vmax = model_color_limits([grid])
+    elif field_spec.get("derived_scale"):
         vmin, vmax = _derived_color_limits(field_spec, [grid])
     else:
         vmin, vmax = _vtec_color_limits(frame_summary, pipeline)
@@ -1331,6 +1486,20 @@ def build_frame_image_bytes(
         site_lon=("site_lon", "first"),
     )
     basemap_layer = load_basemap_layer(bounds, render)
+
+    annotation_parts: list[str] = []
+    if render.show_accuracy:
+        loso = frame_accuracy_label(frame, pipeline)
+        if loso:
+            annotation_parts.append(loso)
+    if model_mode == "difference":
+        diff_label = model_difference_label(grid, field_spec.get("hover_unit", ""))
+        if diff_label:
+            annotation_parts.append(diff_label)
+
+    params_label = pipeline_params_label(pipeline, render) if render.show_params else None
+    if params_label and f107_meta:
+        params_label = f"{params_label} | IRI F10.7: {_f107_caption(f107_meta)}"
 
     return render_frame_png_bytes(
         frame_time=pd.Timestamp(frame_time),
@@ -1346,8 +1515,8 @@ def build_frame_image_bytes(
         render=render,
         field_spec=field_spec,
         image_format=fmt,
-        accuracy_label=frame_accuracy_label(frame, pipeline) if render.show_accuracy else None,
-        params_label=pipeline_params_label(pipeline, render) if render.show_params else None,
+        accuracy_label="\n".join(annotation_parts) or None,
+        params_label=params_label,
     )
 
 
@@ -1382,17 +1551,37 @@ def build_snapshot_plotly_json(
 
     fig = go.Figure()
 
+    model_mode = (render.model_mode or "off").strip().lower()
+    f107_meta: dict[str, dict[str, float | str]] = {}
     grid_for_scale: np.ndarray | None = None
     if include_grid:
         lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
         lat_axis = np.arange(lat_min, lat_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
         grid_lon, grid_lat = np.meshgrid(lon_axis, lat_axis)
-        grid_for_scale, _, _ = compute_field_grid(frame, grid_lon, grid_lat, pipeline, grid_transform)
+        if model_mode != "off":
+            model_grids, f107_meta = model_field_grids(
+                [pd.Timestamp(frame_time)], grid_lon, grid_lat, field_spec, render
+            )
+            model_grid = model_grids[pd.Timestamp(frame_time)]
+            if model_mode == "iri":
+                grid_for_scale = model_grid
+            else:
+                grid_for_scale, _, _ = compute_field_grid(frame, grid_lon, grid_lat, pipeline, grid_transform)
+                grid_for_scale = grid_for_scale - model_grid
+        else:
+            grid_for_scale, _, _ = compute_field_grid(frame, grid_lon, grid_lat, pipeline, grid_transform)
+
+    if model_mode != "off":
+        field_spec = model_render_spec(field_spec, model_mode)
 
     # Shared colour scale. For VTEC: 5–95% quantile over the full selection.
     # For derived fields: vmin_floor (or 5% quantile) → 95% quantile of the
-    # snapshot's transformed values.
-    if is_derived_field:
+    # snapshot's transformed values. Differences: symmetric around zero.
+    if model_mode == "difference":
+        vmin, vmax = difference_color_limits([grid_for_scale] if grid_for_scale is not None else [])
+    elif model_mode == "iri":
+        vmin, vmax = model_color_limits([grid_for_scale] if grid_for_scale is not None else [])
+    elif is_derived_field:
         grids = [grid_for_scale] if grid_for_scale is not None else []
         vmin, vmax = _derived_color_limits(field_spec, grids)
     else:
@@ -1499,26 +1688,36 @@ def build_snapshot_plotly_json(
         font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 14},
     )
 
+    corner_labels: list[str] = []
     if render.show_accuracy:
         accuracy_label = frame_accuracy_label(frame, pipeline)
         if accuracy_label:
-            fig.add_annotation(
-                text=accuracy_label,
-                xref="paper",
-                yref="paper",
-                x=0.01,
-                y=0.99,
-                xanchor="left",
-                yanchor="top",
-                showarrow=False,
-                font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 13, "color": "black"},
-                bgcolor="rgba(255,255,255,0.65)",
-            )
+            corner_labels.append(accuracy_label)
+    if model_mode == "difference" and grid_for_scale is not None:
+        diff_label = model_difference_label(grid_for_scale, field_spec.get("hover_unit", ""))
+        if diff_label:
+            corner_labels.append(diff_label)
+    if corner_labels:
+        fig.add_annotation(
+            text="<br>".join(corner_labels),
+            xref="paper",
+            yref="paper",
+            x=0.01,
+            y=0.99,
+            xanchor="left",
+            yanchor="top",
+            showarrow=False,
+            font={"family": PLOTLY_MAP_FONT_FAMILY, "size": 13, "color": "black"},
+            bgcolor="rgba(255,255,255,0.65)",
+        )
 
     if render.show_params:
+        params_text = pipeline_params_label(pipeline, render)
+        if f107_meta:
+            params_text = f"{params_text} | IRI F10.7: {_f107_caption(f107_meta)}"
         fig.update_layout(margin={"l": 50, "r": 20, "t": 60, "b": 80})
         fig.add_annotation(
-            text=pipeline_params_label(pipeline, render),
+            text=params_text,
             xref="paper",
             yref="paper",
             x=0.0,

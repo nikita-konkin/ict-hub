@@ -7,6 +7,11 @@ services:
       context: .
       dockerfile: Dockerfile
 
+    # Local `docker compose build` tags the image under this name; on a
+    # machine with no source checked out, `docker compose pull` fetches it
+    # from Docker Hub instead. Override the tag with IMAGE_TAG in .env.
+    image: nikitaikonkin/ict-hub-converter:${IMAGE_TAG:-latest}
+
     container_name: converter-hub
 
     restart: unless-stopped
@@ -41,8 +46,10 @@ services:
       DATABASE_URL: ${CONVERTER_HUB_DATABASE_URL:-sqlite:////app/data/converter_hub.db}
 
       # ── Converter images ─────────────────────────────────────────────────
-      # Must match the image name you built with "docker build -t tecsuite ."
-      TECSUITE_IMAGE: ${TECSUITE_IMAGE:-tec-suite}
+      # Must match an image name available on this Docker host (pulled from
+      # Docker Hub in production, or built locally with "docker compose build"
+      # in ../tec-suite for local dev).
+      TECSUITE_IMAGE: ${TECSUITE_IMAGE:-nikitaikonkin/tec-suite:latest}
       # Host path containing YYYY_original/DDD/*.zip data for TEC-suite.
       # Example (Windows): F:\\MyData\\ND\\Server
       RINEX_DATA_PATH_HOST: ${RINEX_DATA_PATH_HOST:-}
@@ -53,8 +60,8 @@ services:
       TECSUITE_OUT_DAT_DATA_PATH: ${TECSUITE_OUT_DAT_DATA_PATH:-/app/out}
       # Container path used by converter-hub to browse TEC DAT output folders.
       TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: ${TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}
-      DAT_PARQUET_IMAGE: ${DAT_PARQUET_IMAGE:-dat-parquet-handler:latest}
-      ABSTEC_SUITE_IMAGE: ${ABSTEC_SUITE_IMAGE:-abstec-suite:latest}
+      DAT_PARQUET_IMAGE: ${DAT_PARQUET_IMAGE:-nikitaikonkin/dat-parquet-handler:latest}
+      ABSTEC_SUITE_IMAGE: ${ABSTEC_SUITE_IMAGE:-nikitaikonkin/abstec-suite:latest}
       ABSTEC_OUTPUT_DATA_PATH_HOST: ${ABSTEC_OUTPUT_DATA_PATH_HOST:-}
       ABSTEC_OUTPUT_DATA_PATH: ${ABSTEC_OUTPUT_DATA_PATH:-/app/abstec_out}
       ABSTEC_OUTPUT_DATA_PATH_CONTAINER: ${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
@@ -146,6 +153,8 @@ services:
     build:
       context: ./data-indexer
       dockerfile: Dockerfile
+
+    image: nikitaikonkin/ict-hub-data-indexer:${IMAGE_TAG:-latest}
 
     container_name: data-indexer
 

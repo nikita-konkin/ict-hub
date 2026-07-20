@@ -178,6 +178,15 @@
             </select>
             <div class="param-hint">Per-station median-shift over samples with elevation ≥ 60° — kills the "wall" artefact when a receiver's DCB is uncorrected.</div>
           </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-model">IRI model comparison</label>
+            <select id="tecmap-model" class="form-select">
+              <option value="off" selected>off</option>
+              <option value="iri">IRI map (model field on the same scale)</option>
+              <option value="difference">difference (obs − IRI, bias/RMSE per frame)</option>
+            </select>
+            <div class="param-hint">Climatological reference from the IRI model (PyIRI). The daily F10.7 index is fetched automatically (spaceweather.gc.ca, cached on the server). IRI reproduces the background and diurnal course, not ionospheric weather; the empirical relative VTEC keeps residual inter-station biases, so a systematic offset in the difference is expected — it is reported as bias next to RMSE. The series export adds IRI columns when this is not off.</div>
+          </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
             <label class="form-label" for="tecmap-basemap">Basemap</label>
             <select id="tecmap-basemap" class="form-select">
@@ -332,6 +341,7 @@
     const normalizeStationsEl = document.getElementById("tecmap-normalize-stations");
     const showAccuracyEl = document.getElementById("tecmap-show-accuracy");
     const showParamsEl = document.getElementById("tecmap-show-params");
+    const modelEl = document.getElementById("tecmap-model");
     const stationHintEl = document.getElementById("tecmap-station-hint");
     const availYearEl = document.getElementById("tecmap-avail-year");
     const availDoyEl = document.getElementById("tecmap-avail-doy");
@@ -798,6 +808,9 @@
       const showParamsValue = clean(showParamsEl ? showParamsEl.value : "") || "on";
       if (showParamsValue === "on") params.set("show_params", "true");
 
+      const modelValue = clean(modelEl ? modelEl.value : "") || "off";
+      if (modelValue !== "off") params.set("model", modelValue);
+
       if (mode === "range") {
         const startText = clean(startTimeEl ? startTimeEl.value : "");
         const endText = clean(endTimeEl ? endTimeEl.value : "");
@@ -891,7 +904,8 @@
       }
       // Rendering-only parameters are meaningless for cross-validation.
       for (const key of ["basemap", "basemap_alpha", "field_alpha", "format", "quality",
-                         "upsample", "frame_dpi", "field", "signal_band", "show_accuracy", "show_params", "interpolation"]) {
+                         "upsample", "frame_dpi", "field", "signal_band", "show_accuracy", "show_params",
+                         "interpolation", "model", "f107"]) {
         params.delete(key);
       }
       params.set("interpolation", "all");
@@ -912,13 +926,19 @@
         params.set("end_time", ts);
       }
       // The series is taken at station IPPs before any spatial interpolation,
-      // so gridding/rendering parameters do not apply; field/signal_band stay.
+      // so gridding/rendering parameters do not apply. The export always
+      // carries VTEC + GDD + B_k columns, so `field` is dropped and the
+      // signal band comes straight from the form select.
       for (const key of ["basemap", "basemap_alpha", "field_alpha", "format", "quality",
                          "upsample", "frame_dpi", "show_accuracy", "show_params",
                          "interpolation", "lpi_degree", "grid_resolution_deg",
-                         "smoothing_sigma", "color_min", "color_max"]) {
+                         "smoothing_sigma", "color_min", "color_max", "field", "signal_band"]) {
         params.delete(key);
       }
+      const seriesBand = clean(signalBandEl ? signalBandEl.value : "") || "gps_l1";
+      if (seriesBand !== "gps_l1") params.set("signal_band", seriesBand);
+      // Series supports model=iri (adds IRI columns); a difference map maps to the same export.
+      if (params.get("model") === "difference") params.set("model", "iri");
       params.set("format", "csv");
       return "/tec-map/series?" + params.toString();
     }

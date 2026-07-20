@@ -91,14 +91,53 @@ Main inputs:
 - period/stations/pipeline parameters as in GIF range mode
   (`min_elevation_deg`, `frame_minutes`, `ionosphere_height_km`,
   `vtec_smooth_epochs`, `normalize_stations`, ...)
-- `field=vtec|gdd|b_k` (+ `signal_band` for gdd/b_k); `vtec_gradient` is
-  rejected — it is a spatial field of the interpolated map
+- `signal_band` — carrier for the derived propagation columns
 - `format=csv` (default) or `json`
+- `field` is still accepted for compatibility but no longer narrows the
+  columns (`vtec_gradient` is rejected — it is a spatial field of the
+  interpolated map)
 
-Output columns: `frame_time, station, site_lat, site_lon, ipp_lat, ipp_lon,
-samples, vtec_tecu` plus `gdd_ns_per_ghz` or `b_k_mhz` for derived fields.
+Output columns (always all per-station fields in one file):
+`frame_time, station, site_lat, site_lon, ipp_lat, ipp_lon, samples,
+vtec_tecu, gdd_ns_per_ghz, b_k_mhz` — GDD and B_k are pointwise transforms
+of the same VTEC at `signal_band`. With `model=iri` the export additionally
+carries the IRI model evaluated at the same IPPs and frame times:
+`vtec_iri_tecu, gdd_iri_ns_per_ghz, b_k_iri_mhz` (JSON responses also report
+the F10.7 value and its source per day under `iri_f107`).
+`model=difference` is rejected here — compute differences from the paired
+columns.
 The IonMaps UI exposes this as the "Download station series (CSV)" button,
 which reuses the current TEC Map form values.
+
+### IRI Model Comparison (`model`, `f107`)
+
+`model=off|iri|difference` on `/tec-map/gif`, `/tec-map/snapshot`,
+`/tec-map/frame` (and `model=iri` on `/tec-map/series`) adds a climatological
+reference from the International Reference Ionosphere, computed with PyIRI
+(pure-Python IRI implementation; electron-density profiles are integrated to
+VTEC over 90–2000 km on the same lon/lat grid and frame times as the
+empirical field, then passed through the same field transform for
+`gdd`/`b_k`/`vtec_gradient`):
+
+- `model=iri` renders the model field itself on the full extent (model
+  validity is not limited by station coverage); empirical per-IPP markers
+  stay on the shared colour scale for direct comparison.
+- `model=difference` renders `empirical − IRI` inside the empirical coverage
+  mask on a diverging RdBu scale symmetric around zero (98% quantile of |Δ|,
+  overridable via `color_min`/`color_max`), and annotates every frame with
+  the in-mask bias and RMSE. Note the empirical branch is *relative* VTEC
+  with residual inter-station biases, so a systematic offset is expected and
+  is deliberately reported (bias) rather than removed.
+
+The daily adjusted F10.7 driving IRI is resolved automatically: fetched from
+spaceweather.gc.ca (`fluxtable.txt`), cached at
+`/app/data/f107_fluxtable.txt` (refresh after 72 h, stale cache reused when
+offline; both configurable via `TEC_MAP_F107_CACHE_PATH` /
+`TEC_MAP_F107_CACHE_MAX_AGE_HOURS`), with a `TEC_MAP_F107_DEFAULT` (150.0)
+fallback. `f107=<value>` overrides it explicitly. With `show_params=true` the
+caption reports the per-day F10.7 value and its source
+(`user|observed|nearest|default`). Model grids are cached in-process per
+(day, F10.7, UT set, point set).
 
 ## Frontend/Auth Notes
 

@@ -12,9 +12,10 @@ httpx==0.28.1
 numpy==1.26.4
 pandas==2.2.2
 pyarrow==16.0.0
-scipy==1.13.0
+scipy==1.13.1
 matplotlib==3.8.4
 pillow==11.3.0
 plotly==6.5.0
 imageio==2.37.0
 imageio-ffmpeg==0.6.0
+PyIRI==0.1.6

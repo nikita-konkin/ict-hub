@@ -17,6 +17,7 @@ from app import config as cfg
 from app.auth import get_current_user_or_401
 from app.models import User
 from app.tec_map_fields import compute_bk_grid, compute_gdd_grid, resolve_signal_band
+from app.tec_map_iri import iri_vtec_for_rows
 from app.tec_map_kriging import _haversine_km
 from app.tec_map_pipeline import (
     TecMapConfig,
@@ -84,6 +85,17 @@ def _parse_field(value: str | None) -> str:
     if text in {"b_k", "bk", "cb", "coherence_bandwidth"}:
         return "b_k"
     raise ValueError("Unsupported field. Use one of: vtec, vtec_gradient, gdd, b_k.")
+
+
+def _parse_model_mode(value: str | None) -> str:
+    text = str(value or "off").strip().lower()
+    if text in {"", "off", "false", "no", "0", "none"}:
+        return "off"
+    if text in {"iri", "model"}:
+        return "iri"
+    if text in {"difference", "diff", "obs-iri", "obs_minus_iri", "residual"}:
+        return "difference"
+    raise ValueError("Unsupported model mode. Use one of: off, iri, difference.")
 
 
 def _parse_animation_format(value: str | None) -> str:
@@ -437,6 +449,16 @@ def tec_map_gif(
         default=False,
         description="Print the map-model parameters (grid, smoothing, frame length, h_ion, elevation cutoff, coverage radius, interpolation) as a caption under the map.",
     ),
+    model: str = Query(
+        default="off",
+        description="IRI comparison mode: off (default), iri (render the IRI model field) or difference (empirical − IRI with bias/RMSE annotation).",
+    ),
+    f107: float | None = Query(
+        default=None,
+        ge=50.0,
+        le=400.0,
+        description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
+    ),
 ):
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
     if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
@@ -449,6 +471,7 @@ def tec_map_gif(
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
         interp_mode = _parse_interpolation(interpolation)
+        model_mode = _parse_model_mode(model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -529,6 +552,8 @@ def tec_map_gif(
         color_max=color_max,
         show_accuracy=bool(show_accuracy),
         show_params=bool(show_params),
+        model_mode=model_mode,
+        f107_override=f107,
     )
 
     try:
@@ -682,6 +707,16 @@ def tec_map_snapshot(
         default=False,
         description="Print the map-model parameters as a caption under the map.",
     ),
+    model: str = Query(
+        default="off",
+        description="IRI comparison mode: off (default), iri (render the IRI model field) or difference (empirical − IRI with bias/RMSE annotation).",
+    ),
+    f107: float | None = Query(
+        default=None,
+        ge=50.0,
+        le=400.0,
+        description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
+    ),
 ):
     if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
@@ -693,6 +728,7 @@ def tec_map_snapshot(
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
         interp_mode = _parse_interpolation(interpolation)
+        model_mode = _parse_model_mode(model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -718,6 +754,8 @@ def tec_map_snapshot(
         signal_band=signal_band_mode,
         show_accuracy=bool(show_accuracy),
         show_params=bool(show_params),
+        model_mode=model_mode,
+        f107_override=f107,
     )
 
     # Snapshot is defined as the `frame_minutes` bin containing the requested timestamp.
@@ -830,6 +868,16 @@ def tec_map_frame(
         default=False,
         description="Print the map-model parameters as a caption under the map.",
     ),
+    model: str = Query(
+        default="off",
+        description="IRI comparison mode: off (default), iri (render the IRI model field) or difference (empirical − IRI with bias/RMSE annotation).",
+    ),
+    f107: float | None = Query(
+        default=None,
+        ge=50.0,
+        le=400.0,
+        description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
+    ),
 ):
     """
     Publication-quality static frame (PNG/SVG) — same visual pipeline as one
@@ -848,6 +896,7 @@ def tec_map_frame(
         field_mode = _parse_field(field)
         signal_band_mode, _ = resolve_signal_band(signal_band)
         basemap_mode = _parse_basemap_mode(basemap)
+        model_mode = _parse_model_mode(model)
         output_format = str(image_format or "png").strip().lower()
         if output_format not in FRAME_IMAGE_MEDIA_TYPES:
             raise ValueError("Unsupported image_format. Use one of: png, svg.")
@@ -887,6 +936,8 @@ def tec_map_frame(
         color_max=color_max,
         show_accuracy=bool(show_accuracy),
         show_params=bool(show_params),
+        model_mode=model_mode,
+        f107_override=f107,
     )
 
     try:
@@ -919,7 +970,8 @@ def tec_map_frame(
         logger.exception("tec-map frame: rendering failed")
         raise HTTPException(status_code=500, detail=f"TEC map frame rendering failed: {exc}") from exc
 
-    filename = f"tec_map_{field_mode}_{frame_time:%Y%m%d_%H%M}.{output_format}"
+    model_suffix = {"iri": "_iri", "difference": "_obs-iri"}.get(model_mode, "")
+    filename = f"tec_map_{field_mode}{model_suffix}_{frame_time:%Y%m%d_%H%M}.{output_format}"
     return Response(
         content=image_bytes,
         media_type=FRAME_IMAGE_MEDIA_TYPES[output_format],
@@ -1142,6 +1194,16 @@ def tec_map_series(
         description="Carrier band for gdd/b_k fields (e.g. gps_l1, gps_l5, glonass_l1, galileo_e1, bds_b2a).",
     ),
     format: str = Query(default="csv", description="Output format: csv (default) or json."),
+    model: str = Query(
+        default="off",
+        description="off (default) or iri: add IRI model columns (vtec_iri_tecu + the derived field at the same IPPs/frame times).",
+    ),
+    f107: float | None = Query(
+        default=None,
+        ge=50.0,
+        le=400.0,
+        description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
+    ),
 ):
     """
     Per-station time series of the selected field over the requested range:
@@ -1163,8 +1225,14 @@ def tec_map_series(
         normalize_mode = _parse_normalize_stations(normalize_stations)
         field_mode = _parse_field(field)
         signal_band_mode, frequency_hz = resolve_signal_band(signal_band)
+        model_mode = _parse_model_mode(model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if model_mode == "difference":
+        raise HTTPException(
+            status_code=400,
+            detail="Series export supports model=iri (adds model columns next to the observations); compute differences from the columns.",
+        )
     if field_mode not in _SERIES_FIELD_COLUMNS:
         raise HTTPException(
             status_code=400,
@@ -1250,35 +1318,59 @@ def tec_map_series(
         raise HTTPException(status_code=500, detail=f"TEC map series export failed: {exc}") from exc
 
     series = frame_summary.sort_values(["station", "frame_time"]).reset_index(drop=True)
-    value_column, value_unit = _SERIES_FIELD_COLUMNS[field_mode]
-    if field_mode == "gdd":
-        series[value_column] = compute_gdd_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
-    elif field_mode == "b_k":
-        series[value_column] = compute_bk_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
+    # One file carries every per-station field: VTEC plus both derived
+    # propagation characteristics (pointwise transforms of VTEC at the
+    # requested signal band). `field` stays accepted for API compatibility
+    # but no longer narrows the columns.
+    series["gdd_ns_per_ghz"] = compute_gdd_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
+    series["b_k_mhz"] = compute_bk_grid(series["vtec_tecu"].to_numpy(), frequency_hz)
 
-    columns = ["frame_time", "station", "site_lat", "site_lon", "ipp_lat", "ipp_lon", "samples", "vtec_tecu"]
-    if value_column != "vtec_tecu":
-        columns.append(value_column)
+    # model=iri: IRI VTEC at the same IPPs/frame times, plus the derived
+    # fields in the same units, so observation and model sit side by side.
+    f107_meta: dict[str, dict[str, float | str]] = {}
+    if model_mode == "iri":
+        try:
+            iri_vtec, f107_meta = iri_vtec_for_rows(
+                series["frame_time"], series["ipp_lon"], series["ipp_lat"], f107
+            )
+        except Exception as exc:
+            logger.exception("tec-map series: IRI evaluation failed")
+            raise HTTPException(status_code=500, detail=f"IRI model evaluation failed: {exc}") from exc
+        series["vtec_iri_tecu"] = iri_vtec
+        series["gdd_iri_ns_per_ghz"] = compute_gdd_grid(iri_vtec, frequency_hz)
+        series["b_k_iri_mhz"] = compute_bk_grid(iri_vtec, frequency_hz)
+
+    columns = [
+        "frame_time", "station", "site_lat", "site_lon", "ipp_lat", "ipp_lon", "samples",
+        "vtec_tecu", "gdd_ns_per_ghz", "b_k_mhz",
+    ]
+    if model_mode == "iri":
+        columns += ["vtec_iri_tecu", "gdd_iri_ns_per_ghz", "b_k_iri_mhz"]
     series = series[[c for c in columns if c in series.columns]]
 
     stamp = f"{range_start_dt:%Y%m%dT%H%M}_{range_end_dt:%Y%m%dT%H%M}"
-    band_suffix = f"_{signal_band_mode}" if field_mode in {"gdd", "b_k"} else ""
-    filename = f"tec_map_series_{field_mode}{band_suffix}_{stamp}.{output_format}"
+    model_suffix = "_with_iri" if model_mode == "iri" else ""
+    filename = f"tec_map_series_{signal_band_mode}{model_suffix}_{stamp}.{output_format}"
 
     if output_format == "json":
         payload = series.copy()
         payload["frame_time"] = payload["frame_time"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+        # Strict-JSON safety: B_k is NaN below the 0.1 TECU floor.
+        payload = payload.astype(object).where(pd.notna(payload), None)
+        body: dict = {
+            "fields": {"vtec_tecu": "TECU", "gdd_ns_per_ghz": "ns/GHz", "b_k_mhz": "MHz"},
+            "signal_band": signal_band_mode,
+            "start": range_start_dt.isoformat(),
+            "end": range_end_dt.isoformat(),
+            "frame_minutes": int(frame_minutes),
+            "stations": found_stations,
+            "rows": payload.to_dict(orient="records"),
+        }
+        if model_mode == "iri":
+            body["model"] = "iri"
+            body["iri_f107"] = f107_meta
         return JSONResponse(
-            content={
-                "field": field_mode,
-                "unit": value_unit,
-                "signal_band": signal_band_mode if field_mode in {"gdd", "b_k"} else None,
-                "start": range_start_dt.isoformat(),
-                "end": range_end_dt.isoformat(),
-                "frame_minutes": int(frame_minutes),
-                "stations": found_stations,
-                "rows": payload.to_dict(orient="records"),
-            },
+            content=body,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
