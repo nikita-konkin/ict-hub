@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import analysis, auth, feedback, indexed_data, ionmaps, jobs, stations_map, tec_map
@@ -122,6 +123,10 @@ app.add_middleware(
     https_only=False,  # local network — no TLS required
     same_site="lax",
 )
+
+# Compress responses over 1KB. base.html alone is ~64KB of inline CSS/JS
+# (every page ships it, since there's no SPA routing) — gzip cuts that to ~13KB.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
 import os as _os
