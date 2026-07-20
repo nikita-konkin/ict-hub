@@ -16,6 +16,12 @@ services:
 
     restart: unless-stopped
 
+    # Opt in to auto-updates by the watchtower service below (which is scoped
+    # to labeled containers only, so it never touches the job containers this
+    # service spawns dynamically via the Docker socket).
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
     ports:
       # Map host port CONVERTER_HUB_HOST_PORT (default 8080) → container port 8000.
       # Override in .env if 8080 is already taken on this host.
@@ -160,6 +166,9 @@ services:
 
     restart: unless-stopped
 
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
     ports:
       # Map host port 5001 → container port 5001
       - "5001:5001"
@@ -213,6 +222,23 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  # Watchtower — polls Docker Hub and auto-updates/restarts labeled
+  # containers when CI pushes a new image (see .github/workflows/ci-cd.yml in
+  # each repo). Scoped to WATCHTOWER_LABEL_ENABLE so it only ever touches
+  # containers explicitly opted in via com.centurylinklabs.watchtower.enable
+  # — it must never manage the tec-suite/dat-parquet-handler/abstec-suite job
+  # containers converter-hub spawns on demand through the Docker socket.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
