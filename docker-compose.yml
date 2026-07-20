@@ -236,6 +236,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      # containrrr/watchtower's bundled Docker client SDK defaults to an old
+      # API version that newer Docker Engines reject ("client version 1.25 is
+      # too old"). Force a modern version so it negotiates correctly.
+      DOCKER_API_VERSION: "1.41"
       WATCHTOWER_LABEL_ENABLE: "true"
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
