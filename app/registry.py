@@ -352,6 +352,63 @@ CONVERTERS: dict[str, dict] = {
                 "min": 1,
             },
             {
+                "name": "--jobs",
+                "long": "--jobs",
+                "label": "Parallel Jobs",
+                "type": "number",
+                "default": 1,
+                "required": False,
+                "help": (
+                    "Number of stations processed at the same time. Only the 'dockur' "
+                    "runner supports more than 1, and the XP VM must be configured for it: "
+                    "set the slot count in <jobs dir>/_slots.cfg, raise ABSTEC_XP_CPU_CORES, "
+                    "and restart the abstec-xp container. Values above the VM's slot count "
+                    "simply queue."
+                ),
+                "min": 1,
+                "max": 8,
+            },
+            {
+                "name": "--skip-existing",
+                "long": "--skip-existing",
+                "label": "Skip Already Processed Stations",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": (
+                    "Skip stations whose output folder already exists, so an interrupted "
+                    "batch can be resumed without redoing completed stations."
+                ),
+            },
+            {
+                "name": "--max-consecutive-failures",
+                "long": "--max-consecutive-failures",
+                "label": "Abort After N Consecutive Failures",
+                "type": "number",
+                "default": 25,
+                "required": False,
+                "help": (
+                    "A station that makes absolTEC fail is skipped and the batch continues. "
+                    "This many failures in a row aborts the run instead, since that means "
+                    "something systemic is broken rather than one station having bad data. "
+                    "Set 0 to never abort."
+                ),
+                "min": 0,
+            },
+            {
+                "name": "--min-data-rows",
+                "long": "--min-data-rows",
+                "label": "Minimum Data Rows Per Station",
+                "type": "number",
+                "default": 0,
+                "required": False,
+                "help": (
+                    "Skip stations whose .dat files hold fewer than this many usable rows "
+                    "in total. 0 disables the check."
+                ),
+                "min": 0,
+            },
+            {
                 "name": "--dry-run",
                 "long": "--dry-run",
                 "label": "Dry Run",
