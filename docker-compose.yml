@@ -203,6 +203,10 @@ services:
       DATA_INDEXER_CACHE_DB_PATH: ${DATA_INDEXER_CACHE_DB_PATH:-/app/data/cache.db}
       # Options: false (default), true/async (non-blocking), sync (blocking, requires rebuild)
       DATA_INDEXER_RUN_ON_STARTUP: ${DATA_INDEXER_RUN_ON_STARTUP:-false}
+      # Startup indexing is refused while the previous full index is younger
+      # than this, so restarting the service does not re-walk the whole RINEX
+      # tree. Wall-clock seconds; 0 disables the check (default: 1 day).
+      DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC: ${DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC:-86400}
       # Optional: disable watchers to avoid Linux inotify limits on very large trees.
       DATA_INDEXER_WATCHERS_ENABLED: ${DATA_INDEXER_WATCHERS_ENABLED:-true}
       # Optional: cap scanning for very large datasets (0 = unlimited).

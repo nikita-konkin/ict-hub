@@ -12,6 +12,9 @@ All endpoints return XML responses for consumption by other services.
 Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
 - DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
+- DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC: Minimum wall-clock age of the previous
+  full index before startup indexing runs again (default: 86400 = 1 day).
+  Set 0 to always index on startup.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -64,6 +67,16 @@ def _scan_workers() -> int:
 # Persistent cache database path
 _CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
 
+# How stale the previous full index must be before startup indexing runs again.
+# Restarting the service is cheap; re-walking the whole RINEX tree is not, so a
+# restart shortly after a successful index should not trigger another scan.
+_MIN_REINDEX_INTERVAL_SEC: float = float(
+    os.getenv('DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC', '86400')
+)
+
+# Key used in the meta table for the last completed full index (wall clock).
+_LAST_FULL_INDEX_KEY = 'last_full_index_at'
+
 # (path → (file_list_hash, result)) — file list comparison cache
 # _rinex_cache: dict[str, tuple[str, list]] = {}
 _rinex_cache: dict[str, tuple[float, list]] = {}
@@ -98,11 +111,91 @@ def _init_cache_db():
             ON cache (cache_type, timestamp)
         ''')
 
+        # Small key/value table for service-level markers. The cache table's
+        # own `timestamp` column cannot be used for this: those values come from
+        # time.monotonic(), which is measured from boot rather than the epoch,
+        # so it cannot express "more than a day ago" and jumps backwards when
+        # the host reboots.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value REAL NOT NULL
+            )
+        ''')
+
         conn.commit()
         conn.close()
     except Exception as e:
         # If database initialization fails, continue without persistence
         print(f"Warning: Failed to initialize cache database: {e}")
+
+
+def get_last_full_index_time() -> float | None:
+    """Return the wall-clock time of the last completed full index, if known."""
+    try:
+        conn = sqlite3.connect(_CACHE_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM meta WHERE key = ?', (_LAST_FULL_INDEX_KEY,))
+        row = cursor.fetchone()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Failed to read last index time: {e}")
+        return None
+    if not row:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def set_last_full_index_time(timestamp: float | None = None) -> None:
+    """Record that a full index just completed (wall clock)."""
+    value = time.time() if timestamp is None else float(timestamp)
+    try:
+        conn = sqlite3.connect(_CACHE_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+            (_LAST_FULL_INDEX_KEY, value),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Failed to record last index time: {e}")
+
+
+def should_run_full_index(now: float | None = None) -> tuple[bool, str, float | None]:
+    """Decide whether a startup full index should run.
+
+    Indexing is refused while the previous index is younger than
+    DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC, so restarting the service does not
+    re-walk the whole RINEX tree. Returns (should_run, reason, age_seconds).
+    """
+    if _MIN_REINDEX_INTERVAL_SEC <= 0:
+        return True, "minimum re-index interval is disabled", None
+
+    last = get_last_full_index_time()
+    if last is None:
+        return True, "no previous index recorded", None
+
+    current = time.time() if now is None else now
+    age = current - last
+
+    if age < 0:
+        # Clock moved backwards (host time sync); treat the marker as unusable
+        # rather than blocking indexing forever.
+        return True, "recorded index time is in the future", age
+
+    if age < _MIN_REINDEX_INTERVAL_SEC:
+        return (
+            False,
+            f"last index was {age / 3600:.1f}h ago, below the "
+            f"{_MIN_REINDEX_INTERVAL_SEC / 3600:.1f}h minimum re-index interval",
+            age,
+        )
+
+    return True, f"last index was {age / 3600:.1f}h ago", age
 
 
 def _load_cache_from_db():

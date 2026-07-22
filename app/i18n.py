@@ -176,6 +176,29 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "flag_help_day_from": "Optional inclusive start day-of-year filter (1..366).",
         "flag_label_day_to": "Day To (inclusive)",
         "flag_help_day_to": "Optional inclusive end day-of-year filter (1..366).",
+        "flag_label_jobs": "Parallel Jobs",
+        "flag_help_jobs": (
+            "Number of stations processed at the same time. Only the 'dockur' runner "
+            "supports more than 1, and the XP VM must be configured for it: set the slot "
+            "count in <jobs dir>/_slots.cfg, raise ABSTEC_XP_CPU_CORES, and restart the "
+            "abstec-xp container. Values above the VM's slot count simply queue."
+        ),
+        "flag_label_skip_existing": "Skip Already Processed Stations",
+        "flag_help_skip_existing": (
+            "Skip stations whose output folder already exists, so an interrupted batch "
+            "can be resumed without redoing completed stations."
+        ),
+        "flag_label_max_consecutive_failures": "Abort After N Consecutive Failures",
+        "flag_help_max_consecutive_failures": (
+            "A station that makes absolTEC fail is skipped and the batch continues. This "
+            "many failures in a row aborts the run instead, since that means something "
+            "systemic is broken rather than one station having bad data. Set 0 to never abort."
+        ),
+        "flag_label_min_data_rows": "Minimum Data Rows Per Station",
+        "flag_help_min_data_rows": (
+            "Skip stations whose .dat files hold fewer than this many usable rows in "
+            "total. 0 disables the check."
+        ),
         "feedback_button": "Feedback",
         "feedback_title": "Send feedback",
         "feedback_type": "Type",
@@ -362,6 +385,32 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "flag_help_day_from": "Необязательная начальная граница дня года (1..366).",
         "flag_label_day_to": "День до (включительно)",
         "flag_help_day_to": "Необязательная конечная граница дня года (1..366).",
+        "flag_label_jobs": "Параллельных задач",
+        "flag_help_jobs": (
+            "Сколько станций обрабатывается одновременно. Значения больше 1 поддерживает "
+            "только исполнитель «dockur», и виртуальную машину XP нужно к этому "
+            "подготовить: указать число слотов в <папка задач>/_slots.cfg, увеличить "
+            "ABSTEC_XP_CPU_CORES и перезапустить контейнер abstec-xp. Задачи сверх числа "
+            "слотов не теряются — они просто встают в очередь."
+        ),
+        "flag_label_skip_existing": "Пропускать обработанные станции",
+        "flag_help_skip_existing": (
+            "Пропускать станции, для которых папка с результатами уже существует: это "
+            "позволяет продолжить прерванный пакетный расчёт, не повторяя завершённые "
+            "станции."
+        ),
+        "flag_label_max_consecutive_failures": "Прервать после N ошибок подряд",
+        "flag_help_max_consecutive_failures": (
+            "Станция, на которой absolTEC завершается с ошибкой, пропускается, и расчёт "
+            "продолжается. Указанное число ошибок подряд, наоборот, прерывает запуск: это "
+            "признак системного сбоя, а не плохих данных одной станции. 0 — никогда не "
+            "прерывать."
+        ),
+        "flag_label_min_data_rows": "Минимум строк данных на станцию",
+        "flag_help_min_data_rows": (
+            "Пропускать станции, у которых в файлах .dat суммарно меньше указанного числа "
+            "пригодных строк. 0 отключает проверку."
+        ),
         "feedback_button": "Обратная связь",
         "feedback_title": "Отправить сообщение",
         "feedback_type": "Тип",

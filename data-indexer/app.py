@@ -71,15 +71,24 @@ def dict_to_xml_response(data, root_element="data"):
 
 @app.on_event("startup")
 async def startup_event():
-    """Run initial indexing on startup if enabled."""
+    """Run initial indexing on startup if enabled and not done recently."""
     if os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').lower() == 'true':
         import asyncio
         import logging
 
+        from data_indexer import set_last_full_index_time, should_run_full_index
+
         logger = logging.getLogger(__name__)
 
+        # Restarting the service must not re-walk the whole RINEX tree when it
+        # was just indexed; only a sufficiently stale index is rebuilt.
+        allowed, reason, _age = should_run_full_index()
+        if not allowed:
+            logger.info("Skipping initial indexing: %s", reason)
+            return
+
         async def index_all():
-            logger.info("Running initial indexing on startup...")
+            logger.info("Running initial indexing on startup (%s)...", reason)
             try:
                 # Index all data types to warm up caches
                 list_rinex_server_structure(DEFAULT_PATHS['rinex'])
@@ -89,6 +98,9 @@ async def startup_event():
                 list_parquet_satellite_structure(DEFAULT_PATHS['parquet_tecsuite'])
                 list_parquet_output_structure(DEFAULT_PATHS['parquet_abstec'])
                 list_parquet_satellite_structure(DEFAULT_PATHS['parquet_abstec'])
+                # Only a fully successful pass counts, so a crashed run is
+                # retried on the next restart instead of being locked out.
+                set_last_full_index_time()
                 logger.info("Initial indexing completed successfully")
             except Exception as e:
                 logger.error(f"Initial indexing failed: {e}")
@@ -112,11 +124,11 @@ def indexer_status():
     """Get data indexer status and cache information."""
     import time
     from data_indexer import (
-        _CACHE_TTL_SEC,
+        _CACHE_TTL_SEC, _MIN_REINDEX_INTERVAL_SEC,
+        get_last_full_index_time, should_run_full_index,
         _rinex_cache, _tecsuite_cache, _abstec_cache, _parquet_cache, _parquet_sat_cache
     )
 
-    now = time.monotonic()
     cache_info = {
         "rinex": {
             "entries": len(_rinex_cache),
@@ -140,9 +152,19 @@ def indexer_status():
         }
     }
 
+    last_index = get_last_full_index_time()
+    would_run, reason, age = should_run_full_index()
+
     return JSONResponse(content={
         "status": "healthy",
         "cache_info": cache_info,
+        "last_full_index": {
+            "at": last_index,
+            "age_seconds": age,
+            "min_reindex_interval_seconds": _MIN_REINDEX_INTERVAL_SEC,
+            "startup_index_would_run": would_run,
+            "reason": reason,
+        },
         "timestamp": time.time()
     })
 
