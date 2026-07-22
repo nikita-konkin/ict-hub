@@ -35,7 +35,12 @@ from app.job_runtime import (
     xml_payload,
 )
 from app.models import JobEvent, JobRun, User
-from app.registry import CONVERTERS, build_command, get_converter
+from app.registry import (
+    CONVERTERS,
+    build_command,
+    detect_runner_version_skew,
+    get_converter,
+)
 from app.data_indexer_client import (
     list_parquet_output_structure_async,
     list_rinex_server_structure_async,
@@ -431,10 +436,16 @@ async def _stream_job_logs_direct(
             continue
 
         if event_type == "log":
+            message = str(payload)
             yield sse_event(
                 "log",
-                xml_payload("log", message=str(payload), level="info"),
+                xml_payload("log", message=message, level="info"),
             )
+            # A flag this UI sends that the image does not know is a deployment
+            # skew, not a user error; argparse's own message does not say so.
+            skew = detect_runner_version_skew(message, job.converter)
+            if skew:
+                yield sse_event("log", xml_payload("log", message=skew, level="error"))
             continue
 
         if event_type == "progress":

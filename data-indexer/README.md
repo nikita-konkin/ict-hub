@@ -8,6 +8,10 @@ The service uses the following environment variables (set in `.env` file):
 
 ### Cache Configuration
 - `DATA_INDEXER_CACHE_TTL_SEC`: Cache time-to-live in seconds (default: `300.0` = 5 minutes)
+  - Cache ages are wall clock (`time.time()`), so they stay correct across
+    restarts and reboots. Entries left by older builds that stored
+    `time.monotonic()` (measured from boot) are discarded on load, which causes
+    one rescan after upgrading.
   - Controls how often the service rescans directories for new files
   - Lower values = more frequent updates but higher CPU/disk usage
   - Higher values = less frequent updates but may miss new files sooner
@@ -38,9 +42,7 @@ The service uses the following environment variables (set in `.env` file):
   - Restarting the service is cheap; re-walking the whole RINEX tree is not. A
     restart within this window is refused and logged rather than rescanning.
   - The completion time is stored as wall clock in the `meta` table of the cache
-    database, so it survives restarts. The `cache` table's own `timestamp` column
-    cannot be used for this: those values come from `time.monotonic()`, which is
-    measured from boot rather than the epoch and jumps backwards on reboot.
+    database, so it survives restarts.
   - Only a fully successful pass updates the marker, so a crashed index is
     retried on the next restart instead of being locked out for a day.
   - `GET /status` reports `last_full_index`, including whether the next startup

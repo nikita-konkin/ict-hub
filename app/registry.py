@@ -23,6 +23,7 @@ Flag descriptor fields:
   min/max  — for "number" type
 """
 from __future__ import annotations
+import re
 import shlex
 from typing import Any
 
@@ -431,6 +432,42 @@ CONVERTERS: dict[str, dict] = {
 def get_converter(name: str) -> dict | None:
     """Return the converter config dict or None if not registered."""
     return CONVERTERS.get(name)
+
+
+# argparse prints this when handed a flag it does not define. It is the exact
+# symptom of the UI being newer than the converter image it drives.
+_UNRECOGNISED_ARGS_RE = re.compile(
+    r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE
+)
+
+
+def detect_runner_version_skew(log_text: str, converter_name: str | None = None) -> str | None:
+    """Return an actionable message when a job died from UI/image version skew.
+
+    This UI and the converter images are built by separate pipelines and rolled
+    out independently, so a registry that gained a flag can reach production
+    before the image that understands it. The result is an immediate exit with
+    argparse's terse "unrecognized arguments", which says nothing about the
+    real cause. Returns None when the log shows no such failure.
+    """
+    match = _UNRECOGNISED_ARGS_RE.search(log_text or "")
+    if not match:
+        return None
+
+    flags = " ".join(
+        token for token in match.group("flags").split() if token.startswith("-")
+    )
+    image = ""
+    if converter_name:
+        conv = CONVERTERS.get(converter_name) or {}
+        image = str(conv.get("image") or "")
+
+    return (
+        f"The {converter_name or 'converter'} image does not support {flags or 'these options'}. "
+        "This UI is newer than the image it is driving - they are built by separate "
+        "pipelines, so one can be deployed before the other. "
+        f"Pull the current {image or 'converter'} image and retry."
+    )
 
 
 def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[str], dict[str, dict]]:

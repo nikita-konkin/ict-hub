@@ -77,6 +77,10 @@ _MIN_REINDEX_INTERVAL_SEC: float = float(
 # Key used in the meta table for the last completed full index (wall clock).
 _LAST_FULL_INDEX_KEY = 'last_full_index_at'
 
+# 2001-09-09. Cache timestamps are wall clock; anything below this was written
+# by an older build using time.monotonic() and must not be treated as a date.
+_MIN_PLAUSIBLE_EPOCH = 1_000_000_000.0
+
 # (path → (file_list_hash, result)) — file list comparison cache
 # _rinex_cache: dict[str, tuple[str, list]] = {}
 _rinex_cache: dict[str, tuple[float, list]] = {}
@@ -111,11 +115,9 @@ def _init_cache_db():
             ON cache (cache_type, timestamp)
         ''')
 
-        # Small key/value table for service-level markers. The cache table's
-        # own `timestamp` column cannot be used for this: those values come from
-        # time.monotonic(), which is measured from boot rather than the epoch,
-        # so it cannot express "more than a day ago" and jumps backwards when
-        # the host reboots.
+        # Service-level markers (e.g. when the last full index completed).
+        # Kept separate from the per-path `cache` table because it records a
+        # property of the service, not of any one indexed root.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
@@ -198,8 +200,22 @@ def should_run_full_index(now: float | None = None) -> tuple[bool, str, float | 
     return True, f"last index was {age / 3600:.1f}h ago", age
 
 
+def _is_epoch_timestamp(value) -> bool:
+    """True when a stored timestamp looks like wall-clock (seconds since epoch).
+
+    Cache ages are computed against time.time(). Older builds stored
+    time.monotonic(), which is measured from boot and is typically a few
+    million at most, so anything below this threshold cannot be a real date.
+    """
+    try:
+        return float(value) >= _MIN_PLAUSIBLE_EPOCH
+    except (TypeError, ValueError):
+        return False
+
+
 def _load_cache_from_db():
     """Load cached data from database on startup."""
+    dropped = 0
     try:
         if not os.path.exists(_CACHE_DB_PATH):
             return
@@ -222,6 +238,13 @@ def _load_cache_from_db():
 
             for row in cursor.fetchall():
                 cache_key, data_json, timestamp = row
+                if not _is_epoch_timestamp(timestamp):
+                    # Written by an older build that stored time.monotonic(),
+                    # which is measured from boot. Comparing it against
+                    # time.time() would misreport the entry's age, so drop it
+                    # and let the next request rescan.
+                    dropped += 1
+                    continue
                 try:
                     data = json.loads(data_json)
                     cache_dict[cache_key] = (timestamp, data)
@@ -232,6 +255,8 @@ def _load_cache_from_db():
         print(
             f"Loaded {sum(len(c) for c in [_rinex_cache, _tecsuite_cache, _abstec_cache, _parquet_cache, _parquet_sat_cache])} cache entries from database"
         )
+        if dropped:
+            print(f"Discarded {dropped} cache entries with pre-epoch (monotonic) timestamps")
 
     except Exception as e:
         print(f"Warning: Failed to load cache from database: {e}")
@@ -397,7 +422,7 @@ def _refresh_invalidated_cache(
 
     logger.info("[%s] Cache invalidated for %s - rescanning now", cache_type.upper(), host_root)
     result = scan_fn(root)
-    ts = time.monotonic()
+    ts = time.time()
     cache_dict[host_root] = (ts, result)
     _save_cache_to_db(cache_type, host_root, (ts, result))
     _cache_invalidated[host_root] = False
@@ -414,7 +439,7 @@ def _force_refresh_cache(
     """Force a synchronous rescan and update the in-memory + persistent cache."""
     logger.info("[%s] Forced refresh for %s", cache_type.upper(), host_root)
     result = scan_fn(root)
-    ts = time.monotonic()
+    ts = time.time()
     cache_dict[host_root] = (ts, result)
     _save_cache_to_db(cache_type, host_root, (ts, result))
     _cache_invalidated[host_root] = False
@@ -501,7 +526,7 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
 #         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
 #         return []
 
-#     now = time.monotonic()
+#     now = time.time()
 #     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
 #     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
 #         cache_age = now - cached_time
@@ -531,7 +556,7 @@ def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[Y
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.monotonic()
+    now = time.time()
     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
 
     if cached_time is not None:
@@ -549,8 +574,8 @@ def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[Y
     # Cold start — no cached data at all, must scan now
     logger.info(f"[RINEX] Cold start scan for {host_root}")
     result = _scan_rinex(root)
-    _rinex_cache[host_root] = (time.monotonic(), result)
-    _save_cache_to_db('rinex', host_root, (time.monotonic(), result))
+    _rinex_cache[host_root] = (time.time(), result)
+    _save_cache_to_db('rinex', host_root, (time.time(), result))
     return result
 
 
@@ -567,7 +592,7 @@ def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[Y
 #             _refresh_in_progress.add(host_root)
 #             logger.info(f"[RINEX] Background refresh started for {host_root}")
 #             result = _scan_rinex(root)
-#             ts = time.monotonic()
+#             ts = time.time()
 #             _rinex_cache[host_root] = (ts, result)
 #             _save_cache_to_db('rinex', host_root, (ts, result))
 #             logger.info(f"[RINEX] Background refresh complete — {len(result)} years")
@@ -595,7 +620,7 @@ def _trigger_background_refresh(
             _refresh_in_progress.add(host_root)
             logger.info(f"[{cache_type.upper()}] Background refresh started for {host_root}")
             result = scan_fn(root)
-            ts = time.monotonic()
+            ts = time.time()
             cache_dict[host_root] = (ts, result)
             _save_cache_to_db(cache_type, host_root, (ts, result))
             logger.info(f"[{cache_type.upper()}] Background refresh complete — {len(result)} entries")
@@ -803,7 +828,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
 #     if not root.exists() or not root.is_dir():
 #         return []
 
-#     now = time.monotonic()
+#     now = time.time()
 #     cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
 #     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
 #         cache_age = now - cached_time
@@ -833,7 +858,7 @@ def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> lis
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.monotonic()
+    now = time.time()
     cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
 
     if cached_time is not None:
@@ -849,7 +874,7 @@ def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> lis
     # Cold start
     logger.info(f"[TEC-SUITE] Cold start scan for {host_root}")
     result = _scan_tecsuite_parallel(scan_root)
-    ts = time.monotonic()
+    ts = time.time()
     _tecsuite_cache[host_root] = (ts, result)
     _save_cache_to_db('tecsuite', host_root, (ts, result))
     return result
@@ -878,7 +903,7 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.monotonic()
+    now = time.time()
     cached_time, cached_result = _abstec_cache.get(host_root, (None, None))
 
     if cached_time is not None:
@@ -893,7 +918,7 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
 
     logger.info(f"[ABSTEC] Cold start scan for {host_root}")
     result = _scan_abstec_output_parallel(root)
-    ts = time.monotonic()
+    ts = time.time()
     _abstec_cache[host_root] = (ts, result)
     _save_cache_to_db('abstec', host_root, (ts, result))
     return result
@@ -914,7 +939,7 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
 #     if not root.exists() or not root.is_dir():
 #         return []
 
-#     now = time.monotonic()
+#     now = time.time()
 #     cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
 #     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
 #         cache_age = now - cached_time
@@ -942,7 +967,7 @@ def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.monotonic()
+    now = time.time()
     cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
 
     if cached_time is not None:
@@ -958,7 +983,7 @@ def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list
     # Cold start
     logger.info(f"[PARQUET] Cold start scan for {host_root}")
     result = _scan_parquet(root)
-    ts = time.monotonic()
+    ts = time.time()
     _parquet_cache[host_root] = (ts, result)
     _save_cache_to_db('parquet', host_root, (ts, result))
     return result
@@ -980,7 +1005,7 @@ def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list
 #     if not root.exists() or not root.is_dir():
 #         return []
 
-#     now = time.monotonic()
+#     now = time.time()
 #     cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
 #     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
 #         cache_age = now - cached_time
@@ -1008,7 +1033,7 @@ def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> l
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.monotonic()
+    now = time.time()
     cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
 
     if cached_time is not None:
@@ -1024,7 +1049,7 @@ def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> l
     # Cold start
     logger.info(f"[PARQUET-SAT] Cold start scan for {host_root}")
     result = _scan_parquet_satellites_parallel(root)
-    ts = time.monotonic()
+    ts = time.time()
     _parquet_sat_cache[host_root] = (ts, result)
     _save_cache_to_db('parquet_sat', host_root, (ts, result))
     return result
