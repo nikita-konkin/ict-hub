@@ -367,9 +367,9 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 ### Converter Configuration
 | Variable           | Default                                  | Description                                   |
 |--------------------|------------------------------------------|-----------------------------------------------|
-| `TECSUITE_IMAGE`   | `tec-suite`                              | Docker image name for TEC-Suite               |
-| `DAT_PARQUET_IMAGE`| `dat-parquet-handler`                    | Docker image name for DAT <-> Parquet         |
-| `ABSTEC_SUITE_IMAGE`| `abstec-suite:latest`                   | Docker image name for AbsTEC Suite            |
+| `TECSUITE_IMAGE`   | `nikitaikonkin/tec-suite:latest`         | Docker image name for TEC-Suite               |
+| `DAT_PARQUET_IMAGE`| `nikitaikonkin/dat-parquet-handler:latest` | Docker image name for DAT <-> Parquet       |
+| `ABSTEC_SUITE_IMAGE`| `nikitaikonkin/abstec-suite:latest`     | Docker image name for AbsTEC Suite            |
 
 ### Data Paths
 | Variable           | Default                                  | Description                                   |

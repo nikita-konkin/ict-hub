@@ -13,8 +13,10 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////app/data/converter_hub
 # Default admin password set on first boot if no users exist
 ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 
-# Docker image name for the tecsuite container
-TECSUITE_IMAGE: str = os.getenv("TECSUITE_IMAGE", "tec-suite")
+# Docker image name for the tecsuite container. Defaults must stay namespaced and
+# tagged: converter-hub pulls these through the Docker socket, and a bare name
+# resolves to docker.io/library/<name>, which 404s instead of failing usefully.
+TECSUITE_IMAGE: str = os.getenv("TECSUITE_IMAGE", "nikitaikonkin/tec-suite:latest")
 
 # Host path where TEC-suite RINEX data is stored as YYYY_original/DDD/*.zip
 RINEX_DATA_PATH_HOST: str = os.getenv("RINEX_DATA_PATH_HOST", "")
@@ -32,10 +34,14 @@ TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: str = os.getenv("TECSUITE_OUT_DAT_DATA_PAT
 TECSUITE_OUT_DAT_DATA_PATH: str = os.getenv("TECSUITE_OUT_DAT_DATA_PATH", "/app/out")
 
 # Docker image name for the dat-parquet handler container
-DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "dat-parquet-handler:latest")
+DAT_PARQUET_IMAGE: str = os.getenv(
+    "DAT_PARQUET_IMAGE", "nikitaikonkin/dat-parquet-handler:latest"
+)
 
 # Docker image name for the AbsTEC Suite container
-ABSTEC_SUITE_IMAGE: str = os.getenv("ABSTEC_SUITE_IMAGE", "abstec-suite:latest")
+ABSTEC_SUITE_IMAGE: str = os.getenv(
+    "ABSTEC_SUITE_IMAGE", "nikitaikonkin/abstec-suite:latest"
+)
 
 # Host path where AbsTEC output should be persisted.
 ABSTEC_OUTPUT_DATA_PATH_HOST: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH_HOST", "")
