@@ -11,10 +11,15 @@
   {% endif %}
 {%- endmacro %}
 
+{% macro day_title(day) -%}
+  {%- if day.date %}DOY {{ day.day }} · {{ day.date }}{% else %}DOY {{ day.day }}{% endif -%}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">{{ t('nav_indexed_data') }}</h1>
   <p class="page-subtitle">{{ t('indexed_data_subtitle') }}</p>
+  <p class="page-subtitle" style="margin-top:4px;">{{ t('indexed_data_doy_note') }}</p>
   <div style="margin-top:12px;">
     <a class="btn btn-ghost" href="/indexed-data?refresh=1">Refresh index</a>
     {% if refresh %}
@@ -46,7 +51,7 @@
               {% if year.days %}
                 <ul style="margin:0; padding-left:18px;">
                   {% for day in year.days %}
-                    <li class="td-mono" style="color:var(--text-muted); font-size:12px;">
+                    <li class="td-mono" style="color:var(--text-muted); font-size:12px;" title="{{ day_title(day) | trim }}">
                       {{ day.day }} <span style="color:var(--text-dim);">({{ day.stations }} stations)</span>
                     </li>
                   {% endfor %}
@@ -77,7 +82,7 @@
               {% if year.days %}
                 {% for day in year.days %}
                   <details style="margin-bottom:6px; margin-left:10px;">
-                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;">
+                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;" title="{{ day_title(day) | trim }}">
                       {{ day.day }} <span style="color:var(--text-dim);">({{ (day.sites|length) if day.sites else 0 }} sites)</span>
                     </summary>
                     {% if day.sites %}
@@ -115,7 +120,7 @@
               {% if year.days %}
                 {% for day in year.days %}
                   <details style="margin-bottom:6px; margin-left:10px;">
-                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;">
+                    <summary class="td-mono" style="cursor:pointer; color:var(--text-muted); font-size:12px;" title="{{ day_title(day) | trim }}">
                       {{ day.day }} <span style="color:var(--text-dim);">({{ (day.sites|length) if day.sites else 0 }} sites)</span>
                     </summary>
                     {% if day.sites %}

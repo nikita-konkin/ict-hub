@@ -10,6 +10,9 @@ Shows the folder trees currently indexed by the data-indexer service for:
 
 from __future__ import annotations
 
+import re
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -37,6 +40,72 @@ def _scan_root(*paths: str) -> str:
         if value:
             return value
     return ""
+
+
+# Indexed day folders arrive in two shapes: DOY ("15", "015") for TEC-suite /
+# AbsTEC / Parquet, and MM/DD ("01/15") for the RINEX layout B trees. The page
+# shows day-of-year everywhere, so both shapes are normalized before rendering.
+_DOY_RE = re.compile(r"^\d{1,3}$")
+_MONTH_DAY_RE = re.compile(r"^(\d{1,2})/(\d{1,2})$")
+_YEAR_PREFIX_RE = re.compile(r"^(\d{4})")
+
+
+def _year_number(year_label: object) -> int | None:
+    match = _YEAR_PREFIX_RE.match(str(year_label or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def _day_labels(day_label: object, year_label: object) -> tuple[str, str]:
+    """Return (doy, calendar_date) display labels for one indexed day folder.
+
+    The calendar date is empty when it cannot be derived (unknown year or an
+    unrecognized folder name); the DOY falls back to the raw folder name.
+    """
+    raw = str(day_label or "").strip()
+    year = _year_number(year_label)
+
+    if _DOY_RE.fullmatch(raw):
+        doy = int(raw)
+        if year and 1 <= doy <= 366:
+            try:
+                calendar = date(year, 1, 1) + timedelta(days=doy - 1)
+            except (ValueError, OverflowError):
+                return f"{doy:03d}", ""
+            if calendar.year != year:
+                return f"{doy:03d}", ""
+            return f"{doy:03d}", calendar.isoformat()
+        return f"{doy:03d}", ""
+
+    match = _MONTH_DAY_RE.fullmatch(raw)
+    if match and year:
+        try:
+            calendar = date(year, int(match.group(1)), int(match.group(2)))
+        except ValueError:
+            return raw, ""
+        return f"{calendar.timetuple().tm_yday:03d}", calendar.isoformat()
+
+    return raw, ""
+
+
+def _with_doy_days(tree: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Copy a year/day tree with every day relabeled as day-of-year.
+
+    Handles both day shapes returned by the indexer: dicts (RINEX, TEC-suite,
+    AbsTEC) and bare strings (Parquet).
+    """
+    normalized: list[dict[str, object]] = []
+    for year in tree:
+        year_label = year.get("year", "")
+        days: list[object] = []
+        for day in year.get("days") or []:
+            if isinstance(day, dict):
+                doy, calendar = _day_labels(day.get("day"), year_label)
+                days.append({**day, "day": doy, "date": calendar})
+            else:
+                doy, _ = _day_labels(day, year_label)
+                days.append(doy)
+        normalized.append({**year, "days": days})
+    return normalized
 
 
 @router.get("/indexed-data", response_class=HTMLResponse)
@@ -94,11 +163,11 @@ async def indexed_data_page(
             converters=CONVERTERS,
             data_indexer_enabled=data_indexer_enabled,
             roots=roots,
-            rinex_tree=rinex_tree,
-            tecsuite_tree=tecsuite_tree,
-            abstec_tree=abstec_tree,
-            parquet_tecsuite_tree=parquet_tecsuite_tree,
-            parquet_abstec_tree=parquet_abstec_tree,
+            rinex_tree=_with_doy_days(rinex_tree),
+            tecsuite_tree=_with_doy_days(tecsuite_tree),
+            abstec_tree=_with_doy_days(abstec_tree),
+            parquet_tecsuite_tree=_with_doy_days(parquet_tecsuite_tree),
+            parquet_abstec_tree=_with_doy_days(parquet_abstec_tree),
             refresh=refresh,
         ),
     )
