@@ -9,143 +9,142 @@
 
 <div class="card" id="tec-map-ui" style="margin-bottom:20px;">
   <div class="card-header">
-    <div class="card-title">TEC Map (Parquet → VTEC)</div>
+    <div class="card-title">{{ t('ionmaps_card_title') }}</div>
   </div>
   <div class="card-body">
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
-      Uses precomputed TEC-suite parquet output and renders either a snapshot Plotly map or a GIF animation across a time range.
+      {{ t('ionmaps_card_intro') }}
     </div>
 
     <form id="tecmap-form" style="display:grid; gap:12px;">
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="tecmap-mode">Mode</label>
+          <label class="form-label" for="tecmap-mode">{{ t('ionmaps_label_mode') }}</label>
           <select id="tecmap-mode" class="form-select">
-            <option value="snapshot" selected>Snapshot → Plotly JSON</option>
-            <option value="range">Range → GIF</option>
+            <option value="snapshot" selected>{{ t('ionmaps_mode_snapshot') }}</option>
+            <option value="range">{{ t('ionmaps_mode_range') }}</option>
           </select>
-          <div class="param-hint">Snapshot uses <b>timestamp</b>. Range uses <b>start_time</b> + <b>end_time</b>, with optional <b>end date</b> for multi-day GIFs.</div>
+          <div class="param-hint">{{ t('ionmaps_hint_mode') | safe }}</div>
         </div>
 
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="tecmap-stations">Stations (comma/space separated)</label>
+          <label class="form-label" for="tecmap-stations">{{ t('ionmaps_label_stations') }}</label>
           <input id="tecmap-stations" class="form-input" placeholder="aksu, alex, bogr" autocomplete="off">
           <div id="tecmap-station-hint" class="param-hint" style="display:none;"></div>
         </div>
       </div>
 
       <details>
-        <summary style="cursor:pointer; font-size:12px; color:var(--text);">Available parquet data (auto-filled from index)</summary>
+        <summary style="cursor:pointer; font-size:12px; color:var(--text);">{{ t('ionmaps_avail_summary') }}</summary>
         <div style="margin-top:10px; display:grid; gap:10px;">
           <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end;">
             <div class="form-group" style="margin-bottom:0;">
-              <label class="form-label" for="tecmap-avail-year">Available year</label>
+              <label class="form-label" for="tecmap-avail-year">{{ t('ionmaps_label_avail_year') }}</label>
               <select id="tecmap-avail-year" class="form-select">
-                <option value="">Loading...</option>
+                <option value="">{{ t('ionmaps_opt_loading') }}</option>
               </select>
             </div>
             <div class="form-group" style="margin-bottom:0;">
-              <label class="form-label" for="tecmap-avail-doy">Available DOY</label>
+              <label class="form-label" for="tecmap-avail-doy">{{ t('ionmaps_label_avail_doy') }}</label>
               <select id="tecmap-avail-doy" class="form-select">
-                <option value="">Select year first</option>
+                <option value="">{{ t('ionmaps_opt_select_year_first') }}</option>
               </select>
             </div>
-            <button id="tecmap-avail-refresh" type="button" class="btn btn-ghost" style="height:34px;">Refresh</button>
+            <button id="tecmap-avail-refresh" type="button" class="btn btn-ghost" style="height:34px;">{{ t('ionmaps_btn_refresh') }}</button>
           </div>
           <div id="tecmap-avail-date" style="font-size:12px; color:var(--text-muted);"></div>
           <div id="tecmap-avail-stations" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
           <div class="param-hint">
-            Selecting an available year/DOY will set the <b>Year</b>/<b>DOY</b> fields and clear <b>Date</b>.
-            Click station chips to add/remove them from the Stations field.
+            {{ t('ionmaps_hint_avail') | safe }}
           </div>
         </div>
       </details>
 
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="tecmap-date">Date (UTC, optional)</label>
+          <label class="form-label" for="tecmap-date">{{ t('ionmaps_label_date') }}</label>
           <input id="tecmap-date" class="form-input" type="date">
-          <div class="param-hint">If set, overrides <b>year</b> + <b>doy</b>.</div>
+          <div class="param-hint">{{ t('ionmaps_hint_date') | safe }}</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="tecmap-year">Year</label>
+          <label class="form-label" for="tecmap-year">{{ t('ionmaps_label_year') }}</label>
           <input id="tecmap-year" class="form-input" type="number" min="2000" max="2100" value="2026">
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="tecmap-doy">DOY</label>
+          <label class="form-label" for="tecmap-doy">{{ t('ionmaps_label_doy') }}</label>
           <input id="tecmap-doy" class="form-input" type="number" min="1" max="366" value="1">
         </div>
       </div>
 
       <div id="tecmap-time-row" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
         <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-          <label class="form-label" for="tecmap-start-time">Start time (UTC)</label>
+          <label class="form-label" for="tecmap-start-time">{{ t('ionmaps_label_start_time') }}</label>
           <input id="tecmap-start-time" class="form-input" placeholder="HH:MM:SS or 2026-01-01T02:00:00Z" value="00:00:00" autocomplete="off">
         </div>
         <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-          <label class="form-label" for="tecmap-end-time">End time (UTC)</label>
+          <label class="form-label" for="tecmap-end-time">{{ t('ionmaps_label_end_time') }}</label>
           <input id="tecmap-end-time" class="form-input" placeholder="HH:MM:SS or 2026-01-01T06:00:00Z" value="06:00:00" autocomplete="off">
         </div>
         <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-          <label class="form-label" for="tecmap-end-date">End date (UTC, optional)</label>
+          <label class="form-label" for="tecmap-end-date">{{ t('ionmaps_label_end_date') }}</label>
           <input id="tecmap-end-date" class="form-input" type="date">
-          <div class="param-hint">Blank = same day as the start date/year+DOY.</div>
+          <div class="param-hint">{{ t('ionmaps_hint_end_date') }}</div>
         </div>
         <div class="form-group" style="margin-bottom:0; grid-column:1 / -1;" data-tecmap-mode="snapshot">
-          <label class="form-label" for="tecmap-timestamp">Timestamp (UTC)</label>
+          <label class="form-label" for="tecmap-timestamp">{{ t('ionmaps_label_timestamp') }}</label>
           <input id="tecmap-timestamp" class="form-input" placeholder="HH:MM:SS or 2026-01-01T03:00:00Z" value="03:00:00" autocomplete="off">
         </div>
       </div>
 
       <details>
-        <summary style="cursor:pointer; font-size:12px; color:var(--text);">Advanced</summary>
+        <summary style="cursor:pointer; font-size:12px; color:var(--text);">{{ t('ionmaps_advanced') }}</summary>
         <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-min-el">Min elevation (deg)</label>
+            <label class="form-label" for="tecmap-min-el">{{ t('ionmaps_label_min_el') }}</label>
             <input id="tecmap-min-el" class="form-input" type="number" min="0" max="90" step="0.1" value="20">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-frame-min">Frame minutes</label>
+            <label class="form-label" for="tecmap-frame-min">{{ t('ionmaps_label_frame_min') }}</label>
             <input id="tecmap-frame-min" class="form-input" type="number" min="1" max="240" step="1" value="15">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-grid-res">Grid resolution (deg)</label>
+            <label class="form-label" for="tecmap-grid-res">{{ t('ionmaps_label_grid_res') }}</label>
             <input id="tecmap-grid-res" class="form-input" type="number" min="0.1" max="10" step="0.1" value="1.0">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-sigma">Smoothing σ</label>
+            <label class="form-label" for="tecmap-sigma">{{ t('ionmaps_label_sigma') }}</label>
             <input id="tecmap-sigma" class="form-input" type="number" min="0" max="20" step="0.1" value="1.0">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-sampling">Sampling interval (s)</label>
+            <label class="form-label" for="tecmap-sampling">{{ t('ionmaps_label_sampling') }}</label>
             <input id="tecmap-sampling" class="form-input" type="number" min="1" max="3600" step="1" value="300">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-height">Iono height (km)</label>
+            <label class="form-label" for="tecmap-height">{{ t('ionmaps_label_height') }}</label>
             <input id="tecmap-height" class="form-input" type="number" min="50" max="2000" step="1" value="350">
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-interp">Interpolation</label>
+            <label class="form-label" for="tecmap-interp">{{ t('ionmaps_label_interp') }}</label>
             <select id="tecmap-interp" class="form-select">
-              <option value="linear" selected>linear (Delaunay triangulation)</option>
-              <option value="kriging">kriging (ordinary, exp. variogram per frame)</option>
-              <option value="lpi">local polynomial (LPI, degree 1)</option>
-              <option value="lpi2">local polynomial (LPI, degree 2)</option>
+              <option value="linear" selected>{{ t('ionmaps_interp_linear') }}</option>
+              <option value="kriging">{{ t('ionmaps_interp_kriging') }}</option>
+              <option value="lpi">{{ t('ionmaps_interp_lpi') }}</option>
+              <option value="lpi2">{{ t('ionmaps_interp_lpi2') }}</option>
             </select>
-            <div class="param-hint">Map construction principle. Kriging fits an exponential variogram to each frame's samples, weights noisy measurements via the nugget effect and relaxes to the field mean away from data. LPI fits a Gaussian-weighted local plane at every grid node (σ = 200 km) — with ordinary kriging, one of the two most accurate local methods in comparative studies. Degree 2 fits a local quadric where the station neighbourhood is dense enough (≥7 within ~2σ) and falls back to the plane elsewhere; it can track the midday TEC bump better but is more sensitive to station biases.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_interp') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-field">Field</label>
+            <label class="form-label" for="tecmap-field">{{ t('ionmaps_label_field') }}</label>
             <select id="tecmap-field" class="form-select">
               <option value="vtec" selected>VTEC [TECU]</option>
               <option value="vtec_gradient">|∇VTEC| [TECU / 100 km]</option>
               <option value="gdd">GDD |D| [ns/GHz]</option>
-              <option value="b_k">B_k coherence bandwidth [MHz]</option>
+              <option value="b_k">{{ t('ionmaps_field_bk') }}</option>
             </select>
-            <div class="param-hint">VTEC, its spatial-gradient magnitude, or propagation fields derived pointwise from VTEC (GDD, B_k).</div>
+            <div class="param-hint">{{ t('ionmaps_hint_field') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-signal-band">Signal band (GDD / B_k)</label>
+            <label class="form-label" for="tecmap-signal-band">{{ t('ionmaps_label_signal_band') }}</label>
             <select id="tecmap-signal-band" class="form-select">
               <option value="gps_l1" selected>GPS L1 (1575.42 MHz)</option>
               <option value="gps_l2">GPS L2 (1227.60 MHz)</option>
@@ -162,108 +161,108 @@
               <option value="bds_b2a">BeiDou B2a (1176.45 MHz)</option>
               <option value="bds_b2i">BeiDou B2I (1207.14 MHz)</option>
             </select>
-            <div class="param-hint">Carrier frequency used only when Field is GDD or B_k.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_signal_band') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-vtec-smooth">VTEC smooth (epochs)</label>
+            <label class="form-label" for="tecmap-vtec-smooth">{{ t('ionmaps_label_vtec_smooth') }}</label>
             <input id="tecmap-vtec-smooth" class="form-input" type="number" min="0" max="50" step="1" value="0">
-            <div class="param-hint">Rolling-median window per (station, satellite, arc). Reduces single-epoch noise; does not fix inter-station bias.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_vtec_smooth') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-normalize-stations">Normalize stations</label>
+            <label class="form-label" for="tecmap-normalize-stations">{{ t('ionmaps_label_normalize') }}</label>
             <select id="tecmap-normalize-stations" class="form-select">
-              <option value="off" selected>off</option>
-              <option value="auto">auto (only stations where MSTD bias failed)</option>
-              <option value="always">always (force common high-elevation median)</option>
+              <option value="off" selected>{{ t('ionmaps_normalize_off') }}</option>
+              <option value="auto">{{ t('ionmaps_normalize_auto') }}</option>
+              <option value="always">{{ t('ionmaps_normalize_always') }}</option>
             </select>
-            <div class="param-hint">Per-station median-shift over samples with elevation ≥ 60° — kills the "wall" artefact when a receiver's DCB is uncorrected.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_normalize') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-model">IRI model comparison</label>
+            <label class="form-label" for="tecmap-model">{{ t('ionmaps_label_model') }}</label>
             <select id="tecmap-model" class="form-select">
-              <option value="off" selected>off</option>
-              <option value="iri">IRI map (model field on the same scale)</option>
-              <option value="difference">difference (obs − IRI, bias/RMSE per frame)</option>
+              <option value="off" selected>{{ t('ionmaps_model_off') }}</option>
+              <option value="iri">{{ t('ionmaps_model_iri') }}</option>
+              <option value="difference">{{ t('ionmaps_model_difference') }}</option>
             </select>
-            <div class="param-hint">Climatological reference from the IRI model (PyIRI). The daily F10.7 index is fetched automatically (spaceweather.gc.ca, cached on the server). IRI reproduces the background and diurnal course, not ionospheric weather; the empirical relative VTEC keeps residual inter-station biases, so a systematic offset in the difference is expected — it is reported as bias next to RMSE. The series export adds IRI columns when this is not off.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_model') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-basemap">Basemap</label>
+            <label class="form-label" for="tecmap-basemap">{{ t('ionmaps_label_basemap') }}</label>
             <select id="tecmap-basemap" class="form-select">
-              <option value="false" selected>off</option>
-              <option value="cache_only">cache only (offline; uses saved OSM tiles on server)</option>
-              <option value="tile_server">XYZ tile server (HTTP)</option>
-              <option value="true">OpenStreetMap (needs internet)</option>
+              <option value="false" selected>{{ t('ionmaps_basemap_off') }}</option>
+              <option value="cache_only">{{ t('ionmaps_basemap_cache') }}</option>
+              <option value="tile_server">{{ t('ionmaps_basemap_tile_server') }}</option>
+              <option value="true">{{ t('ionmaps_basemap_osm') }}</option>
             </select>
-            <div class="param-hint">If the selected basemap source is unavailable, the GIF now falls back to plain lat/lon rendering.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_basemap') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-basemap-alpha">Basemap opacity</label>
+            <label class="form-label" for="tecmap-basemap-alpha">{{ t('ionmaps_label_basemap_alpha') }}</label>
             <input id="tecmap-basemap-alpha" class="form-input" type="number" min="0" max="1" step="0.05" value="0.28">
-            <div class="param-hint">Opacity of the geographic tile layer under the field (0 = invisible, 1 = fully opaque). Default 0.28.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_basemap_alpha') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-field-alpha">Field opacity (optional)</label>
+            <label class="form-label" for="tecmap-field-alpha">{{ t('ionmaps_label_field_alpha') }}</label>
             <input id="tecmap-field-alpha" class="form-input" type="number" min="0" max="1" step="0.05" placeholder="auto">
-            <div class="param-hint">Opacity of the colour field itself. Empty = automatic (0.72 over a basemap, 0.95 without). Lower it to see more map detail through the field.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_field_alpha') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-format">Output format</label>
+            <label class="form-label" for="tecmap-format">{{ t('ionmaps_label_format') }}</label>
             <select id="tecmap-format" class="form-select">
-              <option value="gif" selected>GIF (animated)</option>
-              <option value="mp4">MP4 (H.264 video)</option>
-              <option value="webm">WebM (VP9 video)</option>
+              <option value="gif" selected>{{ t('ionmaps_format_gif') }}</option>
+              <option value="mp4">{{ t('ionmaps_format_mp4') }}</option>
+              <option value="webm">{{ t('ionmaps_format_webm') }}</option>
             </select>
-            <div class="param-hint">MP4/WebM: full 24-bit colour (no GIF palette banding) and much smaller files for long ranges.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_format') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-quality">Quality</label>
+            <label class="form-label" for="tecmap-quality">{{ t('ionmaps_label_quality') }}</label>
             <select id="tecmap-quality" class="form-select">
-              <option value="standard" selected>standard (fast)</option>
-              <option value="high">high (adaptive palette + dithering, full DPI)</option>
+              <option value="standard" selected>{{ t('ionmaps_quality_standard') }}</option>
+              <option value="high">{{ t('ionmaps_quality_high') }}</option>
             </select>
-            <div class="param-hint">High: better GIF palette (Floyd–Steinberg) and no automatic DPI reduction on long ranges. Slower encode.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_quality') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-upsample">Grid upsample</label>
+            <label class="form-label" for="tecmap-upsample">{{ t('ionmaps_label_upsample') }}</label>
             <select id="tecmap-upsample" class="form-select">
-              <option value="1">1× (off)</option>
-              <option value="2" selected>2× (default)</option>
+              <option value="1">{{ t('ionmaps_upsample_1') }}</option>
+              <option value="2" selected>{{ t('ionmaps_upsample_2') }}</option>
               <option value="3">3×</option>
               <option value="4">4×</option>
             </select>
-            <div class="param-hint">Render-grid upsampling: the coverage mask is evaluated at render resolution, so the field edge stays a smooth union of circles (rendering only, no new data).</div>
+            <div class="param-hint">{{ t('ionmaps_hint_upsample') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
-            <label class="form-label" for="tecmap-dpi">Frame DPI (optional)</label>
+            <label class="form-label" for="tecmap-dpi">{{ t('ionmaps_label_dpi') }}</label>
             <input id="tecmap-dpi" class="form-input" type="number" min="50" max="300" step="10" placeholder="auto">
-            <div class="param-hint">Explicit render DPI (50–300). Empty = automatic (120, reduced for long standard-quality GIFs).</div>
+            <div class="param-hint">{{ t('ionmaps_hint_dpi') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-show-accuracy">Show accuracy on map</label>
+            <label class="form-label" for="tecmap-show-accuracy">{{ t('ionmaps_label_show_accuracy') }}</label>
             <select id="tecmap-show-accuracy" class="form-select">
-              <option value="off" selected>off</option>
-              <option value="on">on (LOSO RMSE per frame)</option>
+              <option value="off" selected>{{ t('ionmaps_accuracy_off') }}</option>
+              <option value="on">{{ t('ionmaps_accuracy_on') }}</option>
             </select>
-            <div class="param-hint">Annotates each frame with its leave-one-station-out accuracy: every station is excluded in turn and predicted from the others; the RMSE (TECU) quantifies map fidelity at reference points.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_show_accuracy') }}</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="tecmap-show-params">Show model parameters</label>
+            <label class="form-label" for="tecmap-show-params">{{ t('ionmaps_label_show_params') }}</label>
             <select id="tecmap-show-params" class="form-select">
-              <option value="on" selected>on (caption under the map)</option>
-              <option value="off">off</option>
+              <option value="on" selected>{{ t('ionmaps_params_on') }}</option>
+              <option value="off">{{ t('ionmaps_params_off') }}</option>
             </select>
-            <div class="param-hint">Prints the map-model constants (grid step, smoothing, frame length, h_ion, elevation cutoff, coverage radius, interpolation) as a line under the map.</div>
+            <div class="param-hint">{{ t('ionmaps_hint_show_params') }}</div>
           </div>
         </div>
       </details>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button type="submit" class="btn btn-primary">Run TEC Map</button>
-        <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot">Download PNG frame (300 dpi)</button>
-        <button id="tecmap-validate" type="button" class="btn btn-secondary">Validate accuracy (LOSO)</button>
-        <button id="tecmap-series" type="button" class="btn btn-secondary">Download station series (CSV)</button>
-        <a id="tecmap-last-url" href="#" class="btn btn-ghost" style="display:none;" target="_blank" rel="noopener">Open request URL</a>
+        <button type="submit" class="btn btn-primary">{{ t('ionmaps_btn_run') }}</button>
+        <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot">{{ t('ionmaps_btn_png') }}</button>
+        <button id="tecmap-validate" type="button" class="btn btn-secondary">{{ t('ionmaps_btn_validate') }}</button>
+        <button id="tecmap-series" type="button" class="btn btn-secondary">{{ t('ionmaps_btn_series') }}</button>
+        <a id="tecmap-last-url" href="#" class="btn btn-ghost" style="display:none;" target="_blank" rel="noopener">{{ t('ionmaps_btn_open_url') }}</a>
       </div>
     </form>
 
@@ -272,10 +271,10 @@
     <div id="tecmap-output" style="margin-top:14px; display:none;">
       <div id="tecmap-plot" style="width:100%; height:520px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface-2); display:none;"></div>
       <div id="tecmap-gif-wrap" style="display:none;">
-        <img id="tecmap-gif" alt="TEC Map animation" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:block;">
+        <img id="tecmap-gif" alt="{{ t('ionmaps_alt_animation') }}" style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:block;">
         <video id="tecmap-video" controls loop muted playsinline style="max-width:100%; border:1px solid var(--border); border-radius:var(--radius); display:none;"></video>
         <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap;">
-          <a id="tecmap-gif-download" class="btn btn-secondary" href="#" download="tec_map.gif" style="display:none;">Download GIF</a>
+          <a id="tecmap-gif-download" class="btn btn-secondary" href="#" download="tec_map.gif" style="display:none;">{{ t('ionmaps_btn_download_gif') }}</a>
         </div>
       </div>
     </div>
@@ -383,7 +382,7 @@
       el.innerHTML = "";
       const empty = document.createElement("option");
       empty.value = "";
-      empty.textContent = values.length ? "Select..." : "No data";
+      empty.textContent = values.length ? "{{ t('ionmaps_js_select') }}" : "{{ t('ionmaps_js_no_data') }}";
       el.appendChild(empty);
       values.forEach((value) => {
         const opt = document.createElement("option");
@@ -430,7 +429,7 @@
         return;
       }
       const iso = yDoyToIsoDate(year, doy);
-      availDateEl.textContent = iso ? ("Selected day: " + iso + " (UTC)") : "";
+      availDateEl.textContent = iso ? ("{{ t('ionmaps_js_selected_day') }} " + iso + " (UTC)") : "";
     }
 
     // Proximity groups per day, fetched from /tec-map/station-positions.
@@ -466,7 +465,7 @@
         const empty = document.createElement("div");
         empty.style.fontSize = "12px";
         empty.style.color = "var(--text-muted)";
-        empty.textContent = year && doy ? "No stations discovered for this day." : "Select year + DOY to see stations.";
+        empty.textContent = year && doy ? "{{ t('ionmaps_js_no_stations') }}" : "{{ t('ionmaps_js_pick_year_doy') }}";
         availStationsEl.appendChild(empty);
         return;
       }
@@ -515,7 +514,7 @@
         const allOn = members.every((s) => selected.has(s));
         head.textContent = (allOn ? "− " : "+ ") + labelText +
           (center ? " · " + center.lat + "N " + center.lon + "E" : "");
-        head.title = allOn ? "Remove the whole group from Stations" : "Add the whole group to Stations";
+        head.title = allOn ? "{{ t('ionmaps_js_group_remove') }}" : "{{ t('ionmaps_js_group_add') }}";
         head.addEventListener("click", function () {
           const set = new Set(parseStations(stationsEl ? stationsEl.value : ""));
           if (allOn) members.forEach((s) => set.delete(s));
@@ -532,11 +531,11 @@
         const members = (group.stations || []).filter((s) => stationSet.has(s));
         if (!members.length) return;
         members.forEach((s) => grouped.add(s));
-        renderGroup(String(group.anchor || members[0]).toUpperCase() + " region (" + members.length + ")", members, group.center);
+        renderGroup(String(group.anchor || members[0]).toUpperCase() + " {{ t('ionmaps_js_region') }} (" + members.length + ")", members, group.center);
       });
 
       const rest = stations.filter((s) => !grouped.has(s)).sort();
-      if (rest.length) renderGroup("Other (" + rest.length + ")", rest, null);
+      if (rest.length) renderGroup("{{ t('ionmaps_js_other') }} (" + rest.length + ")", rest, null);
     }
 
     function updateAvailDoys() {
@@ -591,24 +590,24 @@
     async function loadTecIndexOptions(force) {
       if (!force && window.__ictHubTecIndexOptions && typeof window.__ictHubTecIndexOptions === "object") {
         tecIndexOptions = window.__ictHubTecIndexOptions;
-        setStationHint("Index ready: pick stations from Available parquet data.");
+        setStationHint("{{ t('ionmaps_js_index_ready') }}");
         return true;
       }
 
       try {
-        setStationHint("Loading available dates/stations...");
+        setStationHint("{{ t('ionmaps_js_index_loading') }}");
         const res = await fetch("/analysis/index-options", { credentials: "same-origin" });
         if (!res.ok) {
-          setStationHint("Index options unavailable (" + res.status + ").");
+          setStationHint("{{ t('ionmaps_js_index_unavailable') }} (" + res.status + ").");
           return false;
         }
         const payload = await res.json();
         tecIndexOptions = payload?.tec && typeof payload.tec === "object" ? payload.tec : null;
         window.__ictHubTecIndexOptions = tecIndexOptions;
-        setStationHint(tecIndexOptions ? "Index ready: pick stations from Available parquet data." : "Index loaded, but no TEC parquet data was discovered.");
+        setStationHint(tecIndexOptions ? "{{ t('ionmaps_js_index_ready') }}" : "{{ t('ionmaps_js_index_empty') }}");
         return Boolean(tecIndexOptions);
       } catch (_) {
-        setStationHint("Failed to load index options. Check data-indexer connectivity and parquet mounts.");
+        setStationHint("{{ t('ionmaps_js_index_failed') }}");
         return false;
       }
     }
@@ -673,16 +672,16 @@
     }
 
     async function runSnapshot(url) {
-      setStatus("info", "Fetching snapshot…");
+      setStatus("info", "{{ t('ionmaps_js_fetching_snapshot') }}");
       const res = await fetch(url, { credentials: "same-origin" });
       if (!res.ok) {
         const text = await res.text();
-        throw new Error("Snapshot failed (" + res.status + "): " + text);
+        throw new Error("{{ t('ionmaps_js_snapshot_failed') }} (" + res.status + "): " + text);
       }
 
       const payload = await res.json();
       if (!plotEl || !window.Plotly) {
-        throw new Error("Plotly is not available in the browser.");
+        throw new Error("{{ t('ionmaps_js_no_plotly') }}");
       }
 
       const traces = Array.isArray(payload?.data) ? payload.data : [];
@@ -695,11 +694,11 @@
       });
       if (plotEl) plotEl.style.display = "block";
       if (outputEl) outputEl.style.display = "block";
-      setStatus("success", "Snapshot rendered.");
+      setStatus("success", "{{ t('ionmaps_js_snapshot_done') }}");
     }
 
     async function runGif(url) {
-      setStatus("info", "Rendering animation…");
+      setStatus("info", "{{ t('ionmaps_js_rendering') }}");
       const controller = new AbortController();
       const timeoutMs = 900000; // 15 min; full-day + multiple stations can be heavy
       const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
@@ -711,7 +710,7 @@
       }
       if (!res.ok) {
         const text = await res.text();
-        throw new Error("Animation failed (" + res.status + "): " + text);
+        throw new Error("{{ t('ionmaps_js_animation_failed') }} (" + res.status + "): " + text);
       }
 
       const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
@@ -735,17 +734,17 @@
       if (gifDownloadEl) {
         gifDownloadEl.href = lastGifObjectUrl;
         gifDownloadEl.setAttribute("download", "tec_map." + ext);
-        gifDownloadEl.textContent = "Download " + ext.toUpperCase();
+        gifDownloadEl.textContent = "{{ t('ionmaps_js_download') }} " + ext.toUpperCase();
         gifDownloadEl.style.display = "";
       }
       if (outputEl) outputEl.style.display = "block";
-      setStatus("success", ext.toUpperCase() + " ready.");
+      setStatus("success", ext.toUpperCase() + " {{ t('ionmaps_js_ready') }}");
     }
 
     function buildRequestUrl() {
       const mode = modeEl ? modeEl.value : "snapshot";
       const stations = parseStations(stationsEl ? stationsEl.value : "");
-      if (!stations.length) throw new Error("Stations are required (e.g. 'aksu, alex').");
+      if (!stations.length) throw new Error("{{ t('ionmaps_js_err_stations') }}");
 
       const params = new URLSearchParams();
       const yearValue = clean(yearEl ? yearEl.value : "");
@@ -758,7 +757,7 @@
         params.set("year", yearValue);
         params.set("doy", doyValue);
       } else if (!dateValue) {
-        throw new Error("Either date OR (year + doy) must be provided.");
+        throw new Error("{{ t('ionmaps_js_err_date') }}");
       }
 
       const effectiveDate = canonicalDate || dateValue;
@@ -814,7 +813,7 @@
       if (mode === "range") {
         const startText = clean(startTimeEl ? startTimeEl.value : "");
         const endText = clean(endTimeEl ? endTimeEl.value : "");
-        if (!startText || !endText) throw new Error("Range mode requires both start_time and end_time.");
+        if (!startText || !endText) throw new Error("{{ t('ionmaps_js_err_range') }}");
         params.set("start_time", startText);
         params.set("end_time", endText);
         if (basemapEl) params.set("basemap", clean(basemapEl.value) || "false");
@@ -840,7 +839,7 @@
       }
 
       const tsText = clean(timestampEl ? timestampEl.value : "");
-      if (!tsText) throw new Error("Snapshot mode requires timestamp.");
+      if (!tsText) throw new Error("{{ t('ionmaps_js_err_timestamp') }}");
       params.set("timestamp", tsText);
       return "/tec-map/snapshot?" + params.toString();
     }
@@ -848,7 +847,7 @@
     function buildFrameUrl() {
       const url = buildRequestUrl();
       if (!url.startsWith("/tec-map/snapshot?")) {
-        throw new Error("Switch Mode to 'snapshot' to export a high-resolution PNG frame.");
+        throw new Error("{{ t('ionmaps_js_err_snapshot_mode') }}");
       }
       const params = new URLSearchParams(url.slice("/tec-map/snapshot?".length));
       params.set("dpi", "300");
@@ -867,11 +866,11 @@
           return;
         }
         setLastUrl(url);
-        setStatus("info", "Rendering PNG frame (300 dpi)…");
+        setStatus("info", "{{ t('ionmaps_js_rendering_png') }}");
         try {
           const res = await fetch(url, { credentials: "same-origin" });
           if (!res.ok) {
-            throw new Error("Frame failed (" + res.status + "): " + (await res.text()));
+            throw new Error("{{ t('ionmaps_js_frame_failed') }} (" + res.status + "): " + (await res.text()));
           }
           const blob = await res.blob();
           const objectUrl = URL.createObjectURL(blob);
@@ -882,7 +881,7 @@
           link.click();
           link.remove();
           setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 30000);
-          setStatus("success", "PNG frame downloaded (300 dpi).");
+          setStatus("success", "{{ t('ionmaps_js_png_done') }}");
         } catch (err) {
           setStatus("error", err instanceof Error ? err.message : String(err));
         }
@@ -953,12 +952,12 @@
           return;
         }
         setLastUrl(url);
-        setStatus("info", "Exporting per-station series…");
+        setStatus("info", "{{ t('ionmaps_js_exporting_series') }}");
         seriesBtn.disabled = true;
         try {
           const res = await fetch(url, { credentials: "same-origin" });
           if (!res.ok) {
-            throw new Error("Series export failed (" + res.status + "): " + (await res.text()));
+            throw new Error("{{ t('ionmaps_js_series_failed') }} (" + res.status + "): " + (await res.text()));
           }
           const disposition = res.headers.get("Content-Disposition") || "";
           const match = disposition.match(/filename="([^"]+)"/);
@@ -972,7 +971,7 @@
           link.click();
           link.remove();
           setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 30000);
-          setStatus("success", "Station series downloaded (" + filename + ").");
+          setStatus("success", "{{ t('ionmaps_js_series_done') }} (" + filename + ").");
         } catch (err) {
           setStatus("error", err instanceof Error ? err.message : String(err));
         } finally {
@@ -992,7 +991,7 @@
       const methods = Object.keys(results);
       if (!methods.length) {
         validateResultEl.style.display = "";
-        validateResultEl.innerHTML = "<div class=\"param-hint\">Validation returned no results.</div>";
+        validateResultEl.innerHTML = "<div class=\"param-hint\">{{ t('ionmaps_js_no_validation') }}</div>";
         return;
       }
 
@@ -1005,9 +1004,9 @@
         (results[m].per_station || []).forEach((row) => { byMethodStation[m][row.station] = row; });
       });
 
-      let html = "<h4 style=\"margin:0 0 6px;\">LOSO cross-validation (criterion #1: accuracy at reference points)</h4>";
-      html += "<div class=\"param-hint\" style=\"margin-bottom:8px;\">Each station excluded in turn and predicted from the rest. Errors in TECU over in-coverage points; targets: 0.5–1 TECU (quiet), 1.5–2 TECU (disturbed).</div>";
-      html += "<div class=\"table-wrap\"><table style=\"font-size:12px;\"><thead><tr><th>Station</th>";
+      let html = "<h4 style=\"margin:0 0 6px;\">{{ t('ionmaps_loso_title') }}</h4>";
+      html += "<div class=\"param-hint\" style=\"margin-bottom:8px;\">{{ t('ionmaps_loso_hint') }}</div>";
+      html += "<div class=\"table-wrap\"><table style=\"font-size:12px;\"><thead><tr><th>{{ t('ionmaps_loso_station') }}</th>";
       methods.forEach((m) => { html += "<th colspan=\"4\" style=\"text-align:center;\">" + m + "</th>"; });
       html += "</tr><tr><th></th>";
       methods.forEach(() => { html += "<th>N</th><th>Bias</th><th>MAE</th><th>RMSE</th>"; });
@@ -1023,7 +1022,7 @@
         html += "</tr>";
       });
 
-      html += "<tr style=\"font-weight:600; border-top:2px solid var(--border);\"><td>Overall</td>";
+      html += "<tr style=\"font-weight:600; border-top:2px solid var(--border);\"><td>{{ t('ionmaps_loso_overall') }}</td>";
       methods.forEach((m) => {
         const o = results[m].overall || {};
         html += "<td>" + (o.n ?? "—") + "</td><td>" + fmtMetric(o.bias_tecu) + "</td><td>"
@@ -1036,7 +1035,7 @@
         .reduce((a, b) => Math.max(a, b), 0);
       if (outOfCoverage > 0) {
         html += "<div class=\"param-hint\" style=\"margin-top:6px;\">" + outOfCoverage
-              + " point(s) fell outside the 300 km coverage of the remaining stations and were excluded from the metrics.</div>";
+              + " {{ t('ionmaps_loso_out_of_coverage') }}</div>";
       }
 
       validateResultEl.style.display = "";
@@ -1053,16 +1052,16 @@
           return;
         }
         setLastUrl(url);
-        setStatus("info", "Running LOSO cross-validation (linear + kriging + LPI)…");
+        setStatus("info", "{{ t('ionmaps_js_running_loso') }}");
         validateBtn.disabled = true;
         try {
           const res = await fetch(url, { credentials: "same-origin" });
           if (!res.ok) {
-            throw new Error("Validation failed (" + res.status + "): " + (await res.text()));
+            throw new Error("{{ t('ionmaps_js_validation_failed') }} (" + res.status + "): " + (await res.text()));
           }
           const payload = await res.json();
           renderValidationTable(payload);
-          setStatus("success", "LOSO cross-validation done.");
+          setStatus("success", "{{ t('ionmaps_js_loso_done') }}");
         } catch (err) {
           setStatus("error", err instanceof Error ? err.message : String(err));
         } finally {
@@ -1109,7 +1108,7 @@
       if (stationsEl) stationsEl.addEventListener("input", updateAvailStations);
 
       if (!ok) {
-        setStationHint("Index unavailable: cannot list available dates/stations. Tec map endpoints still work if you enter values manually.");
+        setStationHint("{{ t('ionmaps_js_index_manual') }}");
       }
     }
 
@@ -1176,7 +1175,7 @@
         }
       } catch (err) {
         if (err && typeof err === "object" && err.name === "AbortError") {
-          setStatus("error", "GIF request timed out in browser. Try a shorter time range, increase frame_minutes, disable basemap, or run once with a small range to warm the basemap cache.");
+          setStatus("error", "{{ t('ionmaps_js_gif_timeout') }}");
         } else {
           setStatus("error", err instanceof Error ? err.message : String(err));
         }

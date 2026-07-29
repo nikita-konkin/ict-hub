@@ -226,6 +226,25 @@ def _validate_stations_for_range(
         days.append((int(current_day.year), int(current_day.timetuple().tm_yday)))
         current_day = current_day + timedelta(days=1)
 
+    # No day of the range was ever converted to parquet: that is a missing-data
+    # problem, not a typo. Blaming the station names here sends people hunting
+    # for spelling mistakes when the year/day simply has not been converted.
+    missing_days = [(y, d) for (y, d) in days if not (Path(root) / str(y) / f"{d:03d}").is_dir()]
+    if len(missing_days) == len(days):
+        if len(days) == 1:
+            y, d = days[0]
+            raise ValueError(
+                f"No parquet data for {y}-{d:03d}. Convert that day to parquet first "
+                "(the TEC map reads the DAT-to-parquet output, not the TEC-suite DAT tree)."
+            )
+        first_y, first_d = days[0]
+        last_y, last_d = days[-1]
+        raise ValueError(
+            f"No parquet data for any day from {first_y}-{first_d:03d} to {last_y}-{last_d:03d}. "
+            "Convert those days to parquet first (the TEC map reads the DAT-to-parquet "
+            "output, not the TEC-suite DAT tree)."
+        )
+
     found = [s for s in requested if any(_station_dir_exists(root, y, d, s) for (y, d) in days)]
     unknown = [s for s in requested if s not in found]
     if unknown:

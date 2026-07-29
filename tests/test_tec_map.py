@@ -1170,3 +1170,82 @@ def test_snapshot_plotly_json_includes_accuracy_annotation():
     )
     annotations = payload["layout"].get("annotations", [])
     assert any("LOSO RMSE" in str(a.get("text", "")) for a in annotations)
+
+
+def test_validate_stations_reports_missing_day_not_bad_spelling(tmp_path):
+    """A year/day that was never converted to parquet must not be reported as
+    a station typo — that sends people hunting for spelling mistakes."""
+    import pytest
+
+    from app.tec_map import _validate_stations_for_range
+
+    day = pd.Timestamp("2026-06-29")
+    with pytest.raises(ValueError) as excinfo:
+        _validate_stations_for_range(
+            root=tmp_path,
+            start_day=day,
+            end_day=day,
+            stations=["nikl", "nure", "shny"],
+        )
+
+    message = str(excinfo.value)
+    assert "No parquet data for 2026-180" in message
+    assert "nikl" not in message
+
+
+def test_validate_stations_reports_missing_range(tmp_path):
+    import pytest
+
+    from app.tec_map import _validate_stations_for_range
+
+    with pytest.raises(ValueError) as excinfo:
+        _validate_stations_for_range(
+            root=tmp_path,
+            start_day=pd.Timestamp("2026-06-29"),
+            end_day=pd.Timestamp("2026-07-01"),
+            stations=["nikl"],
+        )
+
+    message = str(excinfo.value)
+    assert "2026-180" in message and "2026-182" in message
+    assert "nikl" not in message
+
+
+def test_validate_stations_still_flags_typos_when_the_day_exists(tmp_path):
+    """With the day present, a genuinely misspelled station is still an error."""
+    import pytest
+
+    from app.tec_map import _validate_stations_for_range
+
+    day_dir = tmp_path / "2025" / "180"
+    (day_dir / "nikl").mkdir(parents=True)
+    (day_dir / "nure1800").mkdir(parents=True)
+
+    day = pd.Timestamp("2025-06-29")
+    found = _validate_stations_for_range(
+        root=tmp_path, start_day=day, end_day=day, stations=["nikl", "NURE"]
+    )
+    assert found == ["nikl", "nure"]
+
+    with pytest.raises(ValueError) as excinfo:
+        _validate_stations_for_range(
+            root=tmp_path, start_day=day, end_day=day, stations=["nikl", "shny"]
+        )
+    assert "Unknown stations" in str(excinfo.value)
+    assert "shny" in str(excinfo.value)
+
+
+def test_validate_stations_accepts_partially_converted_range(tmp_path):
+    """Only some days converted is not a missing-range error — the stations
+    present on at least one day must still validate."""
+    from app.tec_map import _validate_stations_for_range
+
+    (tmp_path / "2025" / "181" / "nikl").mkdir(parents=True)
+
+    found = _validate_stations_for_range(
+        root=tmp_path,
+        start_day=pd.Timestamp("2025-06-29"),
+        end_day=pd.Timestamp("2025-07-01"),
+        stations=["nikl"],
+    )
+    assert found == ["nikl"]
