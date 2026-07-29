@@ -42,8 +42,16 @@ services:
       no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
 
       # ── Security (CHANGE THESE before exposing to a network) ──────────────
-      SECRET_KEY: ${SECRET_KEY:-replace-me-with-a-random-32-char-string!!}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # password for the first-boot 'admin' user
+      # SECRET_KEY signs the session cookie; a known/placeholder value is a full
+      # auth bypass. Compose refuses to start if it is unset. Generate one with:
+      #   python -c "import secrets; print(secrets.token_hex(32))"
+      SECRET_KEY: '${SECRET_KEY:?SECRET_KEY must be set in ict-hub/.env - run: python -c "import secrets; print(secrets.token_hex(32))"}'
+      # Belt-and-suspenders: the app also refuses to boot with a weak key.
+      REQUIRE_STRONG_SECRET: "1"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # first-boot 'admin' password; app forces a change if weak
+      # Set to 1 ONLY when served over HTTPS (behind a TLS proxy). Leave empty
+      # for plain-HTTP local use — a Secure cookie is never sent over HTTP.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
 
       # ── Database ─────────────────────────────────────────────────────────
       # IMPORTANT: don't read DATABASE_URL from a host .env, otherwise Docker runs
@@ -170,8 +178,11 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
     ports:
-      # Map host port 5001 → container port 5001
-      - "5001:5001"
+      # Bind to loopback only. The hub reaches the indexer over the compose
+      # network (http://data-indexer:5001); the indexer has NO authentication,
+      # so it must not be published to the LAN. 127.0.0.1 keeps host-side
+      # debugging (curl localhost:5001) while blocking network peers.
+      - "127.0.0.1:5001:5001"
 
     # Load environment variables from local .env file (and allow users to add
     # extra variables without editing docker-compose.yml).

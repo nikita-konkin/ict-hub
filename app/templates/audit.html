@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ t('audit_title') }} — {{ t('app_name') }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ t('audit_title') }}</h1>
+  <p class="page-subtitle">{{ t('audit_subtitle') }}</p>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ t('audit_col_time') }}</th>
+          <th>{{ t('audit_col_actor') }}</th>
+          <th>{{ t('audit_col_action') }}</th>
+          <th>{{ t('audit_col_target') }}</th>
+          <th>{{ t('audit_col_ip') }}</th>
+          <th>{{ t('audit_col_detail') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">
+            {{ e.created_at.strftime('%d %b %Y, %H:%M:%S') if e.created_at else '—' }}
+          </td>
+          <td class="td-primary">{{ e.actor_username or '—' }}</td>
+          <td>
+            <span class="badge {% if e.action.startswith('login.failed') or e.action.startswith('login.locked') %}badge-danger{% elif e.action.startswith('login.success') or e.action == 'password.change' %}badge-success{% else %}badge-muted{% endif %}">
+              {{ e.action }}
+            </span>
+          </td>
+          <td style="font-size:12px; color:var(--text-muted);">{{ e.target or '—' }}</td>
+          <td style="font-size:12px; color:var(--text-muted);">{{ e.ip or '—' }}</td>
+          <td style="font-size:12px; color:var(--text-muted);">{{ e.detail or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:24px;">{{ t('audit_empty') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

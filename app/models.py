@@ -46,6 +46,9 @@ class User(Base):
     permissions_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Force a password change on next login. Set when an account is seeded with a
+    # weak/default password; cleared once the user sets a new password.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationship: one user → many job runs
     job_runs: Mapped[list["JobRun"]] = relationship("JobRun", back_populates="user")
@@ -291,3 +294,30 @@ class FeedbackReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="feedback_reports")
+
+
+class AuditLog(Base):
+    """
+    Append-only security/accounting trail for authentication and admin actions.
+
+    Rows are never updated or deleted by the app. `actor_user_id` may be NULL
+    (e.g. a failed login for an unknown username); `actor_username` keeps a
+    snapshot of the attempted/acting name so the entry stays meaningful even if
+    the user is later removed.
+    """
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False, index=True)
+
+    actor_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # e.g. "login.success", "login.failed", "login.locked", "logout",
+    # "user.create", "user.toggle", "password.change", "job.submit"
+    action: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    target: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)

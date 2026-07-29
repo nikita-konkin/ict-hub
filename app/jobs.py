@@ -27,6 +27,7 @@ from app import config as cfg
 from app.auth import get_admin_user, get_current_user, require_converter_access, require_page_access
 from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
+from app import audit
 from app.job_runtime import (
     ensure_job_producer,
     persist_job_finished,
@@ -935,6 +936,8 @@ async def start_job(
         )
         job.container_id = container_id
         db.commit()
+        audit.record(db, "job.submit", request=request, actor=current_user,
+                     target=converter_name, detail=f"job_id={job.id}")
         try:
             await ensure_job_producer(job.id)
         except Exception:

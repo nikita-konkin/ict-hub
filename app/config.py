@@ -2,16 +2,114 @@
 config.py — Central settings loaded from environment variables.
 All values can be overridden via docker-compose environment section or a .env file.
 """
+import logging
 import os
+import secrets
 
-# Session signing key — MUST be changed in production
-SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production-please-32chars!!")
+logger = logging.getLogger(__name__)
+
+
+def _is_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+# ── Session signing key ───────────────────────────────────────────────────────
+# The session cookie is signed with this key. If it is known to an attacker they
+# can forge a cookie and impersonate any user (including admin), so a leaked or
+# placeholder key is a full authentication bypass.
+#
+# Known-insecure values that must never be used to sign real sessions. These are
+# the historical placeholder defaults shipped in source / compose / .env.example.
+INSECURE_SECRET_KEYS: frozenset[str] = frozenset({
+    "",
+    "change-me-in-production-please-32chars!!",
+    "replace-me-with-a-random-32-char-string!!",
+    "change-me-in-production",
+    "changeme",
+    "secret",
+})
+
+# Minimum acceptable length for an operator-supplied key.
+_MIN_SECRET_KEY_LEN = 32
+
+# When enabled (recommended for any networked/production deployment, set in
+# docker-compose.yml) the app refuses to start with a weak/placeholder key
+# instead of silently falling back to an ephemeral one.
+REQUIRE_STRONG_SECRET: bool = _is_truthy(os.getenv("REQUIRE_STRONG_SECRET"))
+
+
+def _resolve_secret_key() -> str:
+    raw = os.getenv("SECRET_KEY", "").strip()
+    is_weak = raw in INSECURE_SECRET_KEYS or len(raw) < _MIN_SECRET_KEY_LEN
+    if not is_weak:
+        return raw
+
+    if REQUIRE_STRONG_SECRET:
+        raise RuntimeError(
+            "SECRET_KEY is unset, too short (<%d chars), or a known placeholder. "
+            "Generate a strong random value and set it in .env:\n"
+            '    python -c "import secrets; print(secrets.token_hex(32))"\n'
+            "(REQUIRE_STRONG_SECRET is enabled, so booting with a weak key is refused.)"
+            % _MIN_SECRET_KEY_LEN
+        )
+
+    # Local/dev/test fallback: an EPHEMERAL random key. This is unguessable, so
+    # cookie forgery is impossible — but sessions do not survive a restart and
+    # multiple workers would not share it. Set SECRET_KEY in .env for stable
+    # sessions. We deliberately do NOT fall back to the known placeholder.
+    logger.warning(
+        "SECRET_KEY is unset or weak; generated an EPHEMERAL random signing key. "
+        "Sessions will not persist across restarts. Set a strong SECRET_KEY in .env "
+        "for stable sessions (and REQUIRE_STRONG_SECRET=1 in production)."
+    )
+    return secrets.token_hex(32)
+
+
+SECRET_KEY: str = _resolve_secret_key()
 
 # SQLite database stored in a mounted volume so data survives restarts
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////app/data/converter_hub.db")
 
-# Default admin password set on first boot if no users exist
+# ── Default admin bootstrap ───────────────────────────────────────────────────
+# Password for the 'admin' user seeded on first boot when no users exist.
 ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
+
+# Passwords considered trivially guessable. A seeded admin using one of these
+# (or any password < 8 chars) is flagged must_change_password so the operator is
+# forced to rotate it on first login instead of silently running admin/admin.
+WEAK_ADMIN_PASSWORDS: frozenset[str] = frozenset({
+    "admin", "password", "changeme", "admin123", "root", "letmein", "12345678",
+})
+
+
+def is_weak_admin_password(password: str) -> bool:
+    p = str(password or "")
+    return len(p) < 8 or p.lower() in WEAK_ADMIN_PASSWORDS
+
+
+# ── Transport / cookie security ───────────────────────────────────────────────
+# Set SESSION_COOKIE_SECURE=1 ONLY when the app is served over HTTPS (e.g. behind
+# a TLS reverse proxy). It stays OFF by default so plain-HTTP local deployments
+# keep working — a Secure cookie is never sent over HTTP and would lock users out.
+SESSION_COOKIE_SECURE: bool = _is_truthy(os.getenv("SESSION_COOKIE_SECURE"))
+
+# Session inactivity lifetime (seconds). Default 24h.
+SESSION_MAX_AGE_SEC: int = int(os.getenv("SESSION_MAX_AGE_SEC", "86400"))
+
+# Response security headers (X-Frame-Options, CSP, nosniff, …). On by default.
+SECURITY_HEADERS_ENABLED: bool = os.getenv("SECURITY_HEADERS_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+
+# Reject cross-origin state-changing requests (browser CSRF defense) by comparing
+# the Origin/Referer host to the request host. On by default; harmless for
+# same-origin browser use and for non-browser clients (which omit Origin).
+CSRF_ORIGIN_CHECK_ENABLED: bool = os.getenv("CSRF_ORIGIN_CHECK_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+
+# ── Login rate limiting (brute-force / credential-stuffing defense) ───────────
+LOGIN_RATE_LIMIT_ENABLED: bool = os.getenv("LOGIN_RATE_LIMIT_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+# Max failed attempts per (client IP, username) within the window before lockout.
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "8"))
+# Sliding window / lockout duration in seconds.
+LOGIN_RATE_LIMIT_WINDOW_SEC: int = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW_SEC", "300"))
 
 # Docker image name for the tecsuite container. Defaults must stay namespaced and
 # tagged: converter-hub pulls these through the Docker socket, and a bare name

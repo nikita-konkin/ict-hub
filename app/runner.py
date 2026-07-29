@@ -135,6 +135,9 @@ def start_container(
         detach=True,
         remove=auto_remove,
         labels=labels or {},
+        # Prevent privilege escalation via setuid binaries inside the job
+        # container (defense-in-depth; converters do not need it).
+        security_opt=["no-new-privileges:true"],
     )
     logger.info("Container started: id=%s", container.short_id)
     return container.id

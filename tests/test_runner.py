@@ -337,6 +337,7 @@ class TestStartContainer:
             detach=True,
             remove=False,
             labels={},
+            security_opt=["no-new-privileges:true"],
         )
         assert container_id == "fake_container_id_12345"
 
@@ -360,6 +361,7 @@ class TestStartContainer:
             detach=True,
             remove=True,
             labels={},
+            security_opt=["no-new-privileges:true"],
         )
 
     @patch("app.runner.docker.from_env")

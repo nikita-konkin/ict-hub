@@ -1,0 +1,37 @@
+# Keep the build context small and free of secrets/local state. The Dockerfile
+# only COPYs requirements.txt and app/, but an explicit ignore prevents a future
+# broad `COPY . .` from ever baking these into the published image.
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+
+# VCS / CI
+.git/
+.github/
+
+# Virtualenvs and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+data/
+docs/
+tests/
+tmp_*.py
+test_*.py
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
