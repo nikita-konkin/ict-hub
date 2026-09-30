@@ -5,6 +5,7 @@ We use a single SQLite file mounted inside a Docker volume so data persists
 across container restarts. The check_same_thread=False flag is required for
 SQLite when used with FastAPI's async request handling.
 """
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -39,7 +40,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
-    pass
 
 
 def get_db():

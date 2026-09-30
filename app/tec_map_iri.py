@@ -93,7 +93,7 @@ def parse_f107_adjusted_flux_records(raw_table: str) -> dict[date, float]:
 
 def _fetch_fluxtable_text() -> str:
     request = Request(F107_FLUXTABLE_URL, headers={"User-Agent": "Mozilla/5.0"})
-    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed https URL
         return response.read().decode("utf-8", errors="replace")
 
 
@@ -166,9 +166,7 @@ def _import_pyiri():
         import PyIRI
         import PyIRI.main_library as ml
     except ImportError as exc:  # pragma: no cover - dependency is in requirements
-        raise RuntimeError(
-            "PyIRI is not installed in this environment; the IRI model modes are unavailable."
-        ) from exc
+        raise RuntimeError("PyIRI is not installed in this environment; the IRI model modes are unavailable.") from exc
     return PyIRI, ml
 
 

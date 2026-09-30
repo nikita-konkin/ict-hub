@@ -13,18 +13,19 @@ Routes:
   POST /users           — create a user (admin only)
   POST /users/{id}/toggle — activate/deactivate a user (admin only)
 """
+
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-import json
+from datetime import UTC, datetime
 
+import bcrypt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-import bcrypt
 from sqlalchemy.orm import Session
 
 from app import audit
@@ -131,7 +132,11 @@ def require_page_access(page: str):
             return current_user
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+            headers={
+                "Location": current_user.default_landing_path()
+                if hasattr(current_user, "default_landing_path")
+                else "/login"
+            },
         )
 
     return _dep
@@ -148,7 +153,11 @@ def require_converter_access():
             return current_user
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+            headers={
+                "Location": current_user.default_landing_path()
+                if hasattr(current_user, "default_landing_path")
+                else "/login"
+            },
         )
 
     return _dep
@@ -157,6 +166,7 @@ def require_converter_access():
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependencies  (used in other routers via Depends)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
@@ -172,7 +182,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/login"},
         )
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
         request.session.clear()
         raise HTTPException(
@@ -185,12 +195,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     # needed to complete (or abandon) that flow to avoid a redirect loop.
     if getattr(user, "must_change_password", False):
         path = request.url.path
-        if not (
-            path == "/account/password"
-            or path == "/logout"
-            or path == "/login"
-            or path.startswith("/static/")
-        ):
+        if not (path == "/account/password" or path == "/logout" or path == "/login" or path.startswith("/static/")):
             raise HTTPException(
                 status_code=status.HTTP_303_SEE_OTHER,
                 headers={"Location": "/account/password"},
@@ -227,6 +232,7 @@ def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
 # Password helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def hash_password(password: str) -> str:
     # bcrypt.hashpw requires bytes input and returns bytes; we store as str in the DB
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -241,12 +247,14 @@ def verify_password(plain: str, hashed: str) -> bool:
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
     """Render the login page. Redirect to dashboard if already logged in."""
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=302)
     response = templates.TemplateResponse(
+        request,
         "login.html",
         template_context(request, error=None, converters=CONVERTERS),
     )
@@ -268,9 +276,9 @@ async def login_submit(
     # checking the password, to blunt brute-force / credential-stuffing.
     if login_is_locked(ip, username):
         logger.warning("Login locked out for username=%r from ip=%s", username, ip)
-        audit.record(db, "login.locked", request=request, actor_username=username,
-                     detail="too many failed attempts")
+        audit.record(db, "login.locked", request=request, actor_username=username, detail="too many failed attempts")
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -295,6 +303,7 @@ async def login_submit(
         logger.warning("Failed login attempt for username=%r from ip=%s", username, ip)
         audit.record(db, "login.failed", request=request, actor_username=username)
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -306,9 +315,9 @@ async def login_submit(
         return apply_lang_cookie(request, response)
 
     if not user.is_active:
-        audit.record(db, "login.failed", request=request, actor=user,
-                     detail="account deactivated")
+        audit.record(db, "login.failed", request=request, actor=user, detail="account deactivated")
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -322,7 +331,7 @@ async def login_submit(
     # Success — clear the failure counter and open a session.
     _clear_login_failures(ip, username)
     request.session["user_id"] = user.id
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(UTC)
     db.commit()
     logger.info("User %r logged in from ip=%s", username, ip)
     audit.record(db, "login.success", request=request, actor=user)
@@ -339,8 +348,7 @@ async def logout(request: Request, db: Session = Depends(get_db)):
     request.session.clear()
     if uid:
         user = db.query(User).filter(User.id == uid).first()
-        audit.record(db, "logout", request=request, actor=user,
-                     actor_username=(user.username if user else None))
+        audit.record(db, "logout", request=request, actor=user, actor_username=(user.username if user else None))
     return RedirectResponse("/login", status_code=302)
 
 
@@ -353,6 +361,7 @@ async def users_list(
     """Admin-only: list all users with their roles and status."""
     users = db.query(User).order_by(User.created_at).all()
     response = templates.TemplateResponse(
+        request,
         "users.html",
         template_context(request, users=users, current_user=admin, converters=CONVERTERS),
     )
@@ -376,6 +385,7 @@ async def create_user(
     if existing:
         users = db.query(User).order_by(User.created_at).all()
         response = templates.TemplateResponse(
+            request,
             "users.html",
             template_context(
                 request,
@@ -409,8 +419,7 @@ async def create_user(
     db.add(new_user)
     db.commit()
     logger.info("Admin %r created user %r (role=%s)", admin.username, username, role)
-    audit.record(db, "user.create", request=request, actor=admin, target=username,
-                 detail=f"role={role}")
+    audit.record(db, "user.create", request=request, actor=admin, target=username, detail=f"role={role}")
     return RedirectResponse("/users", status_code=302)
 
 
@@ -429,14 +438,16 @@ async def toggle_user(
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
     user.is_active = not user.is_active
     db.commit()
-    audit.record(db, "user.toggle", request=request, actor=admin, target=user.username,
-                 detail=f"is_active={user.is_active}")
+    audit.record(
+        db, "user.toggle", request=request, actor=admin, target=user.username, detail=f"is_active={user.is_active}"
+    )
     return RedirectResponse("/users", status_code=302)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Self-service password change (also the forced-rotation landing page)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/account/password", response_class=HTMLResponse)
 async def change_password_form(
@@ -445,6 +456,7 @@ async def change_password_form(
 ):
     """Render the change-password form for the logged-in user."""
     response = templates.TemplateResponse(
+        request,
         "account_password.html",
         template_context(
             request,
@@ -472,6 +484,7 @@ async def change_password_submit(
 
     def _render(error: str | None = None, success: bool = False, status_code: int = 200):
         response = templates.TemplateResponse(
+            request,
             "account_password.html",
             template_context(
                 request,
@@ -486,8 +499,7 @@ async def change_password_submit(
         return apply_lang_cookie(request, response)
 
     if not verify_password(current_password, current_user.hashed_pw):
-        audit.record(db, "password.change_failed", request=request, actor=current_user,
-                     detail="wrong current password")
+        audit.record(db, "password.change_failed", request=request, actor=current_user, detail="wrong current password")
         return _render(error=translate(lang, "acct_err_current_wrong"), status_code=400)
 
     if new_password != confirm_password:
@@ -511,6 +523,7 @@ async def change_password_submit(
 # Audit log (admin-only accounting view)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/audit", response_class=HTMLResponse)
 async def audit_log_view(
     request: Request,
@@ -518,13 +531,9 @@ async def audit_log_view(
     admin: User = Depends(get_admin_user),
 ):
     """Admin-only: recent security/accounting events, newest first."""
-    entries = (
-        db.query(AuditLog)
-        .order_by(AuditLog.id.desc())
-        .limit(500)
-        .all()
-    )
+    entries = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(500).all()
     response = templates.TemplateResponse(
+        request,
         "audit.html",
         template_context(request, entries=entries, current_user=admin, converters=CONVERTERS),
     )

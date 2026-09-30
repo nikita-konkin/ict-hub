@@ -310,10 +310,7 @@ def _summarize_station_records(records: list[dict[str, Any]]) -> list[dict[str, 
         median_z = float(median(z_values))
         latitude_deg, longitude_deg, altitude_m = _ecef_to_geodetic(median_x, median_y, median_z)
         coordinate_spread_m = max(
-            (
-                math.dist((median_x, median_y, median_z), (item["x_m"], item["y_m"], item["z_m"]))
-                for item in group
-            ),
+            (math.dist((median_x, median_y, median_z), (item["x_m"], item["y_m"], item["z_m"])) for item in group),
             default=0.0,
         )
 

@@ -35,3 +35,9 @@ test_*.py
 .DS_Store
 .vscode/
 .idea/
+
+# ESLint tooling (package.json)
+node_modules/
+
+# Downloaded by the Dockerfile's vendor stage; a local copy must not replace it
+app/static/vendor/

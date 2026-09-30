@@ -6,12 +6,13 @@ Coverage targets:
   - _parse_tecsuite_root    — XML → year/day/sites list
   - _parse_parquet_root     — XML → year/days list
   - _parse_parquet_sat_root — XML → year/day/stations/satellites list
-  - _fetch_xml              — returns None when DATA_INDEXER_URL is empty
+  - _fetch_xml_async        — returns None when DATA_INDEXER_URL is empty
   - list_*_async            — returns [] when DATA_INDEXER_URL is empty
   - list_*_async            — cache hit avoids second HTTP call
   - list_*_async            — HTTP 4xx / network error → returns []
   - clear_cache             — flushes in-process cache
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
@@ -19,10 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _xml(text: str) -> ET.Element:
     """Parse an XML string into an Element for passing to _parse_* helpers."""
@@ -33,6 +34,7 @@ def _xml(text: str) -> ET.Element:
 # _parse_rinex_root
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestParseRinexRoot:
     """Pure XML parsing — no HTTP, no filesystem."""
 
@@ -40,6 +42,7 @@ class TestParseRinexRoot:
 
     def test_normal_year_and_days(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("""
         <root>
           <item>
@@ -58,6 +61,7 @@ class TestParseRinexRoot:
 
     def test_multiple_years(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("""
         <root>
           <item><year>2025_original</year><days/></item>
@@ -69,17 +73,20 @@ class TestParseRinexRoot:
 
     def test_item_without_year_is_skipped(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("<root><item><days/></item></root>")
         assert _parse_rinex_root(root) == []
 
     def test_item_without_days_node(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("<root><item><year>2026_original</year></item></root>")
         result = _parse_rinex_root(root)
         assert result[0]["days"] == []
 
     def test_day_item_without_day_text_is_skipped(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("""
         <root>
           <item>
@@ -93,6 +100,7 @@ class TestParseRinexRoot:
 
     def test_stations_defaults_to_zero_for_non_numeric(self):
         from app.data_indexer_client import _parse_rinex_root
+
         root = _xml("""
         <root>
           <item>
@@ -106,6 +114,7 @@ class TestParseRinexRoot:
 
     def test_empty_root_returns_empty_list(self):
         from app.data_indexer_client import _parse_rinex_root
+
         assert _parse_rinex_root(_xml("<root/>")) == []
 
 
@@ -113,10 +122,11 @@ class TestParseRinexRoot:
 # _parse_tecsuite_root
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestParseTecsuiteRoot:
 
+class TestParseTecsuiteRoot:
     def test_normal_year_day_sites(self):
         from app.data_indexer_client import _parse_tecsuite_root
+
         root = _xml("""
         <root>
           <item>
@@ -137,6 +147,7 @@ class TestParseTecsuiteRoot:
 
     def test_day_with_no_sites_node(self):
         from app.data_indexer_client import _parse_tecsuite_root
+
         root = _xml("""
         <root>
           <item>
@@ -150,6 +161,7 @@ class TestParseTecsuiteRoot:
 
     def test_day_with_empty_site_text_is_skipped(self):
         from app.data_indexer_client import _parse_tecsuite_root
+
         root = _xml("""
         <root>
           <item>
@@ -168,6 +180,7 @@ class TestParseTecsuiteRoot:
 
     def test_item_without_year_skipped(self):
         from app.data_indexer_client import _parse_tecsuite_root
+
         assert _parse_tecsuite_root(_xml("<root><item><days/></item></root>")) == []
 
 
@@ -175,10 +188,11 @@ class TestParseTecsuiteRoot:
 # _parse_parquet_root
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestParseParquetRoot:
 
+class TestParseParquetRoot:
     def test_normal_year_and_day_list(self):
         from app.data_indexer_client import _parse_parquet_root
+
         root = _xml("""
         <root>
           <item>
@@ -193,6 +207,7 @@ class TestParseParquetRoot:
 
     def test_empty_day_text_is_skipped(self):
         from app.data_indexer_client import _parse_parquet_root
+
         root = _xml("""
         <root>
           <item>
@@ -206,6 +221,7 @@ class TestParseParquetRoot:
 
     def test_year_without_days_node(self):
         from app.data_indexer_client import _parse_parquet_root
+
         root = _xml("<root><item><year>2026</year></item></root>")
         assert _parse_parquet_root(root)[0]["days"] == []
 
@@ -214,10 +230,11 @@ class TestParseParquetRoot:
 # _parse_parquet_sat_root
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestParseParquetSatRoot:
 
+class TestParseParquetSatRoot:
     def test_normal_full_structure(self):
         from app.data_indexer_client import _parse_parquet_sat_root
+
         root = _xml("""
         <root>
           <item>
@@ -241,6 +258,7 @@ class TestParseParquetSatRoot:
 
     def test_day_without_day_text_skipped(self):
         from app.data_indexer_client import _parse_parquet_sat_root
+
         root = _xml("""
         <root>
           <item>
@@ -254,6 +272,7 @@ class TestParseParquetSatRoot:
 
     def test_no_stations_or_satellites_nodes(self):
         from app.data_indexer_client import _parse_parquet_sat_root
+
         root = _xml("""
         <root>
           <item>
@@ -269,6 +288,7 @@ class TestParseParquetSatRoot:
 
     def test_multiple_years_and_days(self):
         from app.data_indexer_client import _parse_parquet_sat_root
+
         root = _xml("""
         <root>
           <item>
@@ -293,20 +313,31 @@ class TestParseParquetSatRoot:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# _fetch_xml — no-URL guard
+# _fetch_xml_async — no-URL guard, errors, URL encoding
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestFetchXml:
+    @staticmethod
+    def _client_returning(response=None, error=None):
+        client = AsyncMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        if error is not None:
+            client.get.side_effect = error
+        else:
+            client.get.return_value = response
+        return client
 
-    def test_returns_none_when_url_not_configured(self, monkeypatch):
+    async def test_returns_none_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as client_module
+
         monkeypatch.setattr(client_module, "DATA_INDEXER_URL", "")
-        from app.data_indexer_client import _fetch_xml
-        result = _fetch_xml("rinex", "/some/path")
-        assert result is None
+        assert await client_module._fetch_xml_async("rinex", "/some/path") is None
 
-    def test_returns_none_on_http_error(self, monkeypatch):
+    async def test_returns_none_on_http_error(self, monkeypatch):
         import app.data_indexer_client as client_module
+
         monkeypatch.setattr(client_module, "DATA_INDEXER_URL", "http://localhost:5001")
 
         mock_response = MagicMock()
@@ -315,24 +346,34 @@ class TestFetchXml:
         mock_response.text = "Service Unavailable"
         mock_response.raise_for_status.side_effect = Exception("503")
 
-        with patch("httpx.get", return_value=mock_response):
-            from app.data_indexer_client import _fetch_xml
-            result = _fetch_xml("rinex", "/some/path")
-        assert result is None
+        with patch("httpx.AsyncClient", return_value=self._client_returning(mock_response)):
+            assert await client_module._fetch_xml_async("rinex", "/some/path") is None
 
-    def test_returns_none_on_network_error(self, monkeypatch):
+    async def test_returns_none_on_network_error(self, monkeypatch):
         import app.data_indexer_client as client_module
+
         monkeypatch.setattr(client_module, "DATA_INDEXER_URL", "http://localhost:5001")
 
-        with patch("httpx.get", side_effect=Exception("Connection refused")):
-            from app.data_indexer_client import _fetch_xml
-            result = _fetch_xml("rinex", "/some/path")
-        assert result is None
+        with patch("httpx.AsyncClient", return_value=self._client_returning(error=Exception("Connection refused"))):
+            assert await client_module._fetch_xml_async("rinex", "/some/path") is None
+
+    async def test_root_path_is_url_encoded(self, monkeypatch):
+        import app.data_indexer_client as client_module
+
+        monkeypatch.setattr(client_module, "DATA_INDEXER_URL", "http://localhost:5001/")
+
+        mock_response = MagicMock(status_code=200, text="<rinex_structure/>")
+        client = self._client_returning(mock_response)
+        with patch("httpx.AsyncClient", return_value=client):
+            await client_module._fetch_xml_async("rinex", "/mnt/rinex server/2026&x")
+
+        client.get.assert_awaited_once_with("http://localhost:5001/rinex?root=/mnt/rinex%20server/2026%26x")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Async functions — common behavior
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestAsyncFunctions:
     """Tests for list_*_async — cache hits, empty URL guard, error handling."""
@@ -341,6 +382,7 @@ class TestAsyncFunctions:
     def clear_cache(self):
         """Ensure the module-level cache is empty before every test."""
         from app.data_indexer_client import clear_cache
+
         clear_cache()
         yield
         clear_cache()
@@ -349,30 +391,39 @@ class TestAsyncFunctions:
 
     async def test_parquet_sat_returns_empty_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
         from app.data_indexer_client import list_parquet_satellite_structure_async
+
         assert await list_parquet_satellite_structure_async("/any") == []
 
     async def test_rinex_returns_empty_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
         from app.data_indexer_client import list_rinex_server_structure_async
+
         assert await list_rinex_server_structure_async("/any") == []
 
     async def test_tecsuite_returns_empty_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
         from app.data_indexer_client import list_tecsuite_output_structure_async
+
         assert await list_tecsuite_output_structure_async("/any") == []
 
     async def test_parquet_output_returns_empty_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
         from app.data_indexer_client import list_parquet_output_structure_async
+
         assert await list_parquet_output_structure_async("/any") == []
 
     async def test_rinex_station_map_returns_empty_payload_when_url_not_configured(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "")
         from app.data_indexer_client import get_rinex_station_map_async
 
@@ -386,6 +437,7 @@ class TestAsyncFunctions:
 
     async def test_parquet_sat_returns_empty_on_upstream_error(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         mock_client = AsyncMock()
@@ -395,11 +447,13 @@ class TestAsyncFunctions:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             from app.data_indexer_client import list_parquet_satellite_structure_async
+
             result = await list_parquet_satellite_structure_async("/mnt/parquet")
         assert result == []
 
     async def test_rinex_returns_empty_on_upstream_4xx(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         mock_resp = MagicMock()
@@ -415,6 +469,7 @@ class TestAsyncFunctions:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             from app.data_indexer_client import list_rinex_server_structure_async
+
             result = await list_rinex_server_structure_async("/mnt/rinex")
         assert result == []
 
@@ -423,6 +478,7 @@ class TestAsyncFunctions:
     async def test_second_call_uses_cache_no_http(self, monkeypatch):
         """After a successful fetch, a second call with the same path must not hit HTTP."""
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         xml_body = """<root>
@@ -451,6 +507,7 @@ class TestAsyncFunctions:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             from app.data_indexer_client import list_parquet_satellite_structure_async
+
             first = await list_parquet_satellite_structure_async("/mnt/parquet")
             second = await list_parquet_satellite_structure_async("/mnt/parquet")
 
@@ -459,8 +516,37 @@ class TestAsyncFunctions:
         # HTTP was called exactly once (cache served the second call)
         assert mock_client.get.call_count == 1
 
+    async def test_cache_entry_expires_after_ttl(self, monkeypatch):
+        """New output indexed after a job must reach the UI without a restart."""
+        import app.data_indexer_client as m
+
+        monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
+        monkeypatch.setattr(m.cfg, "DATA_INDEXER_CLIENT_CACHE_TTL_SEC", 30.0)
+        clock = [1000.0]
+        monkeypatch.setattr(m.time, "monotonic", lambda: clock[0])
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {}
+        mock_resp.text = "<root></root>"
+        mock_resp.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            clock[0] += 29.0
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            assert mock_client.get.call_count == 1
+            clock[0] += 2.0
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            assert mock_client.get.call_count == 2
+
     async def test_rinex_station_map_second_call_uses_cache(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         fetch_calls: list[tuple[str, str, str]] = []
@@ -487,6 +573,7 @@ class TestAsyncFunctions:
 
     async def test_different_paths_are_cached_independently(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         def _make_xml(year: str) -> str:
@@ -502,6 +589,7 @@ class TestAsyncFunctions:
 
         with patch.object(m, "_fetch_xml_async", side_effect=_fake_fetch):
             from app.data_indexer_client import list_parquet_satellite_structure_async
+
             r1 = await list_parquet_satellite_structure_async("/mnt/tecsuite")
             r2 = await list_parquet_satellite_structure_async("/mnt/abstec")
             _ = await list_parquet_satellite_structure_async("/mnt/tecsuite")  # should hit cache
@@ -514,6 +602,7 @@ class TestAsyncFunctions:
 
     async def test_clear_cache_forces_refetch(self, monkeypatch):
         import app.data_indexer_client as m
+
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
 
         fetch_calls: list[str] = []
@@ -524,6 +613,7 @@ class TestAsyncFunctions:
 
         with patch.object(m, "_fetch_xml_async", side_effect=_fake_fetch):
             from app.data_indexer_client import clear_cache, list_rinex_server_structure_async
+
             await list_rinex_server_structure_async("/mnt/rinex")
             clear_cache()
             await list_rinex_server_structure_async("/mnt/rinex")

@@ -22,14 +22,14 @@ Flag descriptor fields:
   help     — tooltip / description text
   min/max  — for "number" type
 """
+
 from __future__ import annotations
+
+import logging
 import re
-import shlex
 from typing import Any
 
 from app import config as cfg
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +65,8 @@ CONVERTERS: dict[str, dict] = {
         # Regex patterns used to extract a 0–100 progress value from log lines.
         # Patterns are tried in order; first match wins.
         "progress_patterns": [
-            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===", # === processing day folder: /data/rinex/001 ===
-            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)", # "Completed file 5/20"
+            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===",  # === processing day folder: /data/rinex/001 ===
+            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)",  # "Completed file 5/20"
         ],
         "flags": [
             {
@@ -126,8 +126,7 @@ CONVERTERS: dict[str, dict] = {
         "image": cfg.DAT_PARQUET_IMAGE,
         "label": "DAT <-> Parquet",
         "description": (
-            "Converts tec-suite DAT files to Parquet format (or back), "
-            "preserving the source directory layout."
+            "Converts tec-suite DAT files to Parquet format (or back), preserving the source directory layout."
         ),
         "log_emit_interval_sec": 1.0,
         "progress_patterns": [
@@ -436,9 +435,7 @@ def get_converter(name: str) -> dict | None:
 
 # argparse prints this when handed a flag it does not define. It is the exact
 # symptom of the UI being newer than the converter image it drives.
-_UNRECOGNISED_ARGS_RE = re.compile(
-    r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE
-)
+_UNRECOGNISED_ARGS_RE = re.compile(r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE)
 
 
 def detect_runner_version_skew(log_text: str, converter_name: str | None = None) -> str | None:
@@ -454,9 +451,7 @@ def detect_runner_version_skew(log_text: str, converter_name: str | None = None)
     if not match:
         return None
 
-    flags = " ".join(
-        token for token in match.group("flags").split() if token.startswith("-")
-    )
+    flags = " ".join(token for token in match.group("flags").split() if token.startswith("-"))
     image = ""
     if converter_name:
         conv = CONVERTERS.get(converter_name) or {}
@@ -496,11 +491,18 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             host_path = str(value).strip()
             if not host_path:
                 continue
-            container_path = conv["container_volumes"][flag["is_volume"]]
-            # RINEX must be writable because TEC-Suite extracts archives under
-            # /data/rinex/<day>/... before processing.
-            mode = "rw"
-            volumes[host_path] = {"bind": container_path, "mode": mode}
+            if host_path in volumes:
+                # Same host directory as an earlier flag (DAT <-> Parquet
+                # overwrite without a year/day filter, where source ==
+                # destination). Docker binds a host path once, so point this
+                # flag at the existing mount instead of replacing it and
+                # leaving the earlier flag's container path unmounted.
+                container_path = volumes[host_path]["bind"]
+            else:
+                container_path = conv["container_volumes"][flag["is_volume"]]
+                # RINEX must be writable because TEC-Suite extracts archives under
+                # /data/rinex/<day>/... before processing.
+                volumes[host_path] = {"bind": container_path, "mode": "rw"}
             # Also emit the CLI flag pointing at the container-side path
             if converter_name == "tec-suite" and key == "root":
                 root_subpath = str(form_data.get("root_subpath", "")).strip()
@@ -554,6 +556,6 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             "mode": "rw",
         }
 
-    logger.debug(f"Built command for converter '{converter_name}': {cmd} with volumes {volumes}")
+    logger.debug("Built command for converter '%s': %s with volumes %s", converter_name, cmd, volumes)
 
     return cmd, volumes

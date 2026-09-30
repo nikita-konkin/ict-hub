@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import numpy as np
 
-LIGHT_SPEED = 3.0 * (10 ** 8)  # m/s
-TEC_TO_NT = 10.0 ** 16         # TECU -> electrons/m^2
+LIGHT_SPEED = 3.0 * (10**8)  # m/s
+TEC_TO_NT = 10.0**16  # TECU -> electrons/m^2
 PROPAGATION_COEFF = 80.5
 
 # Carrier frequencies in Hz (same table as tec-stat SIGNAL_BAND_FREQUENCIES_HZ).
@@ -68,9 +68,7 @@ def compute_gdd_grid(vtec_grid: np.ndarray, frequency_hz: float) -> np.ndarray:
     """
     grid = np.asarray(vtec_grid, dtype=float)
     n_t = np.where(grid > 0.0, grid, 0.0) * TEC_TO_NT
-    magnitude_s_per_hz = (3.0 * PROPAGATION_COEFF * n_t) / (
-        2.0 * LIGHT_SPEED * np.pi * float(frequency_hz) ** 3
-    )
+    magnitude_s_per_hz = (3.0 * PROPAGATION_COEFF * n_t) / (2.0 * LIGHT_SPEED * np.pi * float(frequency_hz) ** 3)
     return np.where(np.isfinite(grid), magnitude_s_per_hz * SECONDS_PER_HZ_TO_NS_PER_GHZ, np.nan)
 
 
@@ -85,7 +83,5 @@ def compute_bk_grid(vtec_grid: np.ndarray, frequency_hz: float, min_tecu: float 
     valid = np.isfinite(grid) & (grid >= float(min_tecu))
     n_t = np.where(valid, grid, np.nan) * TEC_TO_NT
     with np.errstate(divide="ignore", invalid="ignore"):
-        b_k_hz = np.sqrt(
-            (LIGHT_SPEED * float(frequency_hz) ** 3) / (PROPAGATION_COEFF * np.pi * n_t)
-        )
+        b_k_hz = np.sqrt((LIGHT_SPEED * float(frequency_hz) ** 3) / (PROPAGATION_COEFF * np.pi * n_t))
     return b_k_hz / 1.0e6

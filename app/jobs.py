@@ -9,30 +9,38 @@ Routes:
   POST /jobs/{id}/stop           — stop a running container
   GET  /history                  — audit log (admins see all, operators see own)
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import re
 import time
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
 
 import docker.errors
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 from sqlalchemy.orm import Session
 
+from app import audit
 from app import config as cfg
-from app.auth import get_admin_user, get_current_user, require_converter_access, require_page_access
+from app.auth import get_current_user, require_converter_access, require_page_access
+from app.converters import FormError, is_truthy_checkbox, page_context, prepare_form
 from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
-from app import audit
 from app.job_runtime import (
+    STOPPED_EXIT_CODE,
     ensure_job_producer,
     persist_job_finished,
     reconcile_job_state,
     sse_event,
+    status_for_exit_code,
     xml_payload,
 )
 from app.models import JobEvent, JobRun, User
@@ -42,149 +50,28 @@ from app.registry import (
     detect_runner_version_skew,
     get_converter,
 )
-from app.data_indexer_client import (
-    list_parquet_output_structure_async,
-    list_rinex_server_structure_async,
-    list_tecsuite_output_structure_async,
-)
 from app.runner import (
-    ensure_container_running,
     list_running_containers,
     start_container,
     stop_container,
     stream_logs,
 )
-from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Accept both layouts used by TEC-Suite input data:
-# - /YYYY_original[/DDD]             (day directly under year, 2-3 digits)
-# - /YYYY_original/MM/DD             (month/day under year, 2-3 digits each)
-_TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3}){0,2}$")
-_DAT_PARQUET_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}(?:/\d{1,3})?$")
-_TECSUITE_ENV_ROOT_NOTE = "Configured from environment variable RINEX_DATA_PATH_HOST"
-_ABSTEC_ENV_INPUT_NOTE = "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
-_DAT_PARQUET_SOURCE_NOTES = {
-    "tecsuite": "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST",
-    "abstec": "Configured from environment variable ABSTEC_OUTPUT_DATA_PATH_HOST",
-    "tecsuite-parquet": "Configured from environment variable PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST",
-    "abstec-parquet": "Configured from environment variable PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST",
-}
+
+def _error_fragment(message: object, status_code: int) -> HTMLResponse:
+    """Alert fragment for #job-output. Plain strings are escaped (they may echo
+    form input or exception text); pass Markup for deliberate markup."""
+    return HTMLResponse(
+        f'<div class="alert alert-danger">{escape(message)}</div>',
+        status_code=status_code,
+    )
 
 
-def _dat_parquet_profiles(direction: str) -> dict[str, dict[str, str]]:
-    """Return env-backed source/destination profiles for the DAT <-> Parquet converter."""
-    if direction == "parquet-to-dat":
-        return {
-            "tecsuite": {
-                "label": "TEC-Suite parquet output",
-                "src": cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip(),
-                "dst": cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip(),
-                "src_env": "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST",
-                "dst_env": "TECSUITE_OUT_DAT_DATA_PATH_HOST",
-                "source_note": _DAT_PARQUET_SOURCE_NOTES["tecsuite-parquet"],
-            },
-            "abstec": {
-                "label": "AbsTEC parquet output",
-                "src": cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip(),
-                "dst": cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip(),
-                "src_env": "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST",
-                "dst_env": "ABSTEC_OUTPUT_DATA_PATH_HOST",
-                "source_note": _DAT_PARQUET_SOURCE_NOTES["abstec-parquet"],
-            },
-        }
-
-    return {
-        "tecsuite": {
-            "label": "TEC-Suite DAT output",
-            "src": cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip(),
-            "dst": cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip(),
-            "src_env": "TECSUITE_OUT_DAT_DATA_PATH_HOST",
-            "dst_env": "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST",
-            "source_note": _DAT_PARQUET_SOURCE_NOTES["tecsuite"],
-        },
-        "abstec": {
-            "label": "AbsTEC output",
-            "src": cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip(),
-            "dst": cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip(),
-            "src_env": "ABSTEC_OUTPUT_DATA_PATH_HOST",
-            "dst_env": "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST",
-            "source_note": _DAT_PARQUET_SOURCE_NOTES["abstec"],
-        },
-    }
-
-
-def _resolve_dat_parquet_paths(direction: str, profile_name: str, overwrite: bool) -> tuple[dict[str, str], str | None]:
-    """Resolve source/destination host paths for DAT <-> Parquet from env-backed profiles."""
-    profiles = _dat_parquet_profiles(direction)
-    profile = profiles.get(profile_name)
-    if profile is None:
-        return {}, f"Select a valid DAT <-> Parquet source profile for direction '{direction}'."
-
-    src_path = profile["src"]
-    if not src_path:
-        return {}, f"{profile['src_env']} is not configured."
-
-    dst_path = src_path if overwrite else profile["dst"]
-    if not dst_path:
-        return {}, f"{profile['dst_env']} is not configured."
-
-    return {
-        "src": src_path,
-        "dst": dst_path,
-        "profile": profile_name,
-        "source_note": profile["source_note"],
-    }, None
-
-
-def _dat_parquet_profile_matrix() -> dict[str, dict[str, dict[str, str]]]:
-    """Return all DAT <-> Parquet profile variants for the run-page JavaScript."""
-    return {
-        "dat-to-parquet": _dat_parquet_profiles("dat-to-parquet"),
-        "parquet-to-dat": _dat_parquet_profiles("parquet-to-dat"),
-    }
-
-
-def _reduce_to_year_days(dat_tree: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Keep only year/day values for compact UI payloads."""
-    reduced: list[dict[str, object]] = []
-    for year_item in dat_tree:
-        year_name = str(year_item.get("year", "")).strip()
-        if not year_name:
-            continue
-        days_raw = year_item.get("days", [])
-        days: list[str] = []
-        if isinstance(days_raw, list):
-            for day_item in days_raw:
-                if isinstance(day_item, dict):
-                    day_name = str(day_item.get("day", "")).strip()
-                    if day_name:
-                        days.append(day_name)
-        reduced.append({"year": year_name, "days": days})
-    return reduced
-
-
-def _join_host_path(base_path: str, suffix: str) -> str:
-    """Join host path with '/YYYY[/DDD]' suffix while preserving base style."""
-    clean_suffix = str(suffix or "").strip().replace("\\", "/")
-    if not clean_suffix:
-        return base_path
-    clean_suffix = clean_suffix.strip("/")
-    if not clean_suffix:
-        return base_path
-    return f"{base_path.rstrip('/\\')}/{clean_suffix}"
-
-
-def _is_truthy_checkbox(value: object) -> bool:
-    """Interpret common HTML checkbox encodings as booleans."""
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    return str(value).strip().lower() in {"on", "true", "1", "yes"}
+_HISTORY_MAX_PER_PAGE = 100
 
 
 def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> dict[str, object]:
@@ -203,10 +90,10 @@ def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> 
 
         flag_type = flag.get("type")
         default = flag.get("default", "")
-        raw_value = resolved.get(key, None)
+        raw_value = resolved.get(key)
 
         if flag_type == "checkbox":
-            resolved[key] = _is_truthy_checkbox(raw_value)
+            resolved[key] = is_truthy_checkbox(raw_value)
             continue
 
         if flag_type == "number":
@@ -220,7 +107,7 @@ def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> 
                     resolved.setdefault(key, "")
                 continue
             try:
-                resolved[key] = int(raw_value)  # type: ignore[arg-type]
+                resolved[key] = int(raw_value)  # type: ignore[call-overload]
             except (TypeError, ValueError):
                 resolved[key] = raw_value
             continue
@@ -318,12 +205,7 @@ def _discover_running_converter_containers(
         if not container_id:
             continue
 
-        existing = (
-            db.query(JobRun.id)
-            .filter(JobRun.container_id == container_id)
-            .order_by(JobRun.id.desc())
-            .first()
-        )
+        existing = db.query(JobRun.id).filter(JobRun.container_id == container_id).order_by(JobRun.id.desc()).first()
         if existing is not None:
             continue
 
@@ -374,7 +256,7 @@ def _discover_running_converter_containers(
 
         started_at = row.get("started_at")
         if not isinstance(started_at, datetime):
-            started_at = datetime.now(timezone.utc)
+            started_at = datetime.now(UTC)
 
         flags = {
             "discovered": True,
@@ -407,7 +289,7 @@ def _job_auto_remove_enabled(job: JobRun) -> bool:
         flags = json.loads(job.flags_json or "{}")
     except Exception:
         return False
-    return _is_truthy_checkbox(flags.get("auto_remove", False))
+    return is_truthy_checkbox(flags.get("auto_remove", False))
 
 
 async def _stream_job_logs_direct(
@@ -415,12 +297,14 @@ async def _stream_job_logs_direct(
     db: Session,
     *,
     tail: str | int = "all",
-) -> asyncio.AsyncGenerator[str, None]:
+) -> AsyncGenerator[str, None]:
     """
     Fallback path for live log delivery when durable job events are not being
     produced yet. This keeps the UI usable even if the background runtime is
     unhealthy for a specific job.
     """
+    if not job.container_id:
+        return
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
     auto_remove = _job_auto_remove_enabled(job)
@@ -467,15 +351,16 @@ async def _stream_job_logs_direct(
         if event_type == "done":
             db.expire_all()
             db_job = db.query(JobRun).filter(JobRun.id == job.id).first()
+            exit_code = int(payload)
+            status = status_for_exit_code(exit_code)
             if db_job is not None:
-                persist_job_finished(db, db_job, int(payload))
+                persist_job_finished(db, db_job, exit_code)
+                # A stop recorded earlier wins over the container's exit code.
+                status = db_job.status
+                exit_code = db_job.exit_code if db_job.exit_code is not None else exit_code
             yield sse_event(
                 "done",
-                xml_payload(
-                    "done",
-                    status="success" if int(payload) == 0 else "failed",
-                    exit_code=int(payload),
-                ),
+                xml_payload("done", status=status, exit_code=exit_code),
             )
             return
 
@@ -483,6 +368,7 @@ async def _stream_job_logs_direct(
 # ─────────────────────────────────────────────────────────────────────────────
 # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
@@ -494,15 +380,12 @@ async def dashboard(
     Main landing page. Shows each registered converter as a card alongside
     the user's 5 most recent jobs so they have immediate context on activity.
     """
-    _reconcile_running_jobs(db, current_user)
+    await run_in_threadpool(_reconcile_running_jobs, db, current_user)
     recent_jobs = (
-        db.query(JobRun)
-        .filter(JobRun.user_id == current_user.id)
-        .order_by(JobRun.started_at.desc())
-        .limit(5)
-        .all()
+        db.query(JobRun).filter(JobRun.user_id == current_user.id).order_by(JobRun.started_at.desc()).limit(5).all()
     )
     response = templates.TemplateResponse(
+        request,
         "dashboard.html",
         template_context(
             request,
@@ -518,6 +401,7 @@ async def dashboard(
 # Converter run page
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/run/{converter_name}", response_class=HTMLResponse)
 async def run_page(
     request: Request,
@@ -531,7 +415,7 @@ async def run_page(
     # breaks the non-HTMX redirect flow (the user lands on /run/... and expects to
     # see the live panel). Only reconcile when no explicit job_id is requested.
     if job_id is None:
-        _reconcile_running_jobs(db, current_user, converter_name=converter_name)
+        await run_in_threadpool(_reconcile_running_jobs, db, current_user, converter_name=converter_name)
     conv = get_converter(converter_name)
     if not conv:
         raise HTTPException(status_code=404, detail=f"Converter '{converter_name}' not found")
@@ -546,21 +430,8 @@ async def run_page(
     )
     active_job = None
     active_stream_tail: str | int = int(cfg.LOG_PAGELOAD_TAIL_LINES)
-    tec_rinex_tree: list[dict[str, object]] = []
-    tec_rinex_host_path = ""
-    abstec_dat_tree: list[dict[str, object]] = []
-    dat_parquet_profiles = _dat_parquet_profiles("dat-to-parquet")
-    dat_parquet_profile_matrix = _dat_parquet_profile_matrix()
-    dat_parquet_source_tree_matrix: dict[str, dict[str, list[dict[str, object]]]] = {
-        "dat-to-parquet": {"tecsuite": [], "abstec": []},
-        "parquet-to-dat": {"tecsuite": [], "abstec": []},
-    }
     if job_id is not None:
-        candidate = (
-            db.query(JobRun)
-            .filter(JobRun.id == job_id, JobRun.converter == converter_name)
-            .first()
-        )
+        candidate = db.query(JobRun).filter(JobRun.id == job_id, JobRun.converter == converter_name).first()
         if (
             candidate
             and (current_user.is_admin or candidate.user_id == current_user.id)
@@ -582,57 +453,8 @@ async def run_page(
             running_query = running_query.filter(JobRun.user_id == current_user.id)
         active_job = running_query.first()
 
-    if converter_name == "tec-suite":
-        tec_rinex_host_path = cfg.RINEX_DATA_PATH_HOST
-        scan_path = cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path
-        tec_rinex_tree = await list_rinex_server_structure_async(scan_path) if scan_path else []
-    elif converter_name == "abstec-suite":
-        abstec_scan_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER.strip()
-        host_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
-        if not abstec_scan_path:
-            abstec_scan_path = host_path
-        abstec_dat_tree = await list_tecsuite_output_structure_async(abstec_scan_path) if abstec_scan_path else []
-    elif converter_name == "dat-parquet-handler":
-        default_direction = "dat-to-parquet"
-        dat_parquet_profiles = _dat_parquet_profiles(default_direction)
-        dat_parquet_profile_matrix = _dat_parquet_profile_matrix()
-
-        tecsuite_scan_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER.strip()
-        tecsuite_host_path = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
-        if not tecsuite_scan_path:
-            tecsuite_scan_path = tecsuite_host_path
-
-        abstec_container_path = cfg.ABSTEC_OUTPUT_DATA_PATH_CONTAINER.strip()
-        abstec_host_path = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
-        abstec_scan_path = abstec_container_path or abstec_host_path
-
-        # parquet-to-dat sources: parquet output directories
-        parquet_tecsuite_container = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip()
-        parquet_tecsuite_host = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
-        parquet_tecsuite_scan = parquet_tecsuite_container or parquet_tecsuite_host
-
-        parquet_abstec_container = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip()
-        parquet_abstec_host = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
-        parquet_abstec_scan = parquet_abstec_container or parquet_abstec_host
-        tecsuite_tree, abstec_tree, parquet_tecsuite_tree, parquet_abstec_tree = await asyncio.gather(
-            list_tecsuite_output_structure_async(tecsuite_scan_path) if tecsuite_scan_path else asyncio.sleep(0, result=[]),
-            list_parquet_output_structure_async(abstec_scan_path) if abstec_scan_path else asyncio.sleep(0, result=[]),
-            list_parquet_output_structure_async(parquet_tecsuite_scan) if parquet_tecsuite_scan else asyncio.sleep(0, result=[]),
-            list_parquet_output_structure_async(parquet_abstec_scan) if parquet_abstec_scan else asyncio.sleep(0, result=[]),
-        )
-
-        dat_parquet_source_tree_matrix = {
-            "dat-to-parquet": {
-                "tecsuite": _reduce_to_year_days(tecsuite_tree),
-                "abstec": abstec_tree,  # already in {year, days: [str]} format
-            },
-            "parquet-to-dat": {
-                "tecsuite": parquet_tecsuite_tree,
-                "abstec": parquet_abstec_tree,
-            },
-        }
-
     response = templates.TemplateResponse(
+        request,
         "run.html",
         template_context(
             request,
@@ -642,20 +464,7 @@ async def run_page(
             recent_jobs=recent,
             active_job=active_job,
             active_stream_tail=active_stream_tail,
-            tec_rinex_host_path=tec_rinex_host_path,
-            tec_rinex_tree=tec_rinex_tree,
-            tec_rinex_scan_path=cfg.RINEX_DATA_PATH_CONTAINER or tec_rinex_host_path,
-            abstec_dat_tree=abstec_dat_tree,
-            abstec_dat_host_path=cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST,
-            abstec_dat_scan_path=(
-                cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER
-                or cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST
-            ),
-            abstec_output_host_path=cfg.ABSTEC_OUTPUT_DATA_PATH_HOST,
-            dat_parquet_profiles=dat_parquet_profiles,
-            dat_parquet_profile_matrix=dat_parquet_profile_matrix,
-            dat_parquet_source_tree_matrix=dat_parquet_source_tree_matrix,
-            dat_parquet_default_direction="dat-to-parquet",
+            **await page_context(converter_name),
             converters=CONVERTERS,
         ),
     )
@@ -665,6 +474,7 @@ async def run_page(
 # ─────────────────────────────────────────────────────────────────────────────
 # Start a job
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.post("/jobs/start", response_class=HTMLResponse)
 async def start_job(
@@ -676,200 +486,42 @@ async def start_job(
     Called by the HTMX form submission.
 
     1. Reads form data
-    2. Validates the converter name
+    2. Validates the converter name, then the form (app.converters.prepare_form,
+       which also fills in the server-side data paths)
     3. Builds the Docker command and volume mapping
     4. Starts the container (detached)
     5. Persists the JobRun record
-    6. Returns an HTML fragment containing the HTMX SSE panel
+    6. Returns an HTML fragment containing the job panel
 
-    The returned fragment is swapped into #job-output by HTMX. Once in the DOM
-    the hx-ext="sse" attribute on the outer div causes HTMX to immediately open
-    the SSE connection and start streaming logs into the log panel.
+    The returned fragment is swapped into #job-output by HTMX; app.js then
+    initialises the panel on htmx:afterSwap and opens an EventSource on the
+    job's event stream.
     """
     form = await request.form()
     is_htmx_request = request.headers.get("HX-Request") == "true"
     converter_name = str(form.get("converter_name", ""))
 
     conv = get_converter(converter_name)
-    logger.info("User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form))
+    logger.info(
+        "User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form)
+    )
     if not conv:
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Unknown converter: {converter_name}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f"Unknown converter: {converter_name}", 400)
 
     if not current_user.can_access_converter(converter_name):
         if is_htmx_request:
-            return HTMLResponse(
-                '<div class="alert alert-danger">Access denied for this converter.</div>',
-                status_code=403,
-            )
+            return _error_fragment("Access denied for this converter.", 403)
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Convert form data to a regular dict for processing
-    form_dict = {k: v for k, v in form.items() if k != "converter_name"}
-    dat_parquet_source_note = ""
-    vm_notice = ""
-
-    if converter_name == "tec-suite":
-        root_host = cfg.RINEX_DATA_PATH_HOST.strip()
-        root_subpath = str(form_dict.get("root_subpath", "")).strip()
-        if not root_host:
-            return HTMLResponse(
-                '<div class="alert alert-danger">RINEX_DATA_PATH_HOST is not configured.</div>',
-                status_code=400,
-            )
-        if not _TECSUITE_ROOT_SUBPATH_RE.fullmatch(root_subpath):
-            return HTMLResponse(
-                '<div class="alert alert-danger">Select a valid year/day folder before running TEC-Suite.</div>',
-                status_code=400,
-            )
-        form_dict["root"] = root_host
-    elif converter_name == "abstec-suite":
-        dat_root_host = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
-        if not dat_root_host:
-            return HTMLResponse(
-                '<div class="alert alert-danger">TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.</div>',
-                status_code=400,
-            )
-        form_dict["dat_path"] = dat_root_host
-        form_dict["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
-        # Batch mode auto-discovers stations per day; run_absoltec rejects
-        # --days combined with --site, so fail fast with a friendly message.
-        if str(form_dict.get("days", "")).strip() and str(form_dict.get("site", "")).strip():
-            return HTMLResponse(
-                '<div class="alert alert-danger">Days (batch mode) cannot be combined with a Site '
-                "selection — batch runs auto-discover stations for each day. Clear the Site "
-                "selection, or use Day Of Year (single run) together with Site.</div>",
-                status_code=400,
-            )
-        # The XP guest executes jobs one at a time from a single shared queue:
-        # parallel dockur runs gain nothing, blow through timeouts while queued,
-        # and can cross-rename same-prefix station outputs from the shared out
-        # folder. Allow only one dockur job at a time.
-        if str(form_dict.get("runner", "")).strip() == "dockur":
-            running_abstec = (
-                db.query(JobRun)
-                .filter(JobRun.converter == "abstec-suite", JobRun.status == "running")
-                .all()
-            )
-            if any(j.flags.get("runner") == "dockur" for j in running_abstec):
-                return HTMLResponse(
-                    '<div class="alert alert-danger">Another AbsTEC dockur job is already '
-                    "running. The Windows XP VM processes jobs strictly one at a time from a "
-                    "single queue, so a parallel dockur run would only sit in the queue, hit "
-                    "its execution timeout, and risk mixing outputs of stations that share a "
-                    "4-character prefix. Wait for the running job to finish or stop it first.</div>",
-                    status_code=400,
-                )
-            # The guest watcher only runs while the XP VM container is up, so
-            # a stopped VM would silently burn the whole execution timeout.
-            # Start it here if it exists but is not running.
-            vm_name = cfg.ABSTEC_DOCKUR_VM_CONTAINER.strip()
-            try:
-                vm_state = ensure_container_running(vm_name)
-            except Exception as exc:
-                logger.error("Failed to start XP VM container %r: %s", vm_name, exc)
-                return HTMLResponse(
-                    f'<div class="alert alert-danger">Could not start the Windows XP VM '
-                    f"container '{vm_name}': {exc}</div>",
-                    status_code=500,
-                )
-            if vm_state == "not_found":
-                return HTMLResponse(
-                    f'<div class="alert alert-danger">The Windows XP VM container '
-                    f"'{vm_name}' does not exist, so no guest is available to execute "
-                    "dockur jobs. Create it first from the abstec-suite folder with "
-                    "<code>docker compose -f docker-compose.dockur.yml up -d abstec-xp</code> "
-                    "(first boot installs XP and takes 10&ndash;20 minutes; watch "
-                    "port 8006).</div>",
-                    status_code=400,
-                )
-            if vm_state == "started":
-                logger.info("XP VM container %r was stopped; started it for this job", vm_name)
-                vm_notice = (
-                    f"The Windows XP VM container '{vm_name}' was stopped and has been "
-                    "started automatically. Windows XP needs a minute or two to boot "
-                    "before its job watcher picks up the first station, so the first "
-                    "run takes correspondingly longer — make sure the execution "
-                    "timeout has enough headroom."
-                )
-    elif converter_name == "dat-parquet-handler":
-        direction = str(form_dict.get("direction", "dat-to-parquet")).strip() or "dat-to-parquet"
-        profile_name = str(form.get("dataset_profile", "tecsuite")).strip() or "tecsuite"
-        overwrite = _is_truthy_checkbox(form.get("overwrite", False))
-        root_subpath = str(form.get("root_subpath", "")).strip()
-        day_from_raw = str(form.get("day_from", "")).strip()
-        day_to_raw = str(form.get("day_to", "")).strip()
-        resolved_paths, error_message = _resolve_dat_parquet_paths(direction, profile_name, overwrite)
-        if error_message:
-            return HTMLResponse(
-                f'<div class="alert alert-danger">{error_message}</div>',
-                status_code=400,
-            )
-
-        day_from = None
-        day_to = None
-        if day_from_raw:
-            if not day_from_raw.isdigit():
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-from must be an integer in range 1..366.</div>',
-                    status_code=400,
-                )
-            day_from = int(day_from_raw)
-            if day_from < 1 or day_from > 366:
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-from must be in range 1..366.</div>',
-                    status_code=400,
-                )
-
-        if day_to_raw:
-            if not day_to_raw.isdigit():
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-to must be an integer in range 1..366.</div>',
-                    status_code=400,
-                )
-            day_to = int(day_to_raw)
-            if day_to < 1 or day_to > 366:
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-to must be in range 1..366.</div>',
-                    status_code=400,
-                )
-
-        if day_from is not None and day_to is not None and day_from > day_to:
-            return HTMLResponse(
-                '<div class="alert alert-danger">--day-from must be less than or equal to --day-to.</div>',
-                status_code=400,
-            )
-
-        if day_from is not None:
-            form_dict["day_from"] = day_from
-        if day_to is not None:
-            form_dict["day_to"] = day_to
-
-        if root_subpath:
-            if not _DAT_PARQUET_ROOT_SUBPATH_RE.fullmatch(root_subpath):
-                return HTMLResponse(
-                    '<div class="alert alert-danger">Select a valid year/day folder before running DAT <-> Parquet.</div>',
-                    status_code=400,
-                )
-            form_dict["src"] = _join_host_path(resolved_paths["src"], root_subpath)
-        else:
-            form_dict["src"] = resolved_paths["src"]
-        # Mount the destination root and let the converter create nested
-        # year/day folders inside it. Binding the leaf subdirectory directly
-        # causes Docker to create/chown it on the host before startup, which
-        # can fail on protected mounts even though writing below the root is
-        # otherwise permitted.
-        form_dict["dst"] = resolved_paths["dst"]
-        form_dict["dst_subpath"] = root_subpath
-        form_dict["dst_effective"] = _join_host_path(resolved_paths["dst"], root_subpath)
-        form_dict["dataset_profile"] = resolved_paths["profile"]
-        form_dict["root_subpath"] = root_subpath
-        dat_parquet_source_note = resolved_paths["source_note"]
+    form_dict: dict[str, Any] = {k: v for k, v in form.items() if k != "converter_name"}
+    try:
+        prepared = await prepare_form(converter_name, form_dict, db)
+    except FormError as exc:
+        return _error_fragment(exc.message, exc.status_code)
 
     # Global execution option (not part of converter CLI flags): docker --rm
-    auto_remove = _is_truthy_checkbox(form.get("auto_remove", False))
+    auto_remove = is_truthy_checkbox(form.get("auto_remove", False))
     form_dict["auto_remove"] = auto_remove
 
     # Handle checkboxes: absent means unchecked in HTML form encoding
@@ -887,10 +539,7 @@ async def start_job(
         command, volumes = build_command(converter_name, form_dict)
     except Exception as exc:
         logger.error("Command build error: %s", exc)
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Failed to build command: {exc}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f"Failed to build command: {exc}", 400)
 
     # Create the job record before starting the container so we always have
     # an audit trail, even if the container fails to start
@@ -898,24 +547,8 @@ async def start_job(
         user_id=current_user.id,
         converter=converter_name,
         flags_json=json.dumps(form_dict, ensure_ascii=False),
-        rinex_path=(
-            _TECSUITE_ENV_ROOT_NOTE
-            if converter_name == "tec-suite"
-            else (
-                _ABSTEC_ENV_INPUT_NOTE
-                if converter_name == "abstec-suite"
-                else (
-                    dat_parquet_source_note
-                    if converter_name == "dat-parquet-handler"
-                    else form_dict.get("root", "")
-                )
-            )
-        ),
-        output_path=(
-            str(form_dict.get("dst_effective", "")).strip()
-            if converter_name == "dat-parquet-handler"
-            else form_dict.get("out", "")
-        ),
+        rinex_path=prepared.input_note or form_dict.get("root", ""),
+        output_path=prepared.output_path or form_dict.get("out", ""),
         status="running",
     )
     db.add(job)
@@ -923,7 +556,8 @@ async def start_job(
     db.refresh(job)
 
     try:
-        container_id = start_container(
+        container_id = await run_in_threadpool(
+            start_container,
             conv["image"],
             command,
             volumes,
@@ -936,8 +570,9 @@ async def start_job(
         )
         job.container_id = container_id
         db.commit()
-        audit.record(db, "job.submit", request=request, actor=current_user,
-                     target=converter_name, detail=f"job_id={job.id}")
+        audit.record(
+            db, "job.submit", request=request, actor=current_user, target=converter_name, detail=f"job_id={job.id}"
+        )
         try:
             await ensure_job_producer(job.id)
         except Exception:
@@ -945,13 +580,10 @@ async def start_job(
     except docker.errors.DockerException as exc:
         logger.error("Docker error starting job %s: %s", job.id, exc)
         job.status = "error"
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         job.exit_code = -1
         db.commit()
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Docker error: {exc}</div>',
-            status_code=500,
-        )
+        return _error_fragment(f"Docker error: {exc}", 500)
 
     # HTMX requests get a fragment swap; plain form posts should redirect back
     # to the converter page so the browser URL remains /run/{converter}.
@@ -960,8 +592,9 @@ async def start_job(
 
     # Return the SSE monitoring panel. HTMX will swap this into #job-output.
     response = templates.TemplateResponse(
+        request,
         "job_panel.html",
-        template_context(request, job=job, converter=conv, vm_notice=vm_notice),
+        template_context(request, job=job, converter=conv, vm_notice=prepared.notice),
     )
     return apply_lang_cookie(request, response)
 
@@ -969,6 +602,7 @@ async def start_job(
 # ─────────────────────────────────────────────────────────────────────────────
 # SSE log stream
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/jobs/{job_id}/stream")
 async def stream_job_logs(
@@ -1001,7 +635,7 @@ async def stream_job_logs(
             parsed_tail = int(tail_param)
             stream_tail = max(0, parsed_tail)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid tail parameter")
+            raise HTTPException(status_code=400, detail="Invalid tail parameter") from None
 
     after_event_id_raw = request.query_params.get("after_event_id", "").strip()
     if not after_event_id_raw:
@@ -1011,7 +645,7 @@ async def stream_job_logs(
         try:
             after_event_id = max(0, int(after_event_id_raw))
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid after_event_id")
+            raise HTTPException(status_code=400, detail="Invalid after_event_id") from None
 
     if job.status == "running":
         await ensure_job_producer(job_id)
@@ -1021,11 +655,7 @@ async def stream_job_logs(
             return after_event_id
 
         max_existing_id = (
-            gen_db.query(JobEvent.id)
-            .filter(JobEvent.job_id == job_id)
-            .order_by(JobEvent.id.desc())
-            .limit(1)
-            .scalar()
+            gen_db.query(JobEvent.id).filter(JobEvent.job_id == job_id).order_by(JobEvent.id.desc()).limit(1).scalar()
         )
         if max_existing_id is None:
             return 0
@@ -1047,6 +677,7 @@ async def stream_job_logs(
             if recent_ids:
                 return max(0, min(recent_ids) - 1)
         return 0
+
     async def generate():
         """
         Replay durable events from the database and then poll for newly
@@ -1086,11 +717,7 @@ async def stream_job_logs(
 
                 if db_job.status == "running":
                     await ensure_job_producer(job_id)
-                    if (
-                        not saw_durable_event
-                        and last_sent_id == 0
-                        and time.monotonic() >= first_event_deadline
-                    ):
+                    if not saw_durable_event and last_sent_id == 0 and time.monotonic() >= first_event_deadline:
                         logger.warning(
                             "Falling back to direct log streaming for job %s after %.2fs without durable events",
                             job_id,
@@ -1134,6 +761,7 @@ async def stream_job_logs(
 # Stop a job
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/jobs/{job_id}/open")
 async def open_job(
     job_id: int,
@@ -1173,8 +801,10 @@ async def stop_job(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if job.container_id and job.status == "running":
-        stop_container(job.container_id)
-        persist_job_finished(db, job, -2)  # sentinel for "stopped by user"
+        # Record the stop first: `docker stop` waits for the container to exit,
+        # and that exit reaches the log producer before this call returns.
+        persist_job_finished(db, job, STOPPED_EXIT_CODE)
+        await run_in_threadpool(stop_container, job.container_id)
 
     return RedirectResponse(f"/run/{job.converter}", status_code=302)
 
@@ -1182,6 +812,7 @@ async def stop_job(
 # ─────────────────────────────────────────────────────────────────────────────
 # Job history
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/history", response_class=HTMLResponse)
 async def history(
@@ -1195,19 +826,20 @@ async def history(
     Paginated audit log of job runs.
     Admins see all users' jobs; operators only see their own.
     """
-    _reconcile_running_jobs(db, current_user)
+    await run_in_threadpool(_reconcile_running_jobs, db, current_user)
     query = db.query(JobRun)
     if not current_user.is_admin:
         query = query.filter(JobRun.user_id == current_user.id)
 
+    # per_page=0 would divide by zero below and a negative LIMIT means "no
+    # limit" to SQLite, so keep both parameters in range.
+    per_page = min(max(per_page, 1), _HISTORY_MAX_PER_PAGE)
     total = query.count()
-    jobs = (
-        query.order_by(JobRun.started_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), total_pages)
+    jobs = query.order_by(JobRun.started_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     response = templates.TemplateResponse(
+        request,
         "history.html",
         template_context(
             request,
@@ -1216,7 +848,7 @@ async def history(
             total=total,
             page=page,
             per_page=per_page,
-            total_pages=max(1, (total + per_page - 1) // per_page),
+            total_pages=total_pages,
             converters=CONVERTERS,
         ),
     )

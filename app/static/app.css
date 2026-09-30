@@ -981,3 +981,7 @@ tbody td.td-mono    { font-family: var(--font-mono); font-size: 11px; }
     font-size: 10px;
   }
 }
+
+/* Reveal the loading indicator only while an HTMX request is in flight */
+.htmx-indicator { display:none; }
+.htmx-request .htmx-indicator { display:inline; }

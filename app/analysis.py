@@ -7,6 +7,7 @@ It provides:
   - Authenticated proxy endpoint so users can call analysis APIs from the
     same session without exposing backend internals directly in the UI
 """
+
 from __future__ import annotations
 
 from urllib.parse import urlencode
@@ -17,8 +18,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
-from app.auth import get_current_user, require_page_access
-from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure_async
+from app.auth import require_page_access
+from app.data_indexer_client import clear_cache as clear_data_indexer_cache
+from app.data_indexer_client import list_parquet_satellite_structure_async
 from app.i18n import apply_lang_cookie, template_context
 from app.models import User
 from app.registry import CONVERTERS
@@ -34,6 +36,7 @@ async def analysis_home(
 ):
     """Analysis landing page for TEC data exploration and exports."""
     response = templates.TemplateResponse(
+        request,
         "analysis.html",
         template_context(
             request,
@@ -115,14 +118,16 @@ async def analysis_index_options(
     abs_scan = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
     abs_tree = await list_parquet_satellite_structure_async(abs_scan) if abs_scan else []
 
-    tec_scan = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    tec_scan = (
+        cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    )
     tec_tree = await list_parquet_satellite_structure_async(tec_scan) if tec_scan else []
 
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
 
-def _filter_outgoing_headers(request: Request) -> dict[str, str]:
-    hop_by_hop = {
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
         "connection",
         "keep-alive",
         "proxy-authenticate",
@@ -133,30 +138,22 @@ def _filter_outgoing_headers(request: Request) -> dict[str, str]:
         "upgrade",
         "host",
     }
-    return {
-        name: value
-        for name, value in request.headers.items()
-        if name.lower() not in hop_by_hop
-    }
+)
+# The hub session cookie must not reach the backend. Accept-Encoding is left to
+# httpx so the backend only uses encodings httpx can decode; httpx sets its own
+# Content-Length for the forwarded body.
+_DROP_OUTGOING_HEADERS = _HOP_BY_HOP_HEADERS | {"cookie", "accept-encoding", "content-length"}
+# httpx has already decoded the body, so the upstream encoding and length no
+# longer describe it; backend cookies would be set on the hub's origin.
+_DROP_INCOMING_HEADERS = _HOP_BY_HOP_HEADERS | {"content-encoding", "content-length", "set-cookie"}
+
+
+def _filter_outgoing_headers(request: Request) -> dict[str, str]:
+    return {name: value for name, value in request.headers.items() if name.lower() not in _DROP_OUTGOING_HEADERS}
 
 
 def _filter_incoming_headers(headers: dict[str, str]) -> dict[str, str]:
-    hop_by_hop = {
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-        "host",
-    }
-    return {
-        name: value
-        for name, value in headers.items()
-        if name.lower() not in hop_by_hop
-    }
+    return {name: value for name, value in headers.items() if name.lower() not in _DROP_INCOMING_HEADERS}
 
 
 @router.api_route("/analysis/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
@@ -204,13 +201,13 @@ async def analysis_proxy(
                 headers=_filter_outgoing_headers(request),
                 content=await request.body(),
             )
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Analysis API timeout")
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Analysis API timeout") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
             detail=f"Analysis API error (base={base_url}): {exc}",
-        )
+        ) from exc
 
     response_headers = _filter_incoming_headers(dict(upstream.headers))
     return Response(

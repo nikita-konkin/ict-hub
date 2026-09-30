@@ -8,30 +8,47 @@ Outputs:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from io import BytesIO
 import json
 import logging
 import math
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
+from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from PIL import GifImagePlugin, Image
 from scipy.interpolate import griddata
-from scipy.ndimage import gaussian_filter, zoom
-
-import matplotlib
+from scipy.ndimage import gaussian_filter
+from scipy.ndimage import zoom as ndimage_zoom
 
 matplotlib.use("Agg")  # headless/server rendering
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from _plotly_utils.utils import PlotlyJSONEncoder
 from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
+
+from app.tec_map_fields import (
+    compute_bk_grid,
+    compute_gdd_grid,
+    resolve_signal_band,
+    signal_band_label,
+)
+from app.tec_map_iri import iri_vtec_grid_for_frames
+from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
+from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
+from app.tec_map_pipeline import TecMapConfig
+from app.tec_map_validation import frame_accuracy_label
+
+logger = logging.getLogger(__name__)
 
 
 def _configure_map_fonts() -> None:
@@ -52,23 +69,6 @@ _configure_map_fonts()
 
 PLOTLY_MAP_FONT_FAMILY = "Times New Roman, Liberation Serif, serif"
 
-import plotly.graph_objects as go
-from _plotly_utils.utils import PlotlyJSONEncoder
-
-from app.tec_map_pipeline import TecMapConfig
-from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
-from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
-from app.tec_map_validation import frame_accuracy_label
-from app.tec_map_fields import (
-    compute_bk_grid,
-    compute_gdd_grid,
-    resolve_signal_band,
-    signal_band_label,
-)
-from app.tec_map_iri import iri_vtec_grid_for_frames
-
-
-logger = logging.getLogger(__name__)
 
 TILE_SIZE_PX = 256
 WEB_MERCATOR_MAX_LAT_DEG = 85.05112878
@@ -168,6 +168,7 @@ class BasemapLayer:
 # Gridding / smoothing (ported from prototype)
 # ---------------------------------------------------------------------------
 
+
 def smooth_grid(grid: np.ndarray, sigma: float) -> np.ndarray:
     if sigma <= 0 or not np.isfinite(grid).any():
         return grid
@@ -201,8 +202,7 @@ def great_circle_distance_km(
     delta_lat = point_lat_rad - grid_lat_rad
     delta_lon = (point_lon_rad - grid_lon_rad + np.pi) % (2.0 * np.pi) - np.pi
     haversine = (
-        np.sin(delta_lat / 2.0) ** 2
-        + np.cos(grid_lat_rad) * np.cos(point_lat_rad) * np.sin(delta_lon / 2.0) ** 2
+        np.sin(delta_lat / 2.0) ** 2 + np.cos(grid_lat_rad) * np.cos(point_lat_rad) * np.sin(delta_lon / 2.0) ** 2
     )
     central_angle = 2.0 * np.arcsin(np.sqrt(np.clip(haversine, 0.0, 1.0)))
     return earth_radius_km * central_angle
@@ -263,14 +263,14 @@ def compute_vtec_gradient_magnitude(
 
     dlat_km = dlat_deg * KM_PER_DEGREE_LAT
 
-    d_dy = np.gradient(grid, dlat_km, axis=0)        # TECU/km, lat direction
+    d_dy = np.gradient(grid, dlat_km, axis=0)  # TECU/km, lat direction
     d_dx_per_deg = np.gradient(grid, dlon_deg, axis=1)  # TECU per degree-of-longitude
 
     cos_lat = np.cos(np.deg2rad(grid_lat))
     cos_lat = np.where(np.abs(cos_lat) < 1e-6, 1e-6, cos_lat)
     d_dx = d_dx_per_deg / (KM_PER_DEGREE_LAT * cos_lat)  # TECU/km, lon direction
 
-    magnitude_per_km = np.sqrt(d_dx ** 2 + d_dy ** 2)
+    magnitude_per_km = np.sqrt(d_dx**2 + d_dy**2)
     return magnitude_per_km * 100.0  # TECU per 100 km
 
 
@@ -399,8 +399,8 @@ def upsample_grid(grid: np.ndarray, factor: int) -> np.ndarray:
 
     valid = np.isfinite(grid)
     filled = np.where(valid, grid, 0.0)
-    zoomed_values = zoom(filled, factor, order=1, mode="nearest")
-    zoomed_weight = zoom(valid.astype(float), factor, order=1, mode="nearest")
+    zoomed_values = ndimage_zoom(filled, factor, order=1, mode="nearest")
+    zoomed_weight = ndimage_zoom(valid.astype(float), factor, order=1, mode="nearest")
 
     with np.errstate(divide="ignore", invalid="ignore"):
         upsampled = zoomed_values / zoomed_weight
@@ -414,8 +414,8 @@ def upsample_coordinates(grid_lon: np.ndarray, grid_lat: np.ndarray, factor: int
     if factor <= 1:
         return grid_lon, grid_lat
     return (
-        zoom(np.asarray(grid_lon, dtype=float), factor, order=1, mode="nearest"),
-        zoom(np.asarray(grid_lat, dtype=float), factor, order=1, mode="nearest"),
+        ndimage_zoom(np.asarray(grid_lon, dtype=float), factor, order=1, mode="nearest"),
+        ndimage_zoom(np.asarray(grid_lat, dtype=float), factor, order=1, mode="nearest"),
     )
 
 
@@ -504,6 +504,7 @@ def _apply_color_overrides(vmin: float, vmax: float, render: TecMapRenderConfig)
 # IRI reference-model comparison (render.model_mode = "iri" | "difference")
 # ---------------------------------------------------------------------------
 
+
 def model_field_grids(
     frame_times: list[pd.Timestamp],
     plot_lon: np.ndarray,
@@ -585,6 +586,7 @@ def _f107_caption(f107_meta: dict[str, dict[str, float | str]]) -> str:
 # Basemap helpers (OpenStreetMap tiles; optional)
 # ---------------------------------------------------------------------------
 
+
 def choose_tile_zoom(bounds: tuple[float, float, float, float], max_tiles: int) -> int:
     lon_min, lon_max, lat_min, lat_max = bounds
     if max_tiles <= 0:
@@ -658,8 +660,9 @@ def fetch_cached_xyz_tile(x: int, y: int, zoom: int, tiles_root: Path) -> Image.
 def fetch_tile_server_tile(x: int, y: int, zoom: int, url_template: str) -> Image.Image:
     wrapped_x = x % (2**zoom)
     url = url_template.format(z=zoom, x=wrapped_x, y=y)
-    request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
-    with urlopen(request, timeout=15) as response:
+    # url_template is the operator's TEC_MAP_BASEMAP_TILE_SERVER_URL, not user input.
+    request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})  # noqa: S310
+    with urlopen(request, timeout=15) as response:  # noqa: S310
         data = response.read()
     return Image.open(BytesIO(data)).convert("RGBA")
 
@@ -686,7 +689,7 @@ def fetch_openstreetmap_tile(
 
     url = f"https://tile.openstreetmap.org/{zoom}/{wrapped_x}/{y}.png"
     request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed https URL
         data = response.read()
     cache_path.write_bytes(data)
     return Image.open(BytesIO(data)).convert("RGBA")
@@ -838,6 +841,7 @@ def load_basemap_layer(bounds: tuple[float, float, float, float], render: TecMap
 # ---------------------------------------------------------------------------
 # Matplotlib frame rendering (ported from prototype; in-memory)
 # ---------------------------------------------------------------------------
+
 
 def choose_figure_size(width_units: float, height_units: float) -> tuple[float, float]:
     if width_units <= 0 or height_units <= 0:
@@ -1002,7 +1006,9 @@ def render_frame_png_bytes(
         )
 
     contour_levels = np.linspace(vmin, vmax, max(int(render.contour_levels), 3))
-    overlay_alpha = render.vtec_layer_alpha if render.vtec_layer_alpha is not None else (0.72 if basemap_layer else 0.95)
+    overlay_alpha = (
+        render.vtec_layer_alpha if render.vtec_layer_alpha is not None else (0.72 if basemap_layer else 0.95)
+    )
 
     masked_grid = np.ma.masked_invalid(grid)
     mesh = None
@@ -1174,6 +1180,7 @@ def _bounds_for_frame_summary(frame_summary: pd.DataFrame) -> tuple[float, float
 # Public renderers
 # ---------------------------------------------------------------------------
 
+
 def build_animation_gif_bytes(
     *,
     frame_summary: pd.DataFrame,
@@ -1196,7 +1203,9 @@ def build_animation_gif_bytes(
     if len(frame_groups) > max_frames:
         raise RuntimeError(f"Refusing to render {len(frame_groups)} frames (max_frames={max_frames}).")
 
-    station_positions = frame_summary.groupby("station", as_index=False).agg(site_lat=("site_lat", "first"), site_lon=("site_lon", "first"))
+    station_positions = frame_summary.groupby("station", as_index=False).agg(
+        site_lat=("site_lat", "first"), site_lon=("site_lon", "first")
+    )
 
     field_spec = _field_render_spec(render.field, render.signal_band)
     grid_transform = field_spec.get("grid_transform")
@@ -1286,7 +1295,7 @@ def build_animation_gif_bytes(
     if animation_format == "gif":
         return _encode_gif(
             rendered_png_frames(),
-            duration_ms=int(round(duration_seconds * 1000.0)),
+            duration_ms=round(duration_seconds * 1000.0),
             high_quality=render.gif_high_quality,
         )
     return _encode_video(
@@ -1366,9 +1375,7 @@ def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: floa
     try:
         import imageio.v2 as imageio
     except ImportError as exc:  # pragma: no cover - dependency guard
-        raise RuntimeError(
-            "MP4/WebM export requires the 'imageio' and 'imageio-ffmpeg' packages."
-        ) from exc
+        raise RuntimeError("MP4/WebM export requires the 'imageio' and 'imageio-ffmpeg' packages.") from exc
 
     fps = min(max(1.0 / max(frame_duration_seconds, 1e-3), 0.5), 60.0)
     if video_format == "mp4":
@@ -1379,9 +1386,8 @@ def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: floa
         output_params = ["-crf", "30", "-b:v", "0"]
 
     # The ffmpeg writer needs a seekable file, not a pipe.
-    tmp = tempfile.NamedTemporaryFile(suffix=f".{video_format}", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
+    with tempfile.NamedTemporaryFile(suffix=f".{video_format}", delete=False) as tmp:
+        tmp_path = tmp.name
     wrote_any_frame = False
     try:
         writer = imageio.get_writer(
@@ -1411,10 +1417,8 @@ def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: floa
             raise RuntimeError("No frames were rendered.")
         return Path(tmp_path).read_bytes()
     finally:
-        try:
+        with suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 def build_frame_image_bytes(
@@ -1459,11 +1463,18 @@ def build_frame_image_bytes(
         model_grid = model_grids[pd.Timestamp(frame_time)]
 
     if model_mode == "iri":
+        if model_grid is None:  # computed above whenever model_mode != "off"
+            raise RuntimeError("IRI model grid was not computed")
         grid = model_grid
         plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
     else:
         grid, plot_grid_lon, plot_grid_lat = compute_field_grid(
-            frame, grid_lon, grid_lat, pipeline, field_spec.get("grid_transform"), upsample_factor=render.upsample_factor
+            frame,
+            grid_lon,
+            grid_lat,
+            pipeline,
+            field_spec.get("grid_transform"),
+            upsample_factor=render.upsample_factor,
         )
         if model_mode == "difference":
             grid = grid - model_grid
@@ -1606,7 +1617,11 @@ def build_snapshot_plotly_json(
                 zmin=float(vmin),
                 zmax=float(vmax),
                 colorbar={"title": field_spec["colorbar_label"]},
-                hovertemplate="Lon %{x:.2f}<br>Lat %{y:.2f}<br>" + z_label + " %{z:.2f} " + hover_unit + "<extra></extra>",
+                hovertemplate="Lon %{x:.2f}<br>Lat %{y:.2f}<br>"
+                + z_label
+                + " %{z:.2f} "
+                + hover_unit
+                + "<extra></extra>",
                 name=heatmap_name,
                 showscale=True,
                 opacity=render.vtec_layer_alpha if render.vtec_layer_alpha is not None else 0.95,
@@ -1643,7 +1658,9 @@ def build_snapshot_plotly_json(
             "color": "white",
             "line": {"color": "black", "width": 0.7},
         }
-        ipp_hover = "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>(per-IPP values not on this scale)<extra></extra>"
+        ipp_hover = (
+            "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>(per-IPP values not on this scale)<extra></extra>"
+        )
     else:
         point_values = point_transform(frame["vtec_tecu"].to_numpy())
         point_values = [float(v) if np.isfinite(v) else None for v in np.asarray(point_values, dtype=float)]
@@ -1662,7 +1679,10 @@ def build_snapshot_plotly_json(
             ipp_marker["showscale"] = False
         ipp_hover = (
             "Station %{customdata}<br>Lon %{x:.3f}<br>Lat %{y:.3f}<br>"
-            + field_short + " %{marker.color:.2f} " + field_spec["hover_unit"] + "<extra></extra>"
+            + field_short
+            + " %{marker.color:.2f} "
+            + field_spec["hover_unit"]
+            + "<extra></extra>"
         )
 
     fig.add_trace(

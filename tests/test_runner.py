@@ -5,13 +5,16 @@ These tests are pure unit tests: no HTTP requests, no database, no Docker.
 They exercise the pure functions that do progress parsing, command building,
 and volume mapping — the logic most likely to break if the registry changes.
 """
-import pytest
-from unittest.mock import MagicMock, patch, call
 
+from typing import ClassVar
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Progress parsing
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestParseProgress:
     """Tests for runner.parse_progress — the log-line → percentage extractor."""
@@ -19,7 +22,7 @@ class TestParseProgress:
     from app.runner import parse_progress
 
     # These patterns come from the tecsuite registry entry
-    PATTERNS = [
+    PATTERNS: ClassVar[list[str]] = [
         r"Day\s+(\d+)\s*/\s*(\d+)",
         r"Processing.*?(\d+)\s*/\s*(\d+)",
         r"(\d+)\s*/\s*(\d+)\s+days",
@@ -28,56 +31,67 @@ class TestParseProgress:
 
     def test_day_fraction_pattern(self):
         from app.runner import parse_progress
+
         assert parse_progress("Day 3/14", self.PATTERNS) == 21  # 3/14 * 100 ≈ 21
 
     def test_day_fraction_exact_half(self):
         from app.runner import parse_progress
+
         assert parse_progress("Day 5/10", self.PATTERNS) == 50
 
     def test_processing_fraction_pattern(self):
         from app.runner import parse_progress
+
         result = parse_progress("Processing archive 10/20", self.PATTERNS)
         assert result == 50
 
     def test_days_suffix_pattern(self):
         from app.runner import parse_progress
+
         result = parse_progress("7/10 days processed", self.PATTERNS)
         assert result == 70
 
     def test_bare_percentage_pattern(self):
         from app.runner import parse_progress
+
         assert parse_progress("45% complete", self.PATTERNS) == 45
 
     def test_percentage_capped_at_100(self):
         from app.runner import parse_progress
+
         # A rogue log line should not produce >100
         assert parse_progress("150% done", self.PATTERNS) == 100
 
     def test_percentage_floored_at_0(self):
         from app.runner import parse_progress
+
         # Negative percentages are clamped
         assert parse_progress("-5%", self.PATTERNS) == 0
 
     def test_no_match_returns_none(self):
         from app.runner import parse_progress
+
         assert parse_progress("No progress info here", self.PATTERNS) is None
         assert parse_progress("", self.PATTERNS) is None
         assert parse_progress("Starting...", self.PATTERNS) is None
 
     def test_zero_total_does_not_raise(self):
         from app.runner import parse_progress
+
         # "0/0" should return None rather than ZeroDivisionError
         result = parse_progress("Day 0/0", self.PATTERNS)
         assert result is None
 
     def test_case_insensitive_matching(self):
         from app.runner import parse_progress
+
         # "day" in various casings should all match
         assert parse_progress("DAY 2/8", self.PATTERNS) == 25
         assert parse_progress("day 2/8", self.PATTERNS) == 25
 
     def test_three_groups_uses_first_two_numeric_values(self):
         from app.runner import parse_progress
+
         patterns = [r"Completed\s+(\d+)\s*/\s*(\d+):\s+([\w.]+)"]
         assert parse_progress("Completed 101/132: spas0010.zip", patterns) == 76
 
@@ -86,11 +100,13 @@ class TestParseProgress:
 # Registry — get_converter
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestGetConverter:
     """Tests for registry.get_converter."""
 
     def test_returns_tecsuite_config(self):
         from app.registry import get_converter
+
         conv = get_converter("tec-suite")
         assert conv is not None
         assert conv["label"] == "TEC-Suite"
@@ -99,6 +115,7 @@ class TestGetConverter:
 
     def test_returns_none_for_unknown(self):
         from app.registry import get_converter
+
         assert get_converter("does_not_exist") is None
         assert get_converter("") is None
 
@@ -106,6 +123,7 @@ class TestGetConverter:
 # ─────────────────────────────────────────────────────────────────────────────
 # Registry — build_command
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestBuildCommand:
     """Tests for registry.build_command — converts form data into a CLI command."""
@@ -124,17 +142,20 @@ class TestBuildCommand:
 
     def test_volume_flags_produce_volumes_dict(self):
         from app.registry import build_command
+
         _, volumes = build_command("tec-suite", self._form())
         # Root host path should appear as a volume key
         assert "N:\\RINEX" in volumes
 
     def test_rinex_volume_is_readwrite(self):
         from app.registry import build_command
+
         _, volumes = build_command("tec-suite", self._form())
         assert volumes["N:\\RINEX"]["mode"] == "rw"
 
     def test_rinex_container_path_in_command(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form())
         # The command should reference selected container-side subpath, not host path
         assert "--root" in cmd
@@ -142,11 +163,13 @@ class TestBuildCommand:
 
     def test_root_subpath_year_only_in_command(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(root_subpath="/2026_original"))
         assert "/data/rinex/2026_original" in cmd
 
     def test_out_flag_not_present_for_tecsuite(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form())
         assert "-o" not in cmd
 
@@ -162,39 +185,46 @@ class TestBuildCommand:
 
     def test_jobs_flag_appears_in_command(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(jobs="10"))
         assert "-j" in cmd
         assert "10" in cmd
 
     def test_jobs_flag_accepts_one(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(jobs="1"))
         assert "-j" in cmd
         assert "1" in cmd
 
     def test_verbose_flag_appears_when_true(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(verbose=True))
         assert "-v" in cmd
 
     def test_verbose_flag_absent_when_false(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(verbose=False))
         assert "-v" not in cmd
 
     def test_cleanup_flag_appears_when_true(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form(cleanup=True))
         assert "-k" in cmd
 
     def test_config_path_always_present(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form())
         assert "-c" in cmd
         assert "/app/tecs.cfg" in cmd
 
     def test_tecs_script_path_always_present(self):
         from app.registry import build_command
+
         cmd, _ = build_command("tec-suite", self._form())
         assert "-t" in cmd
         assert "/app/tecs.py" in cmd
@@ -202,7 +232,8 @@ class TestBuildCommand:
     def test_empty_host_path_skipped(self):
         """If the user leaves the path blank, no volume should be added for it."""
         from app.registry import build_command
-        cmd, volumes = build_command("tec-suite", self._form(root=""))
+
+        _cmd, volumes = build_command("tec-suite", self._form(root=""))
         assert "N:\\RINEX" not in volumes
 
     def test_dat_parquet_uses_input_output_container_paths(self):
@@ -226,89 +257,10 @@ class TestBuildCommand:
         assert "/output" in cmd
 
 
-class TestRinexServerStructure:
-    """Tests for data_indexer_client.list_rinex_server_structure."""
-
-    def test_parses_xml_payload(self, monkeypatch):
-        from app import data_indexer_client as client
-
-        client._cache.clear()
-        monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
-
-        xml = (
-            '<?xml version="1.0" encoding="UTF-8" ?>'
-            '<rinex_structure><item><year>2026_original</year><days>'
-            '<item><day>01</day><stations>1</stations></item>'
-            '<item><day>365</day><stations>2</stations></item>'
-            '</days></item></rinex_structure>'
-        )
-
-        class _Resp:
-            text = xml
-            status_code = 200
-            headers: dict = {}
-
-            @staticmethod
-            def raise_for_status():
-                return None
-
-        monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _Resp())
-
-        tree = client.list_rinex_server_structure("/mnt/rinex-server")
-        assert tree == [{"year": "2026_original", "days": [{"day": "01", "stations": 1}, {"day": "365", "stations": 2}]}]
-
-    def test_returns_empty_when_service_not_configured(self, monkeypatch):
-        from app import data_indexer_client as client
-
-        client._cache.clear()
-        monkeypatch.setattr(client, "DATA_INDEXER_URL", "")
-        tree = client.list_rinex_server_structure("/mnt/rinex-server")
-        assert tree == []
-
-
-class TestTecsuiteOutputStructure:
-    """Tests for data_indexer_client.list_tecsuite_output_structure."""
-
-    def test_parses_xml_payload(self, monkeypatch):
-        from app import data_indexer_client as client
-
-        client._cache.clear()
-        monkeypatch.setattr(client, "DATA_INDEXER_URL", "http://data-indexer:5001")
-
-        xml = (
-            '<?xml version="1.0" encoding="UTF-8" ?>'
-            '<tecsuite_structure><item><year>2026</year><days>'
-            '<item><day>001</day><sites><item>aksu</item></sites></item>'
-            '<item><day>002</day><sites><item>cher</item></sites></item>'
-            '</days></item></tecsuite_structure>'
-        )
-
-        class _Resp:
-            text = xml
-            status_code = 200
-            headers: dict = {}
-
-            @staticmethod
-            def raise_for_status():
-                return None
-
-        monkeypatch.setattr(client.httpx, "get", lambda url, timeout, **kw: _Resp())
-
-        tree = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
-        assert tree == [{"year": "2026", "days": [{"day": "001", "sites": ["aksu"]}, {"day": "002", "sites": ["cher"]}]}]
-
-    def test_returns_empty_when_service_not_configured(self, monkeypatch):
-        from app import data_indexer_client as client
-
-        client._cache.clear()
-        monkeypatch.setattr(client, "DATA_INDEXER_URL", "")
-        tree = client.list_tecsuite_output_structure("/mnt/tecsuite-out")
-        assert tree == []
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner — start_container
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestStartContainer:
     """Tests for runner.start_container — verifies it calls the Docker SDK correctly."""
@@ -368,6 +320,7 @@ class TestStartContainer:
     def test_propagates_docker_exception(self, mock_from_env):
         """If Docker raises, the exception should propagate to the caller."""
         import docker.errors
+
         from app.runner import start_container
 
         mock_client = MagicMock()
@@ -381,6 +334,7 @@ class TestStartContainer:
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner — stop_container
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestStopContainer:
     """Tests for runner.stop_container."""
@@ -401,6 +355,7 @@ class TestStopContainer:
     def test_silently_ignores_missing_container(self, mock_from_env):
         """Stopping an already-removed container should not raise."""
         import docker.errors
+
         from app.runner import stop_container
 
         mock_client = MagicMock()
@@ -414,6 +369,7 @@ class TestStopContainer:
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner — stream_logs
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestStreamLogs:
     """Tests for runner.stream_logs."""

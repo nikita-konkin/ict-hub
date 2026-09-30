@@ -1,4 +1,5 @@
 """Durable job-event runtime for SSE replay and detached container reconciliation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +7,10 @@ import json
 import logging
 import re
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape as xml_escape
 
+from sqlalchemy import Connection, text
 from sqlalchemy.orm import Session
 
 from app import config as cfg
@@ -23,11 +25,11 @@ _producer_tasks: dict[int, asyncio.Task[None]] = {}
 _monitor_task: asyncio.Task[None] | None = None
 
 
-_ANSI_ESCAPE_RE = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
-_INVALID_XML_CHAR_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
+_ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_INVALID_XML_CHAR_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
-def _sanitize_xml_text(value: str) -> str:
+def _sanitize_xml_text(value: object) -> str:
     """Remove ANSI/control characters and XML-invalid codepoints."""
     text = str(value)
     text = _ANSI_ESCAPE_RE.sub("", text)
@@ -111,12 +113,54 @@ def _prune_job_log_events(db: Session, job_id: int, keep_last: int) -> None:
     db.commit()
 
 
+# Exit code recorded for a job the user stopped. Container exit codes are
+# 0-255, so it never collides with a real one.
+STOPPED_EXIT_CODE = -2
+
+
+def status_for_exit_code(exit_code: int) -> str:
+    """Terminal job status for an exit code: "success", "stopped" or "failed"."""
+    if exit_code == 0:
+        return "success"
+    if exit_code == STOPPED_EXIT_CODE:
+        return "stopped"
+    return "failed"
+
+
+def mark_legacy_stopped_jobs(conn: Connection) -> None:
+    """
+    Jobs stopped by the user used to be stored as "failed" with the stop exit
+    code. Give them, and the `done` events they replay, the "stopped" status.
+    """
+    conn.execute(
+        text(
+            "UPDATE job_events SET payload_xml = "
+            "replace(payload_xml, '<status>failed</status>', '<status>stopped</status>') "
+            "WHERE event_type = 'done' AND job_id IN "
+            "(SELECT id FROM job_runs WHERE status = 'failed' AND exit_code = :code)"
+        ),
+        {"code": STOPPED_EXIT_CODE},
+    )
+    conn.execute(
+        text("UPDATE job_runs SET status = 'stopped' WHERE status = 'failed' AND exit_code = :code"),
+        {"code": STOPPED_EXIT_CODE},
+    )
+
+
 def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent | None:
-    """Mark a job terminal and emit its durable `done` event exactly once."""
-    final_status = "success" if exit_code == 0 else "failed"
-    job.finished_at = job.finished_at or datetime.now(timezone.utc)
-    job.exit_code = exit_code
-    job.status = final_status
+    """
+    Mark a running job terminal and emit its durable `done` event exactly once.
+
+    The first terminal state wins. A user stop is recorded before the container
+    is stopped, and the container's own exit then reaches the log producer or
+    the direct stream as well; it must not overwrite the stop.
+    """
+    if job.status == "running":
+        job.finished_at = job.finished_at or datetime.now(UTC)
+        job.exit_code = exit_code
+        job.status = status_for_exit_code(exit_code)
+    final_status = job.status
+    recorded_exit_code = job.exit_code if job.exit_code is not None else exit_code
 
     existing_done = (
         db.query(JobEvent)
@@ -134,8 +178,8 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
         payload_xml=xml_payload(
             "done",
             status=final_status,
-            exit_code=exit_code,
-            finished_at=job.finished_at.isoformat(),
+            exit_code=recorded_exit_code,
+            finished_at=(job.finished_at or datetime.now(UTC)).isoformat(),
         ),
     )
     db.add(event)
@@ -150,11 +194,10 @@ def reconcile_job_state(job_id: int, db: Session | None = None) -> bool:
     is already terminal, even if no SSE consumer is attached.
     """
     owns_session = db is None
-    if owns_session:
+    if db is None:
         db = SessionLocal()
 
     try:
-        assert db is not None
         job = db.query(JobRun).filter(JobRun.id == job_id).first()
         if not job or job.status != "running" or not job.container_id:
             return False
@@ -197,7 +240,7 @@ async def ensure_job_producer(job_id: int) -> None:
         with suppress(asyncio.CancelledError):
             exc = done_task.exception()
             if exc is not None:
-                logger.exception("Job producer %s crashed", job_id, exc_info=exc)
+                logger.error("Job producer %s crashed", job_id, exc_info=exc)
 
     new_task.add_done_callback(_cleanup_task)
 
@@ -210,8 +253,10 @@ async def _produce_job_events(job_id: int) -> None:
         if not job or job.status != "running" or not job.container_id:
             return
 
-        if reconcile_job_state(job_id, db=db):
+        # reconcile_job_state calls the Docker API; keep it off the event loop.
+        if await asyncio.to_thread(reconcile_job_state, job_id):
             return
+        db.expire_all()
 
         conv = get_converter(job.converter)
         progress_patterns = conv.get("progress_patterns", []) if conv else []
@@ -275,7 +320,7 @@ async def _produce_job_events(job_id: int) -> None:
                     _prune_job_log_events(db, job_id, int(cfg.JOB_EVENT_LOG_MAX_LINES))
                 return
 
-        reconcile_job_state(job_id, db=db)
+        await asyncio.to_thread(reconcile_job_state, job_id)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -290,16 +335,13 @@ async def _monitor_running_jobs() -> None:
         try:
             db = SessionLocal()
             try:
-                running_job_ids = [
-                    row[0]
-                    for row in db.query(JobRun.id).filter(JobRun.status == "running").all()
-                ]
+                running_job_ids = [row[0] for row in db.query(JobRun.id).filter(JobRun.status == "running").all()]
             finally:
                 db.close()
 
             for job_id in running_job_ids:
                 try:
-                    finished = reconcile_job_state(job_id)
+                    finished = await asyncio.to_thread(reconcile_job_state, job_id)
                     if not finished:
                         await ensure_job_producer(job_id)
                 except Exception:

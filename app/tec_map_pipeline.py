@@ -10,20 +10,20 @@ It does NOT run tec-suite, and it does NOT parse `.dat` files.
 
 from __future__ import annotations
 
+import json
+import math
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
-import math
-import re
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from scipy.optimize import minimize_scalar
-
 
 EARTH_RADIUS_KM = 6371.0
 DEFAULT_MSTD_SEARCH_BOUNDS_TECU = (-150.0, 150.0)
@@ -258,9 +258,7 @@ def _coerce_datetime_column(
     if "hour" in frame.columns:
         return base_date + pd.to_timedelta(frame["hour"].astype(float), unit="h")
 
-    raise RuntimeError(
-        "Unable to reconstruct datetime for TEC records: missing 'datetime' and 'tsn'/'hour' columns."
-    )
+    raise RuntimeError("Unable to reconstruct datetime for TEC records: missing 'datetime' and 'tsn'/'hour' columns.")
 
 
 def normalize_tecsuite_parquet_frame(
@@ -302,17 +300,23 @@ def normalize_tecsuite_parquet_frame(
         "code_tec_c1p2",
         pd.Series(index=normalized.index, dtype=float),
     ).fillna(0.0)
-    normalized["validity"] = normalized.get(
-        "validity",
-        pd.Series(index=normalized.index, dtype=float),
-    ).fillna(0).astype(int)
+    normalized["validity"] = (
+        normalized.get(
+            "validity",
+            pd.Series(index=normalized.index, dtype=float),
+        )
+        .fillna(0)
+        .astype(int)
+    )
 
     if "phase_tec" not in normalized.columns:
         raise RuntimeError(f"{source_file} missing required TEC observable column: phase_tec / tec.l1l2")
 
     if normalized["site_lon"].isna().all() or normalized["site_lat"].isna().all():
         # If ECEF exists, derive lon/lat.
-        if not (normalized["site_x"].isna().all() or normalized["site_y"].isna().all() or normalized["site_z"].isna().all()):
+        if not (
+            normalized["site_x"].isna().all() or normalized["site_y"].isna().all() or normalized["site_z"].isna().all()
+        ):
             lats, lons, _alts = zip(
                 *[
                     ecef_to_geodetic(float(x), float(y), float(z))
@@ -390,7 +394,10 @@ def normalize_tecsuite_parquet_frame(
         if col not in normalized.columns:
             raise RuntimeError(f"{source_file} is missing required normalized column: {col}")
 
-    return normalized[required_columns + [c for c in ("site_x", "site_y", "site_z", "sat_x", "sat_y", "sat_z") if c in normalized.columns]]
+    return normalized[
+        required_columns
+        + [c for c in ("site_x", "site_y", "site_z", "sat_x", "sat_y", "sat_z") if c in normalized.columns]
+    ]
 
 
 def _iter_station_day_parquet_files(root: Path, year: int, doy: int, station: str) -> Iterable[Path]:
@@ -408,8 +415,7 @@ def _iter_station_day_parquet_files(root: Path, year: int, doy: int, station: st
         # archives produce shards whose epochs complement the daily file, so
         # dropping them loses data. Exact-duplicate rows are removed later in
         # load_tecs_parquet.
-        for path in sorted(station_dir.glob("*.parquet")):
-            yield path
+        yield from sorted(station_dir.glob("*.parquet"))
 
 
 def load_tecs_parquet(
@@ -465,8 +471,8 @@ def load_tecs_parquet(
     else:
         if not (start_time and end_time):
             raise ValueError("Range mode requires both `start_time` and `end_time`.")
-        start_is_clock = ("T" not in start_time and " " not in start_time)
-        end_is_clock = ("T" not in end_time and " " not in end_time)
+        start_is_clock = "T" not in start_time and " " not in start_time
+        end_is_clock = "T" not in end_time and " " not in end_time
         clock_mode = start_is_clock and end_is_clock
         start_dt = _parse_utc_timestamp(start_time) if not start_is_clock else _combine_clock(start_time)
         end_dt = _parse_utc_timestamp(end_time) if not end_is_clock else _combine_clock(end_time)
@@ -489,7 +495,7 @@ def load_tecs_parquet(
 
             meta = _parquet_header_metadata_from_schema(schema) if schema is not None else {}
 
-            filters: list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None = None
+            filters: list[tuple[str, str, Any]] | list[list[tuple[str, str, Any]]] | None = None
             try:
                 start_seconds = float((pd.Timestamp(start_dt) - pd.Timestamp(base_date)).total_seconds())
                 end_seconds = float((pd.Timestamp(end_dt) - pd.Timestamp(base_date)).total_seconds())
@@ -498,8 +504,8 @@ def load_tecs_parquet(
                 interval_seconds = meta.get("interval_seconds")
                 if available_columns and "tsn" in available_columns and interval_seconds:
                     dt_seconds = float(interval_seconds)
-                    start_tsn = int(math.floor(start_seconds / dt_seconds))
-                    end_tsn = int(math.ceil(end_seconds / dt_seconds))
+                    start_tsn = math.floor(start_seconds / dt_seconds)
+                    end_tsn = math.ceil(end_seconds / dt_seconds)
                     if wraps:
                         filters = [[("tsn", ">=", start_tsn)], [("tsn", "<=", end_tsn)]]
                     else:
@@ -549,7 +555,9 @@ def load_tecs_parquet(
     raw_links = raw_links.sort_values(["station", "satellite", "datetime"]).reset_index(drop=True)
     # "__dupN" shards may repeat epochs already present in the canonical shard
     # (same archive converted twice); keep one row per link epoch.
-    raw_links = raw_links.drop_duplicates(subset=["station", "satellite", "datetime"], keep="first").reset_index(drop=True)
+    raw_links = raw_links.drop_duplicates(subset=["station", "satellite", "datetime"], keep="first").reset_index(
+        drop=True
+    )
 
     # Filter by time selection.
     # - ISO timestamps: absolute inclusive filter.
@@ -574,6 +582,7 @@ def load_tecs_parquet(
 # ---------------------------------------------------------------------------
 # Transform pipeline (ported from prototype: leveled_slm path)
 # ---------------------------------------------------------------------------
+
 
 def select_code_tec(group: pd.DataFrame) -> pd.Series:
     preferred = group["code_tec_p1p2"].where(group["code_tec_p1p2"].abs() > 1e-3)
@@ -630,11 +639,15 @@ def ipp_coordinates(
     el = np.deg2rad(elevation_deg.to_numpy())
     az = np.deg2rad(azimuth_deg.to_numpy())
 
-    psi = np.pi / 2.0 - el - np.arcsin(
-        np.clip(
-            EARTH_RADIUS_KM / (EARTH_RADIUS_KM + float(ionosphere_height_km)) * np.cos(el),
-            -1.0,
-            1.0,
+    psi = (
+        np.pi / 2.0
+        - el
+        - np.arcsin(
+            np.clip(
+                EARTH_RADIUS_KM / (EARTH_RADIUS_KM + float(ionosphere_height_km)) * np.cos(el),
+                -1.0,
+                1.0,
+            )
         )
     )
 
@@ -689,7 +702,9 @@ def build_leveled_links(raw_links: pd.DataFrame, config: TecMapConfig) -> pd.Dat
 
     if config.enforce_nonnegative_vtec:
         leveled_links["vtec_tecu"] = leveled_links["vtec_tecu"].clip(lower=0.0)
-    leveled_links = leveled_links[leveled_links["vtec_tecu"].between(0 if config.enforce_nonnegative_vtec else -200, 200)].copy()
+    leveled_links = leveled_links[
+        leveled_links["vtec_tecu"].between(0 if config.enforce_nonnegative_vtec else -200, 200)
+    ].copy()
     return leveled_links
 
 
@@ -708,10 +723,9 @@ def smooth_vtec_temporal(leveled_links: pd.DataFrame, window_epochs: int) -> pd.
         return leveled_links
 
     out = leveled_links.sort_values(["station", "satellite", "arc_id", "datetime"]).copy()
-    out["vtec_tecu"] = (
-        out.groupby(["station", "satellite", "arc_id"], sort=False, group_keys=False)["vtec_tecu"]
-        .transform(lambda s: s.rolling(window=int(window_epochs), center=True, min_periods=1).median())
-    )
+    out["vtec_tecu"] = out.groupby(["station", "satellite", "arc_id"], sort=False, group_keys=False)[
+        "vtec_tecu"
+    ].transform(lambda s: s.rolling(window=int(window_epochs), center=True, min_periods=1).median())
     return out
 
 
@@ -761,9 +775,7 @@ def normalize_station_offsets(
         # A station is "MSTD-failed" if any of its rows have rx_bias_estimated == False.
         # In practice MSTD success/failure is per (station, day, code-pair) — so a partial
         # failure still leaves uncalibrated samples, and we should normalise the whole station.
-        failed_stations = set(
-            out.loc[~out["rx_bias_estimated"].astype(bool), "station"].unique()
-        )
+        failed_stations = set(out.loc[~out["rx_bias_estimated"].astype(bool), "station"].unique())
         offsets = offsets.loc[offsets.index.isin(failed_stations)]
     elif mode != "always":
         return out
@@ -813,6 +825,7 @@ def build_frame_summary(leveled_links: pd.DataFrame, config: TecMapConfig) -> pd
 # Bias correction (ported from prototype: leveled_slm path)
 # ---------------------------------------------------------------------------
 
+
 def apply_bias_corrections(leveled_links: pd.DataFrame, config: TecMapConfig) -> pd.DataFrame:
     """
     Apply bias corrections consistent with the prototype's default configuration.
@@ -849,17 +862,17 @@ def annotate_tecsuite_bias_metadata(leveled_links: pd.DataFrame) -> pd.DataFrame
     if "constellation" not in leveled_links.columns:
         leveled_links["constellation"] = leveled_links["satellite"].astype(str).str[0]
 
-    p1p2_mask = leveled_links.get(
-        "code_tec_p1p2",
-        pd.Series(0.0, index=leveled_links.index),
-    ).abs() > 1e-3
-    c1p2_mask = (
-        ~p1p2_mask
-        & leveled_links.get(
-            "code_tec_c1p2",
+    p1p2_mask = (
+        leveled_links.get(
+            "code_tec_p1p2",
             pd.Series(0.0, index=leveled_links.index),
-        ).abs().fillna(0.0).gt(1e-3)
+        ).abs()
+        > 1e-3
     )
+    c1p2_mask = ~p1p2_mask & leveled_links.get(
+        "code_tec_c1p2",
+        pd.Series(0.0, index=leveled_links.index),
+    ).abs().fillna(0.0).gt(1e-3)
     gps_mask = leveled_links["constellation"].astype(str).str.upper() == "G"
 
     if "c1_code" not in leveled_links.columns:
@@ -931,7 +944,7 @@ def estimate_receiver_bias_mstd_group(
     mapping_factor = sample["mapping_factor"].to_numpy(dtype=float)
     frame_time = pd.to_datetime(sample["datetime"]).to_numpy(dtype="datetime64[ns]")
     # Precompute epoch groups once to avoid rebuilding DataFrames inside the optimizer.
-    epoch_ids, inverse = np.unique(frame_time, return_inverse=True)
+    _epoch_ids, inverse = np.unique(frame_time, return_inverse=True)
     counts = np.bincount(inverse)
     valid_epochs = counts >= 2
     if not bool(valid_epochs.any()):
@@ -963,12 +976,10 @@ def estimate_receiver_bias_mstd_group(
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+
 def ecef_to_geodetic(x_m: float, y_m: float, z_m: float) -> tuple[float, float, float]:
     p = math.hypot(x_m, y_m)
-    if p < 1e-9:
-        lon = 0.0
-    else:
-        lon = math.atan2(y_m, x_m)
+    lon = 0.0 if p < 1e-9 else math.atan2(y_m, x_m)
     theta = math.atan2(z_m * WGS84_A_M, p * WGS84_B_M)
     sin_theta = math.sin(theta)
     cos_theta = math.cos(theta)

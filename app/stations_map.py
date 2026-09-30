@@ -39,6 +39,7 @@ async def stations_map_page(
     )
 
     response = templates.TemplateResponse(
+        request,
         "stations_map.html",
         template_context(
             request,

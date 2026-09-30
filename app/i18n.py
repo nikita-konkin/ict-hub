@@ -1,4 +1,5 @@
 """Simple i18n helpers for EN/RU UI localization."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -304,6 +305,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "run_starting": "Starting container...",
         "badge_running": "Running",
         "badge_success": "Success",
+        "badge_stopped": "Stopped",
         "analysis_page_subtitle": "Query TEC data, preview pivot summaries, and render plots from the analysis backend.",
         "analysis_data_query_builder": "Data Query Builder",
         "analysis_label_endpoint": "Endpoint",
@@ -362,8 +364,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "flag_label_min_data_rows": "Minimum Data Rows Per Station",
         "flag_help_min_data_rows": (
-            "Skip stations whose .dat files hold fewer than this many usable rows in "
-            "total. 0 disables the check."
+            "Skip stations whose .dat files hold fewer than this many usable rows in total. 0 disables the check."
         ),
         "feedback_button": "Feedback",
         "feedback_title": "Send feedback",
@@ -679,6 +680,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "run_starting": "Запуск контейнера...",
         "badge_running": "Выполняется",
         "badge_success": "Успешно",
+        "badge_stopped": "Остановлено",
         "analysis_page_subtitle": "Запрашивайте TEC-данные, просматривайте сводные итоги и строите графики из backend аналитики.",
         "analysis_data_query_builder": "Конструктор запросов данных",
         "analysis_label_endpoint": "Эндпоинт",
@@ -820,7 +822,12 @@ def template_context(request: Request, context: Mapping[str, Any] | None = None,
     def _t(key: str, **fmt_kwargs: Any) -> str:
         return translate(lang, key, **fmt_kwargs)
 
+    def _t_dict(*keys: str) -> dict[str, str]:
+        """Several translations at once, for a page script's JSON data island."""
+        return {key: translate(lang, key) for key in keys}
+
     merged["t"] = _t
+    merged["t_dict"] = _t_dict
     return merged
 
 

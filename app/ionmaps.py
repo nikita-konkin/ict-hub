@@ -7,6 +7,7 @@ validation), so it now has a dedicated page. The data endpoints stay under
 /tec-map/* and, like this page, are gated by the "analysis" page permission —
 moving the UI must not change anyone's access.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
@@ -29,6 +30,7 @@ async def ionmaps_page(
 ):
     """IonMaps page: build VTEC / GDD / B_k maps from TEC-suite parquet data."""
     response = templates.TemplateResponse(
+        request,
         "ionmaps.html",
         template_context(
             request,

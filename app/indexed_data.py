@@ -18,9 +18,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
-from app.auth import get_current_user, require_page_access
+from app.auth import require_page_access
 from app.data_indexer_client import (
     clear_cache as clear_data_indexer_cache,
+)
+from app.data_indexer_client import (
     list_abstec_output_structure_async,
     list_parquet_output_structure_async,
     list_rinex_server_structure_async,
@@ -97,7 +99,8 @@ def _with_doy_days(tree: list[dict[str, object]]) -> list[dict[str, object]]:
     for year in tree:
         year_label = year.get("year", "")
         days: list[object] = []
-        for day in year.get("days") or []:
+        days_raw = year.get("days")
+        for day in days_raw if isinstance(days_raw, list) else []:
             if isinstance(day, dict):
                 doy, calendar = _day_labels(day.get("day"), year_label)
                 days.append({**day, "day": doy, "date": calendar})
@@ -125,7 +128,9 @@ async def indexed_data_page(
         "parquet_tecsuite": _scan_root(
             cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST
         ),
-        "parquet_abstec": _scan_root(cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST),
+        "parquet_abstec": _scan_root(
+            cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST
+        ),
     }
 
     rinex_tree = (
@@ -156,6 +161,7 @@ async def indexed_data_page(
     )
 
     response = templates.TemplateResponse(
+        request,
         "indexed_data.html",
         template_context(
             request,

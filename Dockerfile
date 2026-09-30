@@ -1,3 +1,19 @@
+# ── Stage: third-party browser assets ─────────────────────────────────────────
+# htmx, Plotly and the web fonts are served by the app itself (it runs on a
+# local network), but they are not committed: this stage downloads them.
+# The script verifies the scripts' pinned SHA-256 hashes and fails the build
+# on any mismatch or network error. Only the downloaded files are copied into
+# the final image, and this layer stays cached until the script changes.
+FROM python:3.12-slim AS vendor
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /build
+COPY scripts/fetch_vendor_assets.py scripts/
+RUN python scripts/fetch_vendor_assets.py
+
 # ── Stage: production image ───────────────────────────────────────────────────
 # We use python:3.12-slim (Debian-based) rather than Alpine because the
 # docker SDK and passlib[bcrypt] compile native extensions that are far easier
@@ -28,6 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # If requirements.txt hasn't changed, pip install is skipped on subsequent builds.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Third-party browser assets from the vendor stage
+COPY --from=vendor /build/app/static/vendor/ ./app/static/vendor/
 
 # Copy the rest of the application source
 COPY app/ ./app/

@@ -1,0 +1,27 @@
+.param-required .form-label {
+  color: var(--accent);
+}
+.param-required .form-input,
+.param-required .form-select {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.param-irrelevant {
+  opacity: 0.45;
+}
+.param-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.param-hint b {
+  color: var(--text);
+  font-weight: 500;
+}
+#data-query-url,
+#plot-query-url {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}

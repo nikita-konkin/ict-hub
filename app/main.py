@@ -5,25 +5,30 @@ This is the entry point Uvicorn runs. It wires together all the middleware,
 routers, static files, and templates, then performs first-boot initialisation
 (creating database tables and a default admin user if none exist).
 """
+
 from __future__ import annotations
 
 import logging
+import os
+import urllib.parse
 from contextlib import asynccontextmanager
 
-import urllib.parse
-
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+from fastapi.responses import RedirectResponse as _RR
+from fastapi.responses import Response as _Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import Receive, Scope, Send
 
 from app import analysis, auth, feedback, indexed_data, ionmaps, jobs, stations_map, tec_map
 from app import config as cfg
 from app.auth import hash_password, verify_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
 from app.database import SessionLocal, engine
-from app.job_runtime import start_job_runtime, stop_job_runtime
+from app.job_runtime import mark_legacy_stopped_jobs, start_job_runtime, stop_job_runtime
 from app.models import Base, User
 
 logging.basicConfig(
@@ -36,6 +41,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Lifespan (replaces deprecated @app.on_event("startup"))
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,11 +80,10 @@ async def lifespan(app: FastAPI):
         # Performance/size guardrails for large job-event tables.
         # This helps pruning queries avoid full-table scans.
         conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id "
-                "ON job_events(job_id, event_type, id)"
-            )
+            text("CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id ON job_events(job_id, event_type, id)")
         )
+
+        mark_legacy_stopped_jobs(conn)
 
     # If no users exist at all, create a default admin so the system is usable
     # immediately after first boot. The admin can then create other accounts.
@@ -115,7 +120,8 @@ async def lifespan(app: FastAPI):
                     flagged = True
                     logger.warning(
                         "Admin %r still uses the default/weak password; flagged for a "
-                        "forced password change on next login.", admin_u.username
+                        "forced password change on next login.",
+                        admin_u.username,
                     )
             if flagged:
                 db.commit()
@@ -151,9 +157,25 @@ app.add_middleware(
     same_site="lax",
 )
 
-# Compress responses over 1KB. base.html alone is ~64KB of inline CSS/JS
-# (every page ships it, since there's no SPA routing) — gzip cuts that to ~13KB.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+class _GZipExceptEventStreams(GZipMiddleware):
+    """
+    GZipMiddleware that leaves Server-Sent Events uncompressed. The compressor
+    holds output back until its buffer fills, so gzipped job-log events reached
+    the browser in bursts, or only when the job ended. Newer Starlette releases
+    skip text/event-stream themselves; the pinned one does not. The request is
+    enough to tell: EventSource always sends `Accept: text/event-stream`.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and "text/event-stream" in Headers(scope=scope).get("accept", ""):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+# Compress responses over 1KB (pages, and the CSS/JS under /static).
+app.add_middleware(_GZipExceptEventStreams, minimum_size=1000)
 
 
 # ── Security headers + CSRF (Origin) guard ────────────────────────────────────
@@ -204,17 +226,16 @@ def _apply_security_headers(request: Request, response) -> None:
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    if cfg.CSRF_ORIGIN_CHECK_ENABLED and request.method not in _SAFE_METHODS:
-        if not _request_is_same_origin(request):
-            return PlainTextResponse("Cross-origin request blocked", status_code=403)
+    if cfg.CSRF_ORIGIN_CHECK_ENABLED and request.method not in _SAFE_METHODS and not _request_is_same_origin(request):
+        return PlainTextResponse("Cross-origin request blocked", status_code=403)
     response = await call_next(request)
     if cfg.SECURITY_HEADERS_ENABLED:
         _apply_security_headers(request, response)
     return response
 
+
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
-import os as _os
-_os.makedirs("app/static", exist_ok=True)
+os.makedirs("app/static", exist_ok=True)
 
 # Serve CSS / any future static assets
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -239,14 +260,18 @@ app.include_router(tec_map.router)
 # FastAPI by default turns HTTPExceptions into JSON responses. We need 303
 # redirects (from the auth dependency) to actually redirect, not return JSON.
 
-from fastapi import HTTPException
-from fastapi.responses import RedirectResponse as _RR
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 303:
-        location = exc.headers.get("Location", "/login")
+        location = (exc.headers or {}).get("Location", "/login")
+        if request.headers.get("HX-Request") == "true":
+            # The XHR would follow a 303 itself and HTMX would swap the login
+            # (or password-change) page into the fragment target; ask HTMX to
+            # navigate the whole page instead.
+            return _Response(status_code=204, headers={"HX-Redirect": location})
         return _RR(url=location, status_code=303)
     # For all other HTTP errors, re-raise so FastAPI's default handler runs
     from fastapi.exception_handlers import http_exception_handler as _default
+
     return await _default(request, exc)

@@ -5,12 +5,17 @@ Key design decisions:
   - We use an in-memory SQLite database for tests so each test run starts clean
     and nothing is written to disk. SQLAlchemy receives a fresh engine per
     test session and all tables are created before any test runs.
-  - The Docker SDK is mocked out entirely via pytest-mock so tests can run on
-    any machine (no Docker daemon required).
+  - Tests never reach a Docker daemon: docker.from_env() fails as if Docker
+    were unavailable (see no_real_docker), and tests that need container
+    behaviour patch the runner functions or docker.from_env themselves.
   - We use FastAPI's TestClient (backed by httpx) which runs the full ASGI
     middleware stack, including session middleware and auth dependencies.
 """
+
 import os
+
+import docker
+import docker.errors
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -20,10 +25,12 @@ from sqlalchemy.orm import sessionmaker
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["JOB_RUNTIME_ENABLED"] = "0"
 
+from datetime import UTC
+
 from app.auth import hash_password
 from app.database import Base, get_db
-from app.models import User, JobRun
 from app.main import app
+from app.models import JobRun, User
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory database for tests
@@ -38,6 +45,20 @@ test_engine = create_engine(
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+@pytest.fixture(autouse=True)
+def no_real_docker(monkeypatch):
+    """Keep tests away from the Docker daemon of the machine running them.
+
+    Without this, a test that forgets to patch start_container launches a real
+    container, and page renders list the host's real containers.
+    """
+
+    def _refuse(*args, **kwargs):
+        raise docker.errors.DockerException("tests must not use the real Docker daemon")
+
+    monkeypatch.setattr(docker, "from_env", _refuse)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def create_tables():
     """Create all tables once for the entire test session."""
@@ -46,7 +67,7 @@ def create_tables():
     Base.metadata.drop_all(bind=test_engine)
 
 
-@pytest.fixture()
+@pytest.fixture
 def db():
     """
     Provide a clean database session for each test and roll back all changes
@@ -63,13 +84,14 @@ def db():
     connection.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(db):
     """
     FastAPI TestClient with the database dependency overridden to use our
     test session. This is FastAPI's recommended approach to dependency
     injection in tests.
     """
+
     def override_get_db():
         try:
             yield db
@@ -86,7 +108,8 @@ def client(db):
 # User fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
-@pytest.fixture()
+
+@pytest.fixture
 def admin_user(db) -> User:
     """Create and persist an admin user for use in tests."""
     user = User(
@@ -101,7 +124,7 @@ def admin_user(db) -> User:
     return user
 
 
-@pytest.fixture()
+@pytest.fixture
 def operator_user(db) -> User:
     """Create and persist an operator user for use in tests."""
     user = User(
@@ -116,7 +139,7 @@ def operator_user(db) -> User:
     return user
 
 
-@pytest.fixture()
+@pytest.fixture
 def inactive_user(db) -> User:
     """Create an inactive (deactivated) user."""
     user = User(
@@ -135,6 +158,7 @@ def inactive_user(db) -> User:
 # Authenticated client helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _login(client: TestClient, username: str, password: str) -> TestClient:
     """Helper that logs in via the form endpoint and returns the client."""
     response = client.post(
@@ -146,13 +170,13 @@ def _login(client: TestClient, username: str, password: str) -> TestClient:
     return client
 
 
-@pytest.fixture()
+@pytest.fixture
 def admin_client(client, admin_user) -> TestClient:
     """TestClient with an active admin session."""
     return _login(client, "test_admin", "adminpass")
 
 
-@pytest.fixture()
+@pytest.fixture
 def operator_client(client, operator_user) -> TestClient:
     """TestClient with an active operator session."""
     return _login(client, "test_operator", "operpass")
@@ -162,11 +186,12 @@ def operator_client(client, operator_user) -> TestClient:
 # Sample job run fixture
 # ─────────────────────────────────────────────────────────────────────────────
 
-@pytest.fixture()
+
+@pytest.fixture
 def completed_job(db, operator_user) -> JobRun:
     """A finished (successful) job owned by the operator user."""
     import json
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
 
     job = JobRun(
         user_id=operator_user.id,
@@ -176,8 +201,8 @@ def completed_job(db, operator_user) -> JobRun:
         output_path="/app/out",
         container_id="abc123def456",
         status="success",
-        started_at=datetime.now(timezone.utc) - timedelta(seconds=120),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC) - timedelta(seconds=120),
+        finished_at=datetime.now(UTC),
         exit_code=0,
     )
     db.add(job)

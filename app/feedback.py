@@ -4,18 +4,18 @@ feedback.py — Lightweight user feedback / bug report capture.
 Variant A: a quick in-page widget for logged-in users, with an admin-only
 page to review all submissions.
 """
+
 from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.exc import OperationalError
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_admin_user, get_current_user
 from app.database import engine, get_db
@@ -60,6 +60,7 @@ async def submit_feedback(
                 status_code=400,
             )
         response = templates.TemplateResponse(
+            request,
             "feedback_result.html",
             template_context(
                 request,
@@ -79,6 +80,7 @@ async def submit_feedback(
                 status_code=400,
             )
         response = templates.TemplateResponse(
+            request,
             "feedback_result.html",
             template_context(
                 request,
@@ -110,6 +112,7 @@ async def submit_feedback(
         if "no such table" in msg and "feedback_reports" in msg:
             try:
                 from app.models import Base
+
                 Base.metadata.create_all(bind=engine)
                 db.rollback()
                 db.add(report)
@@ -130,6 +133,7 @@ async def submit_feedback(
         )
 
     response = templates.TemplateResponse(
+        request,
         "feedback_result.html",
         template_context(request, ok=True, report_id=report.id, converters=CONVERTERS),
     )
@@ -143,11 +147,7 @@ async def feedback_admin(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
 ):
-    query = (
-        db.query(FeedbackReport)
-        .options(joinedload(FeedbackReport.user))
-        .order_by(FeedbackReport.created_at.desc())
-    )
+    query = db.query(FeedbackReport).options(joinedload(FeedbackReport.user)).order_by(FeedbackReport.created_at.desc())
     filt = str(status_filter or "").strip().lower()
     if filt in {"new", "seen"}:
         query = query.filter(FeedbackReport.status == filt)
@@ -156,6 +156,7 @@ async def feedback_admin(
     total_reports = db.query(func.count(FeedbackReport.id)).scalar() or 0
     total_new = db.query(func.count(FeedbackReport.id)).filter(FeedbackReport.status == "new").scalar() or 0
     response = templates.TemplateResponse(
+        request,
         "feedback_admin.html",
         template_context(
             request,
@@ -206,10 +207,7 @@ async def download_feedback_xml(
     admin: User = Depends(get_admin_user),
 ):
     report = (
-        db.query(FeedbackReport)
-        .options(joinedload(FeedbackReport.user))
-        .filter(FeedbackReport.id == report_id)
-        .first()
+        db.query(FeedbackReport).options(joinedload(FeedbackReport.user)).filter(FeedbackReport.id == report_id).first()
     )
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback report not found")

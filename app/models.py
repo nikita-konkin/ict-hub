@@ -5,13 +5,12 @@ Two tables: User (authentication & role) and JobRun (audit log of every
 container execution). Keeping them in one file makes the data schema easy
 to understand at a glance.
 """
+
 import json
 import re
 from datetime import datetime
 
-from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, String, Text, func
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -138,10 +137,11 @@ class JobRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    # Container exit code: 0 = success, non-zero = failure, None = still running
+    # Container exit code: 0 = success, non-zero = failure, None = still running,
+    # -2 = stopped by the user, -1 = unknown or never started
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Human-readable status: "running" | "success" | "failed" | "error"
+    # Human-readable status: "running" | "success" | "failed" | "stopped" | "error"
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
 
     # Relationship back to user
@@ -263,6 +263,7 @@ class JobRun(Base):
             "running": "running",
             "success": "success",
             "failed": "danger",
+            "stopped": "muted",
             "error": "danger",
         }.get(self.status, "muted")
 
@@ -305,6 +306,7 @@ class AuditLog(Base):
     snapshot of the attempted/acting name so the entry stays meaningful even if
     the user is later removed.
     """
+
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

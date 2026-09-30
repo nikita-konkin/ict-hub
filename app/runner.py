@@ -11,6 +11,7 @@ Design note: Docker's Python SDK is synchronous. All blocking calls are
 offloaded to a thread pool via asyncio.get_event_loop().run_in_executor()
 so they don't block FastAPI's event loop.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,8 +19,9 @@ import logging
 import queue
 import re
 import threading
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from contextlib import suppress
+from datetime import datetime
 
 import docker
 import docker.errors
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _parse_docker_datetime(value: str | None) -> datetime | None:
     raw = str(value or "").strip()
@@ -47,21 +50,17 @@ def _best_container_image_ref(container: object) -> str:
     Return best-effort image ref string for a Docker SDK container object.
     Prefer repository tags when available; fall back to attrs.Config.Image.
     """
-    try:
+    with suppress(Exception):
         image = getattr(container, "image", None)
         tags = getattr(image, "tags", None) if image is not None else None
         if isinstance(tags, list) and tags:
             return str(tags[0])
-    except Exception:
-        pass
-    try:
+    with suppress(Exception):
         attrs = getattr(container, "attrs", {}) or {}
         config = attrs.get("Config", {}) or {}
         img = config.get("Image")
         if img:
             return str(img)
-    except Exception:
-        pass
     return ""
 
 
@@ -81,10 +80,8 @@ def list_running_containers() -> list[dict[str, object]]:
 
     results: list[dict[str, object]] = []
     for container in containers:
-        try:
+        with suppress(Exception):
             container.reload()
-        except Exception:
-            pass
 
         attrs = getattr(container, "attrs", {}) or {}
         state = attrs.get("State", {}) or {}
@@ -126,7 +123,10 @@ def start_container(
     client = docker.from_env()
     logger.info(
         "Starting container: image=%s command=%s volumes=%s auto_remove=%s",
-        image, command, list(volumes.keys()), auto_remove
+        image,
+        command,
+        list(volumes.keys()),
+        auto_remove,
     )
     container = client.containers.run(
         image=image,
@@ -140,6 +140,8 @@ def start_container(
         security_opt=["no-new-privileges:true"],
     )
     logger.info("Container started: id=%s", container.short_id)
+    if container.id is None:
+        raise docker.errors.DockerException("Docker returned no id for the started container")
     return container.id
 
 
@@ -168,9 +170,7 @@ def ensure_container_running(name: str) -> str:
         return "started"
     if bool(state.get("Running", False)):
         return "running"
-    logger.info(
-        "Container %s is %s; starting it", name, state.get("Status", "unknown")
-    )
+    logger.info("Container %s is %s; starting it", name, state.get("Status", "unknown"))
     container.start()
     return "started"
 
@@ -208,7 +208,7 @@ async def stream_logs(
                 follow=True,
                 stdout=True,
                 stderr=True,
-                tail=tail,
+                tail=tail if isinstance(tail, int) else "all",
                 timestamps=False,
             ):
                 line = chunk.decode("utf-8", errors="replace").rstrip("\n\r")
@@ -247,9 +247,7 @@ async def stream_logs(
     while True:
         # get() is blocking — run it in the executor to avoid blocking the loop
         try:
-            event_type, payload = await loop.run_in_executor(
-                None, lambda: log_queue.get(timeout=15.0)
-            )
+            event_type, payload = await loop.run_in_executor(None, lambda: log_queue.get(timeout=15.0))
         except queue.Empty:
             # Heartbeat: keeps the SSE connection alive during long pauses
             yield ("heartbeat", "")
@@ -258,10 +256,8 @@ async def stream_logs(
         if event_type == "_eof":
             break
         elif event_type == "exit_code":
-            try:
-                stream_exit_code = int(payload)
-            except (TypeError, ValueError):
-                pass
+            if isinstance(payload, int):
+                stream_exit_code = payload
         elif event_type == "error":
             yield ("error", str(payload))
             break
@@ -272,12 +268,11 @@ async def stream_logs(
             yield ("log", line)
 
             progress = parse_progress(line, progress_patterns)
-            if progress is not None:
-                # Keep progress monotonic for UI stability when multiple
-                # patterns match different scales in the same log stream.
-                if last_progress is None or progress > last_progress:
-                    yield ("progress", progress)
-                    last_progress = progress
+            # Keep progress monotonic for UI stability when multiple
+            # patterns match different scales in the same log stream.
+            if progress is not None and (last_progress is None or progress > last_progress):
+                yield ("progress", progress)
+                last_progress = progress
 
     # Container has finished writing logs — resolve final exit code.
     if stream_exit_code is not None:
@@ -349,6 +344,7 @@ def get_container_state(container_id: str) -> dict[str, object]:
 # Progress parsing
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def parse_progress(line: str, patterns: list[str]) -> int | None:
     """
     Try each regex pattern against a log line and return a 0–100 integer if
@@ -384,6 +380,7 @@ def parse_progress(line: str, patterns: list[str]) -> int | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _get_exit_code_only(container_id: str) -> int:
     """

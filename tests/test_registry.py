@@ -7,9 +7,9 @@ Tests validate:
   - Translation key availability for new options
   - Command building with new converter options
 """
-import pytest
-from app.registry import CONVERTERS, get_converter, build_command
+
 from app.i18n import _TRANSLATIONS as TRANSLATIONS
+from app.registry import CONVERTERS, build_command, get_converter
 
 
 class TestConverterRegistry:
@@ -74,16 +74,14 @@ class TestConverterRegistry:
         """Every flag should have a human-readable label."""
         for conv_name, conv in CONVERTERS.items():
             for flag in conv.get("flags", []):
-                assert "label" in flag, \
-                    f"Flag {flag.get('long')} in {conv_name} missing label"
+                assert "label" in flag, f"Flag {flag.get('long')} in {conv_name} missing label"
                 assert len(flag["label"]) > 0
 
     def test_all_flags_have_help_text(self):
         """Every flag should have help/description text."""
         for conv_name, conv in CONVERTERS.items():
             for flag in conv.get("flags", []):
-                assert "help" in flag, \
-                    f"Flag {flag.get('long')} in {conv_name} missing help text"
+                assert "help" in flag, f"Flag {flag.get('long')} in {conv_name} missing help text"
                 assert len(flag["help"]) > 0
 
     def test_number_flags_have_min_max(self):
@@ -93,36 +91,34 @@ class TestConverterRegistry:
                 if flag.get("type") == "number":
                     # min and max should be present for constrained number fields
                     # Some flags like --execution-timeout-seconds may omit max for open-ended values
-                    assert "min" in flag or "max" in flag, \
+                    assert "min" in flag or "max" in flag, (
                         f"Number flag {flag.get('long')} in {conv_name} should have at least min or max"
+                    )
                     if "min" in flag and "max" in flag:
-                        assert flag["min"] <= flag["max"], \
+                        assert flag["min"] <= flag["max"], (
                             f"Number flag {flag.get('long')} in {conv_name} has min > max"
+                        )
 
     def test_select_flags_have_options(self):
         """Select-type flags should have options list."""
         for conv_name, conv in CONVERTERS.items():
             for flag in conv.get("flags", []):
                 if flag.get("type") == "select":
-                    assert "options" in flag, \
-                        f"Select flag {flag.get('long')} in {conv_name} missing options"
+                    assert "options" in flag, f"Select flag {flag.get('long')} in {conv_name} missing options"
                     assert len(flag["options"]) > 0
 
     def test_all_converters_have_container_volumes(self):
         """Every converter should define container volume mappings."""
         for conv_name, conv in CONVERTERS.items():
-            assert "container_volumes" in conv, \
-                f"Converter {conv_name} missing container_volumes"
+            assert "container_volumes" in conv, f"Converter {conv_name} missing container_volumes"
             assert isinstance(conv["container_volumes"], dict)
             assert len(conv["container_volumes"]) > 0
 
     def test_all_converters_have_image_and_label(self):
         """Every converter should have image and label."""
         for conv_name, conv in CONVERTERS.items():
-            assert "image" in conv and conv["image"], \
-                f"Converter {conv_name} missing image"
-            assert "label" in conv and conv["label"], \
-                f"Converter {conv_name} missing label"
+            assert conv.get("image"), f"Converter {conv_name} missing image"
+            assert conv.get("label"), f"Converter {conv_name} missing label"
 
 
 class TestTranslationKeys:
@@ -181,12 +177,9 @@ class TestTranslationKeys:
         en_keys = set(TRANSLATIONS["en"].keys())
         ru_keys = set(TRANSLATIONS["ru"].keys())
         assert en_keys == ru_keys, "EN and RU should have the same keys"
-        
+
         # Check that some translations are actually different
-        different_count = sum(
-            1 for key in en_keys
-            if TRANSLATIONS["en"].get(key) != TRANSLATIONS["ru"].get(key)
-        )
+        different_count = sum(1 for key in en_keys if TRANSLATIONS["en"].get(key) != TRANSLATIONS["ru"].get(key))
         assert different_count > 0, "RU and EN translations should have differences"
 
 
@@ -195,14 +188,14 @@ class TestCommandBuilding:
 
     def test_build_tec_suite_command_with_days_filter(self):
         """TEC-Suite command with --days filter should include the flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
                 "root_subpath": "/2026_original/001",
                 "jobs": "2",
                 "days": "1-5,10",
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         assert "--days" in cmd_str
@@ -210,28 +203,28 @@ class TestCommandBuilding:
 
     def test_build_tec_suite_command_without_days_filter(self):
         """TEC-Suite command without --days filter should work without errors."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
                 "root_subpath": "/2026_original/001",
                 "jobs": "2",
                 "days": "",  # empty days filter
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         # Should not include --days when empty
-        assert "--days \"\"" not in cmd_str or cmd_str.count("--days") == 0
+        assert '--days ""' not in cmd_str or cmd_str.count("--days") == 0
 
     def test_build_tec_suite_command_uses_jobs_default(self):
         """TEC-Suite default jobs (1) should be used when not provided."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
                 "root_subpath": "/2026_original/001",
                 # jobs not provided, should use default 1
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         # The -j flag should be present with default value
@@ -239,7 +232,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_with_day_range(self):
         """DAT-Parquet command with day range should include both flags."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -247,7 +240,7 @@ class TestCommandBuilding:
                 "dst": "/data/parquet",
                 "day_from": "1",
                 "day_to": "100",
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         assert "--day-from" in cmd_str
@@ -257,22 +250,22 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_without_day_range(self):
         """DAT-Parquet command without day range should still be valid."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
                 "src": "/data/tecs-out",
                 "dst": "/data/parquet",
                 # day_from, day_to not provided
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         # Should not include day filters when not provided
-        assert "--day-from" not in cmd_str or "\"\"" not in cmd_str.split("--day-from")[0][-10:]
+        assert "--day-from" not in cmd_str or '""' not in cmd_str.split("--day-from")[0][-10:]
 
     def test_build_dat_parquet_command_with_only_day_from(self):
         """DAT-Parquet with only day_from should include just that flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -280,7 +273,7 @@ class TestCommandBuilding:
                 "dst": "/data/parquet",
                 "day_from": "50",
                 # day_to not provided
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         assert "--day-from" in cmd_str
@@ -288,7 +281,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_with_only_day_to(self):
         """DAT-Parquet with only day_to should include just that flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "parquet-to-dat",
@@ -296,7 +289,7 @@ class TestCommandBuilding:
                 "dst": "/data/tecs-out",
                 # day_from not provided
                 "day_to": "200",
-            }
+            },
         )
         cmd_str = " ".join(cmd)
         assert "--day-to" in cmd_str
@@ -305,13 +298,13 @@ class TestCommandBuilding:
     def test_build_dat_parquet_command_preserves_direction(self):
         """DAT-Parquet command should preserve direction flag."""
         for direction in ["dat-to-parquet", "parquet-to-dat"]:
-            cmd, vols = build_command(
+            cmd, _vols = build_command(
                 "dat-parquet-handler",
                 {
                     "direction": direction,
                     "src": "/data/src",
                     "dst": "/data/dst",
-                }
+                },
             )
             cmd_str = " ".join(cmd)
             assert "--direction" in cmd_str
@@ -319,12 +312,12 @@ class TestCommandBuilding:
 
     def test_build_command_returns_volumes_dict(self):
         """build_command should return a volumes dict in Docker SDK format."""
-        cmd, vols = build_command(
+        _cmd, vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
                 "root_subpath": "/2026_original/001",
-            }
+            },
         )
         assert isinstance(vols, dict)
         # Should have at least the root volume
@@ -334,13 +327,13 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_volumes_include_src_dst(self):
         """DAT-Parquet volumes should include both src and dst."""
-        cmd, vols = build_command(
+        _cmd, vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
                 "src": "/data/tecs-out",
                 "dst": "/data/parquet",
-            }
+            },
         )
         assert "/data/tecs-out" in vols
         assert "/data/parquet" in vols
@@ -356,10 +349,12 @@ class TestCommandBuilding:
                 "src": "/data/tecs-out",
                 "dst": "/data/tecs-out",  # Same as src when overwriting
                 "overwrite": "on",
-            }
+            },
         )
-        # Should have only one volume entry for the shared path
-        assert "/data/tecs-out" in vols
+        # Docker binds the shared host path once; both flags must point at that mount.
+        assert vols == {"/data/tecs-out": {"bind": "/input", "mode": "rw"}}
+        assert cmd[cmd.index("-s") + 1] == "/input"
+        assert cmd[cmd.index("-d") + 1] == "/input"
 
     def test_build_dat_parquet_command_mounts_destination_root_but_targets_subpath(self):
         """Selected year/day should be passed as a container-side destination subpath."""
@@ -370,7 +365,7 @@ class TestCommandBuilding:
                 "src": "/data/tecs-out/2026",
                 "dst": "/data/parquet-root",
                 "dst_subpath": "/2026",
-            }
+            },
         )
 
         assert "/data/tecs-out/2026" in vols
@@ -421,7 +416,8 @@ class TestFlagTranslationRendering:
                 long_name = flag.get("long", "")
                 if long_name and long_name.startswith("--"):
                     # Transform --flag-name to flag_name for translation key
-                    key = long_name.lstrip("--").replace("-", "_")
+                    key = long_name.lstrip("-").replace("-", "_")
                     # Verify the key format is valid
-                    assert key.replace("_", "").isalnum(), \
+                    assert key.replace("_", "").isalnum(), (
                         f"Flag {long_name} in {conv_name} cannot be converted to a valid translation key"
+                    )

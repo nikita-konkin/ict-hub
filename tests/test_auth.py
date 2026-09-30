@@ -5,8 +5,6 @@ We test the full request lifecycle including cookies and session state,
 not just the route functions in isolation. This gives us confidence that
 the SessionMiddleware, password hashing, and redirect logic all work together.
 """
-import pytest
-from fastapi.testclient import TestClient
 
 
 class TestLoginForm:
@@ -102,6 +100,14 @@ class TestProtectedRoutes:
         response = client.get("/history", follow_redirects=False)
         assert response.status_code in (302, 303)
 
+    def test_unauthenticated_htmx_request_gets_hx_redirect(self, client):
+        # A 303 would be followed by the XHR and the login page swapped into
+        # the fragment target, so HTMX requests are told to navigate instead.
+        response = client.post("/jobs/start", headers={"HX-Request": "true"}, follow_redirects=False)
+        assert response.status_code == 204
+        assert response.headers["HX-Redirect"] == "/login"
+        assert "location" not in response.headers
+
     def test_authenticated_can_access_dashboard(self, operator_client):
         response = operator_client.get("/", follow_redirects=True)
         assert response.status_code == 200
@@ -133,6 +139,7 @@ class TestUserManagement:
 
         # Verify the user was actually created in the database
         from app.models import User
+
         user = db.query(User).filter(User.username == "newuser").first()
         assert user is not None
         assert user.role == "operator"

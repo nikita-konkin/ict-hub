@@ -4,6 +4,7 @@ SECRET_KEY resolution, weak-admin detection, forced password rotation, the
 self-service password change, login rate-limiting, the Origin/CSRF guard,
 response security headers, and the audit trail.
 """
+
 import pytest
 
 from app import auth as auth_mod
@@ -24,9 +25,10 @@ def _clear_login_limiter():
 
 # ── SECRET_KEY resolution ─────────────────────────────────────────────────────
 
+
 def test_is_weak_admin_password():
     assert cfg.is_weak_admin_password("admin")
-    assert cfg.is_weak_admin_password("short")          # < 8 chars
+    assert cfg.is_weak_admin_password("short")  # < 8 chars
     assert cfg.is_weak_admin_password("")
     assert not cfg.is_weak_admin_password("a-strong-enough-passphrase")
 
@@ -55,14 +57,19 @@ def test_resolve_secret_key_accepts_strong(monkeypatch):
 
 # ── Forced password rotation + self-service change ────────────────────────────
 
+
 def test_forced_password_change_flow(client, db):
-    u = User(username="mustchange", hashed_pw=hash_password("oldpass123"),
-             role="operator", is_active=True, must_change_password=True)
+    u = User(
+        username="mustchange",
+        hashed_pw=hash_password("oldpass123"),
+        role="operator",
+        is_active=True,
+        must_change_password=True,
+    )
     db.add(u)
     db.commit()
 
-    login = client.post("/login", data={"username": "mustchange", "password": "oldpass123"},
-                        follow_redirects=False)
+    login = client.post("/login", data={"username": "mustchange", "password": "oldpass123"}, follow_redirects=False)
     assert login.status_code in (302, 303)
     assert login.headers.get("location", "").endswith("/account/password")
 
@@ -71,11 +78,15 @@ def test_forced_password_change_flow(client, db):
     assert blocked.status_code in (302, 303)
     assert "/account/password" in blocked.headers.get("location", "")
 
-    changed = client.post("/account/password", data={
-        "current_password": "oldpass123",
-        "new_password": "brandnew123",
-        "confirm_password": "brandnew123",
-    }, follow_redirects=False)
+    changed = client.post(
+        "/account/password",
+        data={
+            "current_password": "oldpass123",
+            "new_password": "brandnew123",
+            "confirm_password": "brandnew123",
+        },
+        follow_redirects=False,
+    )
     assert changed.status_code == 200
 
     db.refresh(u)
@@ -86,50 +97,70 @@ def test_forced_password_change_flow(client, db):
 
 
 def test_password_change_wrong_current(operator_client):
-    r = operator_client.post("/account/password", data={
-        "current_password": "nope", "new_password": "brandnew123", "confirm_password": "brandnew123",
-    })
+    r = operator_client.post(
+        "/account/password",
+        data={
+            "current_password": "nope",
+            "new_password": "brandnew123",
+            "confirm_password": "brandnew123",
+        },
+    )
     assert r.status_code == 400
 
 
 def test_password_change_mismatch(operator_client):
-    r = operator_client.post("/account/password", data={
-        "current_password": "operpass", "new_password": "brandnew123", "confirm_password": "different123",
-    })
+    r = operator_client.post(
+        "/account/password",
+        data={
+            "current_password": "operpass",
+            "new_password": "brandnew123",
+            "confirm_password": "different123",
+        },
+    )
     assert r.status_code == 400
 
 
 def test_password_change_too_short(operator_client):
-    r = operator_client.post("/account/password", data={
-        "current_password": "operpass", "new_password": "short", "confirm_password": "short",
-    })
+    r = operator_client.post(
+        "/account/password",
+        data={
+            "current_password": "operpass",
+            "new_password": "short",
+            "confirm_password": "short",
+        },
+    )
     assert r.status_code == 400
 
 
 def test_password_change_success_clears_and_persists(operator_client, db):
-    r = operator_client.post("/account/password", data={
-        "current_password": "operpass", "new_password": "operpass-new-9", "confirm_password": "operpass-new-9",
-    })
+    r = operator_client.post(
+        "/account/password",
+        data={
+            "current_password": "operpass",
+            "new_password": "operpass-new-9",
+            "confirm_password": "operpass-new-9",
+        },
+    )
     assert r.status_code == 200
     user = db.query(User).filter(User.username == "test_operator").first()
     from app.auth import verify_password
+
     assert verify_password("operpass-new-9", user.hashed_pw)
 
 
 # ── Login rate limiting ───────────────────────────────────────────────────────
+
 
 def test_login_lockout_after_threshold(client, admin_user, monkeypatch):
     monkeypatch.setattr(cfg, "LOGIN_RATE_LIMIT_MAX_ATTEMPTS", 3)
     monkeypatch.setattr(cfg, "LOGIN_RATE_LIMIT_ENABLED", True)
 
     for _ in range(3):
-        r = client.post("/login", data={"username": "test_admin", "password": "wrong"},
-                        follow_redirects=False)
+        r = client.post("/login", data={"username": "test_admin", "password": "wrong"}, follow_redirects=False)
         assert r.status_code == 401
 
     # Further attempts are locked out — even with the CORRECT password.
-    locked = client.post("/login", data={"username": "test_admin", "password": "adminpass"},
-                        follow_redirects=False)
+    locked = client.post("/login", data={"username": "test_admin", "password": "adminpass"}, follow_redirects=False)
     assert locked.status_code == 429
 
 
@@ -145,15 +176,24 @@ def test_login_success_resets_counter(client, admin_user, monkeypatch):
 
 # ── CSRF / Origin guard ───────────────────────────────────────────────────────
 
+
 def test_cross_origin_post_blocked(client, admin_user):
-    r = client.post("/login", data={"username": "test_admin", "password": "adminpass"},
-                    headers={"origin": "http://evil.example"}, follow_redirects=False)
+    r = client.post(
+        "/login",
+        data={"username": "test_admin", "password": "adminpass"},
+        headers={"origin": "http://evil.example"},
+        follow_redirects=False,
+    )
     assert r.status_code == 403
 
 
 def test_same_origin_post_allowed(client, admin_user):
-    r = client.post("/login", data={"username": "test_admin", "password": "adminpass"},
-                    headers={"origin": "http://testserver"}, follow_redirects=False)
+    r = client.post(
+        "/login",
+        data={"username": "test_admin", "password": "adminpass"},
+        headers={"origin": "http://testserver"},
+        follow_redirects=False,
+    )
     assert r.status_code in (302, 303)
 
 
@@ -162,6 +202,7 @@ def test_get_not_blocked_by_csrf(client):
 
 
 # ── Security headers ──────────────────────────────────────────────────────────
+
 
 def test_security_headers_present(client):
     r = client.get("/login")
@@ -172,6 +213,7 @@ def test_security_headers_present(client):
 
 
 # ── Audit trail ───────────────────────────────────────────────────────────────
+
 
 def test_login_success_is_audited(client, admin_user, db):
     client.post("/login", data={"username": "test_admin", "password": "adminpass"}, follow_redirects=False)
