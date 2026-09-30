@@ -400,6 +400,18 @@ body {
   margin-top: 8px;
 }
 
+/* Version and build time of the running image, on the dashboard */
+.build-info {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+
+.build-info-value {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
 /* ─── Cards ─────────────────────────────────────────────────────────────── */
 .card {
   background: var(--surface);

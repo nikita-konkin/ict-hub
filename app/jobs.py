@@ -28,7 +28,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 from sqlalchemy.orm import Session
 
-from app import audit
+from app import audit, build_info
 from app import config as cfg
 from app.auth import get_current_user, require_converter_access, require_page_access
 from app.converters import FormError, is_truthy_checkbox, page_context, prepare_form
@@ -392,6 +392,7 @@ async def dashboard(
             current_user=current_user,
             converters=CONVERTERS,
             recent_jobs=recent_jobs,
+            build=build_info.BUILD_INFO,
         ),
     )
     return apply_lang_cookie(request, response)

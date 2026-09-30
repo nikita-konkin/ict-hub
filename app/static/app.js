@@ -16,6 +16,7 @@
       if (Number.isNaN(parsed.getTime())) return;
       node.textContent = parsed.toLocaleString(undefined, {
         day: "2-digit", month: "short",
+        year: node.hasAttribute("data-local-datetime-year") ? "numeric" : undefined,
         hour: "2-digit", minute: "2-digit", hour12: false,
       });
     });
