@@ -182,6 +182,8 @@ def test_analysis_page_exposes_propagation_endpoints(client: TestClient):
         assert response.status_code == 200
 
         html = response.text
+        assert '<script src="/static/js/analysis.js"></script>' in html
+        script = client.get("/static/js/analysis.js").text
         # Dropdown options for the proxied tec-stat propagation endpoints.
         assert 'value="propagation/calc"' in html
         assert 'value="propagation/absoltec/raw"' in html
@@ -192,9 +194,9 @@ def test_analysis_page_exposes_propagation_endpoints(client: TestClient):
         assert 'id="data-f-hz"' in html
         assert 'id="data-tec"' in html
         assert 'id="data-observable"' in html
-        assert '"propagation/calc": {' in html
-        assert 'required: ["data-tec"]' in html
-        assert 'if (endpoint.startsWith("propagation/")) {' in html
+        assert '"propagation/calc": {' in script
+        assert 'required: ["data-tec"]' in script
+        assert 'if (endpoint.startsWith("propagation/")) {' in script
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -215,17 +217,19 @@ def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
         assert response.status_code == 200
 
         html = response.text
+        assert '<script src="/static/js/analysis.js"></script>' in html
+        script = client.get("/static/js/analysis.js").text
         assert 'value="plots/cb/raw/day-by-day"' in html
         assert 'id="plot-alpha"' in html
         assert 'id="plot-fetch-msg"' in html
-        assert '"plots/cb/multi-station": {' in html
-        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end"]' in html
-        assert '"plots/cb/vs-tec": {' in html
-        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in html
-        assert 'endpointName === "plots/cb/raw/day-by-day"' in html
-        assert 'endpointName === "plots/cb/per-station-averages")' in html
-        assert 'function formatBackendError(payload, fallbackStatus)' in html
-        assert 'setPlotFetchStatus("success", "OK (Fetched)")' in html
+        assert '"plots/cb/multi-station": {' in script
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end"]' in script
+        assert '"plots/cb/vs-tec": {' in script
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in script
+        assert 'endpointName === "plots/cb/raw/day-by-day"' in script
+        assert 'endpointName === "plots/cb/per-station-averages")' in script
+        assert 'function formatBackendError(payload, fallbackStatus)' in script
+        assert 'setPlotFetchStatus("success", "OK (Fetched)")' in script
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

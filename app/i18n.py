@@ -820,7 +820,12 @@ def template_context(request: Request, context: Mapping[str, Any] | None = None,
     def _t(key: str, **fmt_kwargs: Any) -> str:
         return translate(lang, key, **fmt_kwargs)
 
+    def _t_dict(*keys: str) -> dict[str, str]:
+        """Several translations at once, for a page script's JSON data island."""
+        return {key: translate(lang, key) for key in keys}
+
     merged["t"] = _t
+    merged["t_dict"] = _t_dict
     return merged
 
 

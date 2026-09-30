@@ -1,0 +1,80 @@
+.main {
+  max-width: none;
+}
+
+.station-map-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.station-map-controls {
+  display: grid;
+  gap: 14px;
+}
+
+.station-map-field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.station-map-field select {
+  width: 100%;
+}
+
+.station-map-meta {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.station-map-status {
+  min-height: 20px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.station-map-status.error {
+  color: var(--danger-text);
+}
+
+.station-map-plot {
+  min-height: 680px;
+  width: 100%;
+}
+
+.station-map-empty {
+  min-height: 560px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+
+.station-map-table-wrap {
+  overflow: auto;
+}
+
+@media (max-width: 1050px) {
+  .station-map-layout {
+    display: block;
+  }
+
+  .station-map-layout > .card + .card {
+    margin-top: 20px;
+  }
+}

@@ -1,6 +1,15 @@
 """Tests for the IonMaps page (split out of Analysis in commit f0c786b)."""
 
+import json
+import re
+
 from fastapi.testclient import TestClient
+
+
+def _i18n_island(html: str, island_id: str) -> dict[str, str]:
+    match = re.search(rf'<script id="{island_id}" type="application/json">(.*?)</script>', html, re.S)
+    assert match, f"no #{island_id} data island"
+    return json.loads(match.group(1))
 
 
 def test_ionmaps_page_exposes_tecmap_date_range_contract(client: TestClient):
@@ -20,11 +29,13 @@ def test_ionmaps_page_exposes_tecmap_date_range_contract(client: TestClient):
 
         html = response.text
         assert 'id="tecmap-end-date"' in html
-        assert 'params.set("year", yearValue);' in html
-        assert 'params.set("doy", doyValue);' in html
-        assert 'const effectiveDate = canonicalDate || dateValue;' in html
-        assert 'params.set("date", effectiveDate);' in html
-        assert 'params.set("end_date", endDateValue);' in html
+        assert '<script src="/static/js/ionmaps.js"></script>' in html
+        script = client.get("/static/js/ionmaps.js").text
+        assert 'params.set("year", yearValue);' in script
+        assert 'params.set("doy", doyValue);' in script
+        assert 'const effectiveDate = canonicalDate || dateValue;' in script
+        assert 'params.set("date", effectiveDate);' in script
+        assert 'params.set("end_date", endDateValue);' in script
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -61,9 +72,9 @@ def test_ionmaps_page_is_localized(client: TestClient):
     # An option caption
     assert "cache only (offline; uses saved OSM tiles on server)" in en
     assert "только кэш (офлайн; сохранённые тайлы OSM на сервере)" in ru
-    # A string emitted by the page script
-    assert "LOSO cross-validation done." in en
-    assert "Кросс-проверка LOSO завершена." in ru
+    # A string emitted by the page script, delivered in its JSON data island
+    assert _i18n_island(en, "ionmaps-i18n")["ionmaps_js_loso_done"] == "LOSO cross-validation done."
+    assert _i18n_island(ru, "ionmaps-i18n")["ionmaps_js_loso_done"] == "Кросс-проверка LOSO завершена."
     # The Russian page must not leak the English source strings
     assert "Run TEC Map" not in ru
     assert "Map construction principle." not in ru
