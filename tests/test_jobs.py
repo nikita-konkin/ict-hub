@@ -264,6 +264,31 @@ class TestStartJob:
         data.update(overrides)
         return data
 
+    def test_error_fragment_escapes_echoed_form_input(self, operator_client):
+        payload = '<img src=x onerror="alert(1)">'
+        response = operator_client.post(
+            "/jobs/start",
+            data={"converter_name": payload},
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert payload not in response.text
+        assert "&lt;img src=x onerror=&#34;alert(1)&#34;&gt;" in response.text
+
+    def test_error_fragment_escapes_dat_parquet_direction(self, operator_client):
+        payload = "<script>alert(1)</script>"
+        response = operator_client.post(
+            "/jobs/start",
+            # An unknown profile echoes the requested direction back.
+            data=self._start_dat_parquet_job_data(direction=payload, dataset_profile="nope"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert payload not in response.text
+        assert "&lt;script&gt;" in response.text
+
     @patch("app.jobs.start_container", return_value="container_root_path")
     def test_start_job_passes_year_day_root_subpath(self, mock_start, operator_client):
         response = operator_client.post(
@@ -602,9 +627,12 @@ class TestStartJob:
 
         from app.models import JobRun
 
-        _, _, volumes = mock_start.call_args.args
-        assert "/data/abstec-out" in volumes
-        assert volumes["/data/abstec-out"]["bind"] == "/output"
+        _, command, volumes = mock_start.call_args.args
+        # One host path, one mount: source and destination flags both use it.
+        assert list(volumes) == ["/data/abstec-out"]
+        mount = volumes["/data/abstec-out"]["bind"]
+        assert command[command.index("-s") + 1] == mount
+        assert command[command.index("-d") + 1] == mount
 
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         flags = json.loads(job.flags_json)
@@ -972,6 +1000,13 @@ class TestJobHistory:
         # Pagination links should be present
         assert b"page=2" in response.content
 
+    @pytest.mark.parametrize("query", ["per_page=0", "per_page=-1", "page=0", "page=-3&per_page=5", "page=999"])
+    def test_history_out_of_range_pagination_is_clamped(self, operator_client, completed_job, query):
+        response = operator_client.get(f"/history?{query}", follow_redirects=True)
+        assert response.status_code == 200
+        # Clamped onto the only page, so the job row is listed.
+        assert f">#{completed_job.id}</td>" in response.text
+
     def test_history_empty_state_rendered(self, operator_client):
         """With no jobs at all, the empty state message should be shown."""
         response = operator_client.get("/history", follow_redirects=True)
@@ -998,6 +1033,37 @@ class TestStopJob:
 
         db.refresh(completed_job)
         assert completed_job.status == "failed"
+
+    @patch("app.jobs.stop_container")
+    def test_container_exit_after_stop_keeps_the_stop(self, mock_stop, operator_client, completed_job, db):
+        """
+        Stopping the container makes it exit (143), and the log producer
+        records that exit, possibly after the stop request returned. The first
+        terminal state wins, so the user stop (-2) must survive.
+        """
+        from app.job_runtime import persist_job_finished
+        from app.models import JobEvent, JobRun
+
+        completed_job.status = "running"
+        completed_job.exit_code = None
+        completed_job.finished_at = None
+        db.commit()
+        job_id = completed_job.id
+
+        response = operator_client.post(f"/jobs/{job_id}/stop", follow_redirects=False)
+        assert response.status_code == 302
+        mock_stop.assert_called_once_with("abc123def456")
+
+        db.expire_all()
+        job = db.query(JobRun).filter(JobRun.id == job_id).first()
+        persist_job_finished(db, job, 143)  # the producer sees the container exit
+
+        db.expire_all()
+        job = db.query(JobRun).filter(JobRun.id == job_id).first()
+        assert job.exit_code == -2
+        done_events = db.query(JobEvent).filter(JobEvent.job_id == job_id, JobEvent.event_type == "done").all()
+        assert len(done_events) == 1
+        assert "<exit_code>-2</exit_code>" in done_events[0].payload_xml
 
     def test_operator_cannot_stop_others_job(self, admin_client, completed_job, db):
         """An operator should get 403 when trying to stop a job they don't own."""

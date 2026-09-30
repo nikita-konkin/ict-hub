@@ -358,8 +358,10 @@ class TestCommandBuilding:
                 "overwrite": "on",
             }
         )
-        # Should have only one volume entry for the shared path
-        assert "/data/tecs-out" in vols
+        # Docker binds the shared host path once; both flags must point at that mount.
+        assert vols == {"/data/tecs-out": {"bind": "/input", "mode": "rw"}}
+        assert cmd[cmd.index("-s") + 1] == "/input"
+        assert cmd[cmd.index("-d") + 1] == "/input"
 
     def test_build_dat_parquet_command_mounts_destination_root_but_targets_subpath(self):
         """Selected year/day should be passed as a container-side destination subpath."""

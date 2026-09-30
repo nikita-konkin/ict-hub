@@ -228,3 +228,68 @@ def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
         assert 'setPlotFetchStatus("success", "OK (Fetched)")' in html
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_analysis_proxy_filters_headers_both_ways(client: TestClient, monkeypatch):
+    """
+    The session cookie must not reach the backend, and headers describing the
+    upstream (compressed) body must not be passed back after httpx decoded it.
+    """
+    import app.analysis as analysis_module
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+        content = b"decoded body"
+        headers = {
+            "content-type": "text/csv",
+            "content-encoding": "gzip",
+            "content-length": "3",
+            "set-cookie": "backend=1",
+            "x-backend": "kept",
+        }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            seen["headers"] = {k.lower(): v for k, v in headers.items()}
+            return FakeResponse()
+
+    monkeypatch.setattr(analysis_module.cfg, "ANALYSIS_API_BASE_URL", "http://tec-backend:8000")
+    monkeypatch.setattr(analysis_module.httpx, "AsyncClient", FakeAsyncClient)
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        response = client.get(
+            "/analysis/api/absoltec/raw",
+            headers={"Cookie": "ch_session=secret-session", "Accept-Encoding": "gzip", "X-Trace": "1"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert "cookie" not in seen["headers"]
+    assert "accept-encoding" not in seen["headers"]
+    assert seen["headers"]["x-trace"] == "1"
+
+    assert response.status_code == 200
+    assert response.content == b"decoded body"
+    assert "content-encoding" not in response.headers
+    assert response.headers["content-length"] == str(len(b"decoded body"))
+    assert "set-cookie" not in response.headers
+    assert response.headers["x-backend"] == "kept"

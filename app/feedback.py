@@ -60,6 +60,7 @@ async def submit_feedback(
                 status_code=400,
             )
         response = templates.TemplateResponse(
+            request,
             "feedback_result.html",
             template_context(
                 request,
@@ -79,6 +80,7 @@ async def submit_feedback(
                 status_code=400,
             )
         response = templates.TemplateResponse(
+            request,
             "feedback_result.html",
             template_context(
                 request,
@@ -130,6 +132,7 @@ async def submit_feedback(
         )
 
     response = templates.TemplateResponse(
+        request,
         "feedback_result.html",
         template_context(request, ok=True, report_id=report.id, converters=CONVERTERS),
     )
@@ -156,6 +159,7 @@ async def feedback_admin(
     total_reports = db.query(func.count(FeedbackReport.id)).scalar() or 0
     total_new = db.query(func.count(FeedbackReport.id)).filter(FeedbackReport.status == "new").scalar() or 0
     response = templates.TemplateResponse(
+        request,
         "feedback_admin.html",
         template_context(
             request,

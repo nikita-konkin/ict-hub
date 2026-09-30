@@ -241,11 +241,17 @@ app.include_router(tec_map.router)
 
 from fastapi import HTTPException
 from fastapi.responses import RedirectResponse as _RR
+from fastapi.responses import Response as _Response
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 303:
-        location = exc.headers.get("Location", "/login")
+        location = (exc.headers or {}).get("Location", "/login")
+        if request.headers.get("HX-Request") == "true":
+            # The XHR would follow a 303 itself and HTMX would swap the login
+            # (or password-change) page into the fragment target; ask HTMX to
+            # navigate the whole page instead.
+            return _Response(status_code=204, headers={"HX-Redirect": location})
         return _RR(url=location, status_code=303)
     # For all other HTTP errors, re-raise so FastAPI's default handler runs
     from fastapi.exception_handlers import http_exception_handler as _default

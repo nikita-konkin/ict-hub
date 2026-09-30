@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 import docker.errors
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -55,14 +56,25 @@ from app.runner import (
     stream_logs,
 )
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
 
+
+def _error_fragment(message: object, status_code: int) -> HTMLResponse:
+    """Alert fragment for #job-output. Plain strings are escaped (they may echo
+    form input or exception text); pass Markup for deliberate markup."""
+    return HTMLResponse(
+        f'<div class="alert alert-danger">{escape(message)}</div>',
+        status_code=status_code,
+    )
+
 # Accept both layouts used by TEC-Suite input data:
 # - /YYYY_original[/DDD]             (day directly under year, 2-3 digits)
 # - /YYYY_original/MM/DD             (month/day under year, 2-3 digits each)
+_HISTORY_MAX_PER_PAGE = 100
 _TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3}){0,2}$")
 _DAT_PARQUET_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}(?:/\d{1,3})?$")
 _TECSUITE_ENV_ROOT_NOTE = "Configured from environment variable RINEX_DATA_PATH_HOST"
@@ -467,15 +479,16 @@ async def _stream_job_logs_direct(
         if event_type == "done":
             db.expire_all()
             db_job = db.query(JobRun).filter(JobRun.id == job.id).first()
+            exit_code = int(payload)
+            status = "success" if exit_code == 0 else "failed"
             if db_job is not None:
-                persist_job_finished(db, db_job, int(payload))
+                persist_job_finished(db, db_job, exit_code)
+                # A stop recorded earlier wins over the container's exit code.
+                status = db_job.status
+                exit_code = db_job.exit_code if db_job.exit_code is not None else exit_code
             yield sse_event(
                 "done",
-                xml_payload(
-                    "done",
-                    status="success" if int(payload) == 0 else "failed",
-                    exit_code=int(payload),
-                ),
+                xml_payload("done", status=status, exit_code=exit_code),
             )
             return
 
@@ -494,7 +507,7 @@ async def dashboard(
     Main landing page. Shows each registered converter as a card alongside
     the user's 5 most recent jobs so they have immediate context on activity.
     """
-    _reconcile_running_jobs(db, current_user)
+    await run_in_threadpool(_reconcile_running_jobs, db, current_user)
     recent_jobs = (
         db.query(JobRun)
         .filter(JobRun.user_id == current_user.id)
@@ -503,6 +516,7 @@ async def dashboard(
         .all()
     )
     response = templates.TemplateResponse(
+        request,
         "dashboard.html",
         template_context(
             request,
@@ -531,7 +545,7 @@ async def run_page(
     # breaks the non-HTMX redirect flow (the user lands on /run/... and expects to
     # see the live panel). Only reconcile when no explicit job_id is requested.
     if job_id is None:
-        _reconcile_running_jobs(db, current_user, converter_name=converter_name)
+        await run_in_threadpool(_reconcile_running_jobs, db, current_user, converter_name=converter_name)
     conv = get_converter(converter_name)
     if not conv:
         raise HTTPException(status_code=404, detail=f"Converter '{converter_name}' not found")
@@ -633,6 +647,7 @@ async def run_page(
         }
 
     response = templates.TemplateResponse(
+        request,
         "run.html",
         template_context(
             request,
@@ -680,11 +695,11 @@ async def start_job(
     3. Builds the Docker command and volume mapping
     4. Starts the container (detached)
     5. Persists the JobRun record
-    6. Returns an HTML fragment containing the HTMX SSE panel
+    6. Returns an HTML fragment containing the job panel
 
-    The returned fragment is swapped into #job-output by HTMX. Once in the DOM
-    the hx-ext="sse" attribute on the outer div causes HTMX to immediately open
-    the SSE connection and start streaming logs into the log panel.
+    The returned fragment is swapped into #job-output by HTMX; app.js then
+    initialises the panel on htmx:afterSwap and opens an EventSource on the
+    job's event stream.
     """
     form = await request.form()
     is_htmx_request = request.headers.get("HX-Request") == "true"
@@ -693,17 +708,11 @@ async def start_job(
     conv = get_converter(converter_name)
     logger.info("User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form))
     if not conv:
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Unknown converter: {converter_name}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f'Unknown converter: {converter_name}', 400)
 
     if not current_user.can_access_converter(converter_name):
         if is_htmx_request:
-            return HTMLResponse(
-                '<div class="alert alert-danger">Access denied for this converter.</div>',
-                status_code=403,
-            )
+            return _error_fragment('Access denied for this converter.', 403)
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Convert form data to a regular dict for processing
@@ -715,33 +724,24 @@ async def start_job(
         root_host = cfg.RINEX_DATA_PATH_HOST.strip()
         root_subpath = str(form_dict.get("root_subpath", "")).strip()
         if not root_host:
-            return HTMLResponse(
-                '<div class="alert alert-danger">RINEX_DATA_PATH_HOST is not configured.</div>',
-                status_code=400,
-            )
+            return _error_fragment('RINEX_DATA_PATH_HOST is not configured.', 400)
         if not _TECSUITE_ROOT_SUBPATH_RE.fullmatch(root_subpath):
-            return HTMLResponse(
-                '<div class="alert alert-danger">Select a valid year/day folder before running TEC-Suite.</div>',
-                status_code=400,
-            )
+            return _error_fragment('Select a valid year/day folder before running TEC-Suite.', 400)
         form_dict["root"] = root_host
     elif converter_name == "abstec-suite":
         dat_root_host = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
         if not dat_root_host:
-            return HTMLResponse(
-                '<div class="alert alert-danger">TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.</div>',
-                status_code=400,
-            )
+            return _error_fragment('TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.', 400)
         form_dict["dat_path"] = dat_root_host
         form_dict["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
         # Batch mode auto-discovers stations per day; run_absoltec rejects
         # --days combined with --site, so fail fast with a friendly message.
         if str(form_dict.get("days", "")).strip() and str(form_dict.get("site", "")).strip():
-            return HTMLResponse(
-                '<div class="alert alert-danger">Days (batch mode) cannot be combined with a Site '
+            return _error_fragment(
+                'Days (batch mode) cannot be combined with a Site '
                 "selection — batch runs auto-discover stations for each day. Clear the Site "
-                "selection, or use Day Of Year (single run) together with Site.</div>",
-                status_code=400,
+                "selection, or use Day Of Year (single run) together with Site.",
+                400,
             )
         # The XP guest executes jobs one at a time from a single shared queue:
         # parallel dockur runs gain nothing, blow through timeouts while queued,
@@ -754,36 +754,37 @@ async def start_job(
                 .all()
             )
             if any(j.flags.get("runner") == "dockur" for j in running_abstec):
-                return HTMLResponse(
-                    '<div class="alert alert-danger">Another AbsTEC dockur job is already '
+                return _error_fragment(
+                    'Another AbsTEC dockur job is already '
                     "running. The Windows XP VM processes jobs strictly one at a time from a "
                     "single queue, so a parallel dockur run would only sit in the queue, hit "
                     "its execution timeout, and risk mixing outputs of stations that share a "
-                    "4-character prefix. Wait for the running job to finish or stop it first.</div>",
-                    status_code=400,
+                    "4-character prefix. Wait for the running job to finish or stop it first.",
+                    400,
                 )
             # The guest watcher only runs while the XP VM container is up, so
             # a stopped VM would silently burn the whole execution timeout.
             # Start it here if it exists but is not running.
             vm_name = cfg.ABSTEC_DOCKUR_VM_CONTAINER.strip()
             try:
-                vm_state = ensure_container_running(vm_name)
+                vm_state = await run_in_threadpool(ensure_container_running, vm_name)
             except Exception as exc:
                 logger.error("Failed to start XP VM container %r: %s", vm_name, exc)
-                return HTMLResponse(
-                    f'<div class="alert alert-danger">Could not start the Windows XP VM '
-                    f"container '{vm_name}': {exc}</div>",
-                    status_code=500,
+                return _error_fragment(
+                    f'Could not start the Windows XP VM '
+                    f"container '{vm_name}': {exc}",
+                    500,
                 )
             if vm_state == "not_found":
-                return HTMLResponse(
-                    f'<div class="alert alert-danger">The Windows XP VM container '
-                    f"'{vm_name}' does not exist, so no guest is available to execute "
-                    "dockur jobs. Create it first from the abstec-suite folder with "
-                    "<code>docker compose -f docker-compose.dockur.yml up -d abstec-xp</code> "
-                    "(first boot installs XP and takes 10&ndash;20 minutes; watch "
-                    "port 8006).</div>",
-                    status_code=400,
+                return _error_fragment(
+                    Markup(
+                        "The Windows XP VM container '{}' does not exist, so no guest is "
+                        "available to execute dockur jobs. Create it first from the "
+                        "abstec-suite folder with "
+                        "<code>docker compose -f docker-compose.dockur.yml up -d abstec-xp</code> "
+                        "(first boot installs XP and takes 10&ndash;20 minutes; watch port 8006)."
+                    ).format(vm_name),
+                    400,
                 )
             if vm_state == "started":
                 logger.info("XP VM container %r was stopped; started it for this job", vm_name)
@@ -803,44 +804,26 @@ async def start_job(
         day_to_raw = str(form.get("day_to", "")).strip()
         resolved_paths, error_message = _resolve_dat_parquet_paths(direction, profile_name, overwrite)
         if error_message:
-            return HTMLResponse(
-                f'<div class="alert alert-danger">{error_message}</div>',
-                status_code=400,
-            )
+            return _error_fragment(error_message, 400)
 
         day_from = None
         day_to = None
         if day_from_raw:
             if not day_from_raw.isdigit():
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-from must be an integer in range 1..366.</div>',
-                    status_code=400,
-                )
+                return _error_fragment('--day-from must be an integer in range 1..366.', 400)
             day_from = int(day_from_raw)
             if day_from < 1 or day_from > 366:
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-from must be in range 1..366.</div>',
-                    status_code=400,
-                )
+                return _error_fragment('--day-from must be in range 1..366.', 400)
 
         if day_to_raw:
             if not day_to_raw.isdigit():
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-to must be an integer in range 1..366.</div>',
-                    status_code=400,
-                )
+                return _error_fragment('--day-to must be an integer in range 1..366.', 400)
             day_to = int(day_to_raw)
             if day_to < 1 or day_to > 366:
-                return HTMLResponse(
-                    '<div class="alert alert-danger">--day-to must be in range 1..366.</div>',
-                    status_code=400,
-                )
+                return _error_fragment('--day-to must be in range 1..366.', 400)
 
         if day_from is not None and day_to is not None and day_from > day_to:
-            return HTMLResponse(
-                '<div class="alert alert-danger">--day-from must be less than or equal to --day-to.</div>',
-                status_code=400,
-            )
+            return _error_fragment('--day-from must be less than or equal to --day-to.', 400)
 
         if day_from is not None:
             form_dict["day_from"] = day_from
@@ -849,10 +832,7 @@ async def start_job(
 
         if root_subpath:
             if not _DAT_PARQUET_ROOT_SUBPATH_RE.fullmatch(root_subpath):
-                return HTMLResponse(
-                    '<div class="alert alert-danger">Select a valid year/day folder before running DAT <-> Parquet.</div>',
-                    status_code=400,
-                )
+                return _error_fragment('Select a valid year/day folder before running DAT <-> Parquet.', 400)
             form_dict["src"] = _join_host_path(resolved_paths["src"], root_subpath)
         else:
             form_dict["src"] = resolved_paths["src"]
@@ -887,10 +867,7 @@ async def start_job(
         command, volumes = build_command(converter_name, form_dict)
     except Exception as exc:
         logger.error("Command build error: %s", exc)
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Failed to build command: {exc}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f'Failed to build command: {exc}', 400)
 
     # Create the job record before starting the container so we always have
     # an audit trail, even if the container fails to start
@@ -923,7 +900,8 @@ async def start_job(
     db.refresh(job)
 
     try:
-        container_id = start_container(
+        container_id = await run_in_threadpool(
+            start_container,
             conv["image"],
             command,
             volumes,
@@ -948,10 +926,7 @@ async def start_job(
         job.finished_at = datetime.now(timezone.utc)
         job.exit_code = -1
         db.commit()
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Docker error: {exc}</div>',
-            status_code=500,
-        )
+        return _error_fragment(f'Docker error: {exc}', 500)
 
     # HTMX requests get a fragment swap; plain form posts should redirect back
     # to the converter page so the browser URL remains /run/{converter}.
@@ -960,6 +935,7 @@ async def start_job(
 
     # Return the SSE monitoring panel. HTMX will swap this into #job-output.
     response = templates.TemplateResponse(
+        request,
         "job_panel.html",
         template_context(request, job=job, converter=conv, vm_notice=vm_notice),
     )
@@ -1173,8 +1149,10 @@ async def stop_job(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if job.container_id and job.status == "running":
-        stop_container(job.container_id)
+        # Record the stop first: `docker stop` waits for the container to exit,
+        # and that exit reaches the log producer before this call returns.
         persist_job_finished(db, job, -2)  # sentinel for "stopped by user"
+        await run_in_threadpool(stop_container, job.container_id)
 
     return RedirectResponse(f"/run/{job.converter}", status_code=302)
 
@@ -1195,12 +1173,17 @@ async def history(
     Paginated audit log of job runs.
     Admins see all users' jobs; operators only see their own.
     """
-    _reconcile_running_jobs(db, current_user)
+    await run_in_threadpool(_reconcile_running_jobs, db, current_user)
     query = db.query(JobRun)
     if not current_user.is_admin:
         query = query.filter(JobRun.user_id == current_user.id)
 
+    # per_page=0 would divide by zero below and a negative LIMIT means "no
+    # limit" to SQLite, so keep both parameters in range.
+    per_page = min(max(per_page, 1), _HISTORY_MAX_PER_PAGE)
     total = query.count()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), total_pages)
     jobs = (
         query.order_by(JobRun.started_at.desc())
         .offset((page - 1) * per_page)
@@ -1208,6 +1191,7 @@ async def history(
         .all()
     )
     response = templates.TemplateResponse(
+        request,
         "history.html",
         template_context(
             request,
@@ -1216,7 +1200,7 @@ async def history(
             total=total,
             page=page,
             per_page=per_page,
-            total_pages=max(1, (total + per_page - 1) // per_page),
+            total_pages=total_pages,
             converters=CONVERTERS,
         ),
     )

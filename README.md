@@ -362,7 +362,8 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `DATA_INDEXER_CACHE_TTL_SEC` | `300.0` | Cache time-to-live in seconds (default 5 minutes) |
 | `DATA_INDEXER_CACHE_DB_PATH` | `/app/data/cache.db` | Path to persistent SQLite cache database |
 | `DATA_INDEXER_RUN_ON_STARTUP` | `false` | Run indexing on startup: `false` (default), `async`, or `sync` |
-| `DATA_INDEXER_TIMEOUT_SEC` | `45` | Timeout for data-indexer HTTP requests |
+| `DATA_INDEXER_TIMEOUT_SEC` | `120` | Timeout for data-indexer HTTP requests |
+| `DATA_INDEXER_CLIENT_CACHE_TTL_SEC` | `30` | How long the hub reuses an indexer response before asking again |
 
 ### Converter Configuration
 | Variable           | Default                                  | Description                                   |

@@ -247,6 +247,7 @@ async def login_form(request: Request):
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=302)
     response = templates.TemplateResponse(
+        request,
         "login.html",
         template_context(request, error=None, converters=CONVERTERS),
     )
@@ -271,6 +272,7 @@ async def login_submit(
         audit.record(db, "login.locked", request=request, actor_username=username,
                      detail="too many failed attempts")
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -295,6 +297,7 @@ async def login_submit(
         logger.warning("Failed login attempt for username=%r from ip=%s", username, ip)
         audit.record(db, "login.failed", request=request, actor_username=username)
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -309,6 +312,7 @@ async def login_submit(
         audit.record(db, "login.failed", request=request, actor=user,
                      detail="account deactivated")
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -353,6 +357,7 @@ async def users_list(
     """Admin-only: list all users with their roles and status."""
     users = db.query(User).order_by(User.created_at).all()
     response = templates.TemplateResponse(
+        request,
         "users.html",
         template_context(request, users=users, current_user=admin, converters=CONVERTERS),
     )
@@ -376,6 +381,7 @@ async def create_user(
     if existing:
         users = db.query(User).order_by(User.created_at).all()
         response = templates.TemplateResponse(
+            request,
             "users.html",
             template_context(
                 request,
@@ -445,6 +451,7 @@ async def change_password_form(
 ):
     """Render the change-password form for the logged-in user."""
     response = templates.TemplateResponse(
+        request,
         "account_password.html",
         template_context(
             request,
@@ -472,6 +479,7 @@ async def change_password_submit(
 
     def _render(error: str | None = None, success: bool = False, status_code: int = 200):
         response = templates.TemplateResponse(
+            request,
             "account_password.html",
             template_context(
                 request,
@@ -525,6 +533,7 @@ async def audit_log_view(
         .all()
     )
     response = templates.TemplateResponse(
+        request,
         "audit.html",
         template_context(request, entries=entries, current_user=admin, converters=CONVERTERS),
     )

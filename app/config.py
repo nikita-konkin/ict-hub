@@ -245,6 +245,8 @@ ANALYSIS_API_TIMEOUT_SEC: float = float(os.getenv("ANALYSIS_API_TIMEOUT_SEC", "4
 # External data-indexer FastAPI integration
 DATA_INDEXER_URL: str = os.getenv("DATA_INDEXER_URL", "")
 DATA_INDEXER_TIMEOUT_SEC: float = float(os.getenv("DATA_INDEXER_TIMEOUT_SEC", "120"))
+# How long the hub reuses an indexer response before asking again.
+DATA_INDEXER_CLIENT_CACHE_TTL_SEC: float = float(os.getenv("DATA_INDEXER_CLIENT_CACHE_TTL_SEC", "30"))
 
 # Optional TEC map basemap sources.
 # CACHE_ROOT stores fetched OpenStreetMap raster tiles under openstreetmap/z/x/y.png.

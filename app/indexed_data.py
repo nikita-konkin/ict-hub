@@ -156,6 +156,7 @@ async def indexed_data_page(
     )
 
     response = templates.TemplateResponse(
+        request,
         "indexed_data.html",
         template_context(
             request,

@@ -34,6 +34,7 @@ async def analysis_home(
 ):
     """Analysis landing page for TEC data exploration and exports."""
     response = templates.TemplateResponse(
+        request,
         "analysis.html",
         template_context(
             request,
@@ -121,41 +122,39 @@ async def analysis_index_options(
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
 
+_HOP_BY_HOP_HEADERS = frozenset({
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+})
+# The hub session cookie must not reach the backend. Accept-Encoding is left to
+# httpx so the backend only uses encodings httpx can decode; httpx sets its own
+# Content-Length for the forwarded body.
+_DROP_OUTGOING_HEADERS = _HOP_BY_HOP_HEADERS | {"cookie", "accept-encoding", "content-length"}
+# httpx has already decoded the body, so the upstream encoding and length no
+# longer describe it; backend cookies would be set on the hub's origin.
+_DROP_INCOMING_HEADERS = _HOP_BY_HOP_HEADERS | {"content-encoding", "content-length", "set-cookie"}
+
+
 def _filter_outgoing_headers(request: Request) -> dict[str, str]:
-    hop_by_hop = {
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-        "host",
-    }
     return {
         name: value
         for name, value in request.headers.items()
-        if name.lower() not in hop_by_hop
+        if name.lower() not in _DROP_OUTGOING_HEADERS
     }
 
 
 def _filter_incoming_headers(headers: dict[str, str]) -> dict[str, str]:
-    hop_by_hop = {
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-        "host",
-    }
     return {
         name: value
         for name, value in headers.items()
-        if name.lower() not in hop_by_hop
+        if name.lower() not in _DROP_INCOMING_HEADERS
     }
 
 

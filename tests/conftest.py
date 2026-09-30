@@ -5,12 +5,16 @@ Key design decisions:
   - We use an in-memory SQLite database for tests so each test run starts clean
     and nothing is written to disk. SQLAlchemy receives a fresh engine per
     test session and all tables are created before any test runs.
-  - The Docker SDK is mocked out entirely via pytest-mock so tests can run on
-    any machine (no Docker daemon required).
+  - Tests never reach a Docker daemon: docker.from_env() fails as if Docker
+    were unavailable (see no_real_docker), and tests that need container
+    behaviour patch the runner functions or docker.from_env themselves.
   - We use FastAPI's TestClient (backed by httpx) which runs the full ASGI
     middleware stack, including session middleware and auth dependencies.
 """
 import os
+
+import docker
+import docker.errors
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -36,6 +40,20 @@ test_engine = create_engine(
     connect_args={"check_same_thread": False},
 )
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+@pytest.fixture(autouse=True)
+def no_real_docker(monkeypatch):
+    """Keep tests away from the Docker daemon of the machine running them.
+
+    Without this, a test that forgets to patch start_container launches a real
+    container, and page renders list the host's real containers.
+    """
+
+    def _refuse(*args, **kwargs):
+        raise docker.errors.DockerException("tests must not use the real Docker daemon")
+
+    monkeypatch.setattr(docker, "from_env", _refuse)
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -459,6 +459,33 @@ class TestAsyncFunctions:
         # HTTP was called exactly once (cache served the second call)
         assert mock_client.get.call_count == 1
 
+    async def test_cache_entry_expires_after_ttl(self, monkeypatch):
+        """New output indexed after a job must reach the UI without a restart."""
+        import app.data_indexer_client as m
+        monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
+        monkeypatch.setattr(m.cfg, "DATA_INDEXER_CLIENT_CACHE_TTL_SEC", 30.0)
+        clock = [1000.0]
+        monkeypatch.setattr(m.time, "monotonic", lambda: clock[0])
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {}
+        mock_resp.text = "<root></root>"
+        mock_resp.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            clock[0] += 29.0
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            assert mock_client.get.call_count == 1
+            clock[0] += 2.0
+            await m.list_rinex_server_structure_async("/mnt/rinex")
+            assert mock_client.get.call_count == 2
+
     async def test_rinex_station_map_second_call_uses_cache(self, monkeypatch):
         import app.data_indexer_client as m
         monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")

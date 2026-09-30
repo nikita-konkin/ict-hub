@@ -29,6 +29,7 @@ async def ionmaps_page(
 ):
     """IonMaps page: build VTEC / GDD / B_k maps from TEC-suite parquet data."""
     response = templates.TemplateResponse(
+        request,
         "ionmaps.html",
         template_context(
             request,

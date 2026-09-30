@@ -112,11 +112,19 @@ def _prune_job_log_events(db: Session, job_id: int, keep_last: int) -> None:
 
 
 def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent | None:
-    """Mark a job terminal and emit its durable `done` event exactly once."""
-    final_status = "success" if exit_code == 0 else "failed"
-    job.finished_at = job.finished_at or datetime.now(timezone.utc)
-    job.exit_code = exit_code
-    job.status = final_status
+    """
+    Mark a running job terminal and emit its durable `done` event exactly once.
+
+    The first terminal state wins. A user stop is recorded before the container
+    is stopped, and the container's own exit then reaches the log producer or
+    the direct stream as well; it must not overwrite the stop.
+    """
+    if job.status == "running":
+        job.finished_at = job.finished_at or datetime.now(timezone.utc)
+        job.exit_code = exit_code
+        job.status = "success" if exit_code == 0 else "failed"
+    final_status = job.status
+    recorded_exit_code = job.exit_code if job.exit_code is not None else exit_code
 
     existing_done = (
         db.query(JobEvent)
@@ -134,8 +142,8 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
         payload_xml=xml_payload(
             "done",
             status=final_status,
-            exit_code=exit_code,
-            finished_at=job.finished_at.isoformat(),
+            exit_code=recorded_exit_code,
+            finished_at=(job.finished_at or datetime.now(timezone.utc)).isoformat(),
         ),
     )
     db.add(event)
@@ -210,8 +218,10 @@ async def _produce_job_events(job_id: int) -> None:
         if not job or job.status != "running" or not job.container_id:
             return
 
-        if reconcile_job_state(job_id, db=db):
+        # reconcile_job_state calls the Docker API; keep it off the event loop.
+        if await asyncio.to_thread(reconcile_job_state, job_id):
             return
+        db.expire_all()
 
         conv = get_converter(job.converter)
         progress_patterns = conv.get("progress_patterns", []) if conv else []
@@ -275,7 +285,7 @@ async def _produce_job_events(job_id: int) -> None:
                     _prune_job_log_events(db, job_id, int(cfg.JOB_EVENT_LOG_MAX_LINES))
                 return
 
-        reconcile_job_state(job_id, db=db)
+        await asyncio.to_thread(reconcile_job_state, job_id)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -299,7 +309,7 @@ async def _monitor_running_jobs() -> None:
 
             for job_id in running_job_ids:
                 try:
-                    finished = reconcile_job_state(job_id)
+                    finished = await asyncio.to_thread(reconcile_job_state, job_id)
                     if not finished:
                         await ensure_job_producer(job_id)
                 except Exception:
