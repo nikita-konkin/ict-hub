@@ -54,6 +54,11 @@ Google Fonts. Build arguments `HTTP_PROXY`/`HTTPS_PROXY` are honoured. When
 running the app outside Docker, fetch them once with
 `python scripts/fetch_vendor_assets.py`.
 
+The dashboard shows the running build's version and when it was built. Images
+from CI carry their commit SHA (the same one they are tagged with); a local
+build shows `dev` unless you pass a version:
+`APP_VERSION=$(git rev-parse --short HEAD) docker-compose up --build`.
+
 ### 2. First login
 
 On first boot a default `admin` account is created with the password from the `ADMIN_PASSWORD` environment variable (default: `admin`). **Change it immediately** via the Users page.

@@ -57,6 +57,13 @@ COPY app/ ./app/
 # Baked in at build time so they can never go missing.
 RUN mkdir -p /app/data /app/app/static
 
+# Build metadata shown on the dashboard (app/build_info.py). CI passes the
+# commit SHA the image is tagged with; the build records its own time. A fully
+# cached rebuild keeps the earlier time, since nothing in the image changed.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+RUN date -u +%Y-%m-%dT%H:%M:%SZ > /app/BUILD_TIME
+
 # Expose the HTTP port Uvicorn listens on
 EXPOSE 8000
 

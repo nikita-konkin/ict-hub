@@ -6,6 +6,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Version shown on the dashboard, e.g.
+      # APP_VERSION=$(git rev-parse --short HEAD) docker compose up --build
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
 
     # Local `docker compose build` tags the image under this name; on a
     # machine with no source checked out, `docker compose pull` fetches it
