@@ -1,0 +1,58 @@
+# Tool configuration only; the services are not packaged (see the Dockerfiles).
+# Lint/format/type-check commands are listed in README.md ("Linting").
+
+[tool.ruff]
+# The hub image runs 3.12, the data-indexer image 3.11: keep code valid on both.
+target-version = "py311"
+line-length = 120
+src = [".", "data-indexer"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import order
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "C4",       # comprehensions
+    "PIE",
+    "RUF",
+    "S",        # bandit (security)
+    "PT",       # pytest style
+    "ASYNC",
+    "LOG",
+    "G",        # logging format: pass arguments, not f-strings
+]
+ignore = [
+    # The UI is bilingual: Cyrillic letters and typographic characters (—, ×, …)
+    # in strings, docstrings and comments are intentional.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",          # assert is how pytest checks
+    "S105", "S106",  # fixed test passwords
+    "S108",          # /tmp paths as fake data roots
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares dependencies and parameters with calls in default arguments.
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Form", "fastapi.Path",
+    "fastapi.Body", "fastapi.Header", "fastapi.Cookie", "fastapi.File",
+]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# data-indexer has its own top-level "app" module, so it is checked in a
+# separate run (see README.md) rather than listed here.
+files = ["app"]
+
+[[tool.mypy.overrides]]
+module = ["dicttoxml"]
+ignore_missing_imports = true

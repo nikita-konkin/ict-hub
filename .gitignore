@@ -22,6 +22,9 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# ESLint tooling (package.json)
+node_modules/
+
 # Build and packaging artifacts
 build/
 dist/

@@ -7,6 +7,9 @@
 .venv
 venv
 .pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
 **/__pycache__
 tests
 data-indexer

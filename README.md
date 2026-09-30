@@ -188,11 +188,11 @@ See [data-indexer/README.md](data-indexer/README.md) for detailed configuration 
 
 ## Testing
 
-All 182 tests pass with full coverage of authentication, job management, data indexing, and converter execution:
+The tests cover authentication, job management, data indexing, and converter execution:
 
 ```bash
 # Install test dependencies (in a venv or dev container)
-pip install -r requirements.txt -r requirements-test.txt
+pip install -r requirements-test.txt
 
 # Run all tests
 pytest
@@ -202,6 +202,31 @@ pytest tests/test_runner.py -v
 ```
 
 Tests use an in-memory SQLite database and fully mock the Docker SDK — no Docker daemon required.
+
+## Linting
+
+Python is linted and formatted with [ruff](https://docs.astral.sh/ruff/) and
+type-checked with mypy; the browser scripts in `app/static/js` are linted with
+ESLint. Configuration lives in `pyproject.toml` and `eslint.config.mjs`.
+
+```bash
+pip install -r requirements-dev.txt
+
+ruff check .            # lint (add --fix for the auto-fixable ones)
+ruff format .           # format (--check to only report)
+mypy                    # hub (app/)
+mypy data-indexer/app.py data-indexer/data_indexer.py data-indexer/scripts
+```
+
+mypy runs twice because the data-indexer has its own top-level `app` module.
+
+ESLint needs Node.js 20+; without a local install, run it in a container:
+
+```bash
+npm ci && npm run lint
+# or
+docker run --rm -v "$PWD:/work" -v ict-hub-node-modules:/work/node_modules -w /work node:22-alpine sh -c "npm ci && npm run lint"
+```
 
 ## Key design decisions
 
