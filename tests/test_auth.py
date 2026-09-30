@@ -102,6 +102,14 @@ class TestProtectedRoutes:
         response = client.get("/history", follow_redirects=False)
         assert response.status_code in (302, 303)
 
+    def test_unauthenticated_htmx_request_gets_hx_redirect(self, client):
+        # A 303 would be followed by the XHR and the login page swapped into
+        # the fragment target, so HTMX requests are told to navigate instead.
+        response = client.post("/jobs/start", headers={"HX-Request": "true"}, follow_redirects=False)
+        assert response.status_code == 204
+        assert response.headers["HX-Redirect"] == "/login"
+        assert "location" not in response.headers
+
     def test_authenticated_can_access_dashboard(self, operator_client):
         response = operator_client.get("/", follow_redirects=True)
         assert response.status_code == 200

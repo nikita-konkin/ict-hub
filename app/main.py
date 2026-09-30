@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -155,6 +155,10 @@ async def proxy_data_indexer_status():
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 303:
         location = (exc.headers or {}).get("Location", "/login")
+        if request.headers.get("HX-Request") == "true":
+            # The XHR would follow a 303 itself and HTMX would swap the login
+            # page into the fragment target; ask HTMX to navigate instead.
+            return Response(status_code=204, headers={"HX-Redirect": location})
         return RedirectResponse(url=location, status_code=303)
     # For all other HTTP errors, fall back to FastAPI's default handler
     return await default_http_exception_handler(request, exc)

@@ -159,11 +159,11 @@ async def start_job(
     3. Builds the Docker command and volume mapping
     4. Starts the container (detached)
     5. Persists the JobRun record
-    6. Returns an HTML fragment containing the HTMX SSE panel
+    6. Returns an HTML fragment containing the job panel
 
-    The returned fragment is swapped into #job-output by HTMX. Once in the DOM
-    the hx-ext="sse" attribute on the outer div causes HTMX to immediately open
-    the SSE connection and start streaming logs into the log panel.
+    The returned fragment is swapped into #job-output by HTMX. base.js then
+    initialises the panel on htmx:afterSwap and opens an EventSource on
+    /jobs/{id}/stream to stream logs into it.
     """
     form = await request.form()
     is_htmx_request = request.headers.get("HX-Request") == "true"

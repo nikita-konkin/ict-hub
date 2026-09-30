@@ -355,6 +355,17 @@
     initializeDataIndexerStatus();
   });
 
+  // HTMX leaves 4xx/5xx responses unswapped by default, but the job endpoints
+  // answer errors with an alert fragment meant to be shown in the target.
+  document.body.addEventListener("htmx:beforeSwap", function (evt) {
+    const xhr = evt.detail.xhr;
+    const contentType = xhr.getResponseHeader("Content-Type") || "";
+    if (xhr.status >= 400 && contentType.startsWith("text/html")) {
+      evt.detail.shouldSwap = true;
+      evt.detail.isError = false;
+    }
+  });
+
   document.body.addEventListener("htmx:afterSwap", function (evt) {
     formatLocalDateTimes(evt.target || document);
     initializeAllJobPanels(evt.target || document);
