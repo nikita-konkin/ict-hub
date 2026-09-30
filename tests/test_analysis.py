@@ -141,14 +141,19 @@ def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
         assert 'value="plots/cb/raw/day-by-day"' in html
         assert 'id="plot-alpha"' in html
         assert 'id="plot-fetch-msg"' in html
-        assert '"plots/cb/multi-station": {' in html
-        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end"]' in html
-        assert '"plots/cb/vs-tec": {' in html
-        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in html
-        assert 'endpointName === "plots/cb/raw/day-by-day"' in html
-        assert 'endpointName === "plots/cb/per-station-averages")' in html
-        assert 'function formatBackendError(payload, fallbackStatus)' in html
-        assert 'setPlotFetchStatus("success", "OK (Fetched)")' in html
+        assert '<script src="/static/js/analysis.js"></script>' in html
+
+        script = client.get("/static/js/analysis.js")
+        assert script.status_code == 200
+        js = script.text
+        assert '"plots/cb/multi-station": {' in js
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end"]' in js
+        assert '"plots/cb/vs-tec": {' in js
+        assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in js
+        assert 'endpointName === "plots/cb/raw/day-by-day"' in js
+        assert 'endpointName === "plots/cb/per-station-averages")' in js
+        assert 'function formatBackendError(payload, fallbackStatus)' in js
+        assert 'setPlotFetchStatus("success", "OK (Fetched)")' in js
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

@@ -107,7 +107,7 @@ app.add_middleware(
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
 os.makedirs("app/static", exist_ok=True)
 
-# Serve CSS / any future static assets
+# Serve page stylesheets and scripts (app/static/css, app/static/js)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Register routers

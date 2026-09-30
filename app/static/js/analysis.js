@@ -1,0 +1,1317 @@
+/* Analysis page: index-driven query builder, data preview and plot viewer. */
+(function () {
+  const analysisEnabled = JSON.parse(document.getElementById("analysis-config").textContent).analysisEnabled === true;
+  if (!analysisEnabled) {
+    return;
+  }
+
+  const state = {
+    rows: [],
+    lastDataUrl: "",
+    lastPlotUrl: "",
+    lastPlotObjectUrl: "",
+    lastPlotPayload: {},
+    indexOptions: {
+      absoltec: { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} },
+      tec: { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} },
+    },
+  };
+
+  function getDataSourceType() {
+    const endpoint = document.getElementById("data-endpoint")?.value || "";
+    if (endpoint.startsWith("tec/") || endpoint.startsWith("stations/")) return "tec";
+    return "absoltec";
+  }
+
+  function getPlotSourceType() {
+    const endpoint = document.getElementById("plot-endpoint")?.value || "";
+    if (endpoint.startsWith("plots/tec/")) return "tec";
+    return "absoltec";
+  }
+
+  const dataEndpointRules = {
+    "absoltec/stations": {
+      required: ["data-year", "data-doy"],
+      relevant: ["data-year", "data-doy", "data-format"],
+    },
+    "absoltec/days": {
+      required: ["data-year", "data-station"],
+      relevant: ["data-year", "data-station", "data-format"],
+    },
+    "absoltec/raw": {
+      required: ["data-year", "data-doy", "data-station"],
+      relevant: ["data-year", "data-doy", "data-station", "data-format"],
+    },
+    "absoltec/raw/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+    },
+    "absoltec/statistics": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-alpha", "data-format"],
+    },
+    "absoltec/statistics/per-station-day": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-stations"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-stations", "data-alpha", "data-format"],
+    },
+    "cb/stations": {
+      required: ["data-year", "data-doy"],
+      relevant: ["data-year", "data-doy", "data-format"],
+    },
+    "cb/days": {
+      required: ["data-year", "data-station"],
+      relevant: ["data-year", "data-station", "data-format"],
+    },
+    "cb/raw": {
+      required: ["data-year", "data-doy", "data-station"],
+      relevant: ["data-year", "data-doy", "data-station", "data-format"],
+    },
+    "cb/raw/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+    },
+    "cb/statistics": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-alpha", "data-format"],
+    },
+    "cb/statistics/per-station-day": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-stations"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-stations", "data-alpha", "data-format"],
+    },
+    "tec/stations": {
+      required: ["data-year", "data-doy"],
+      relevant: ["data-year", "data-doy", "data-format"],
+    },
+    "tec/satellites": {
+      required: ["data-year", "data-doy", "data-station"],
+      relevant: ["data-year", "data-doy", "data-station", "data-format"],
+    },
+    "tec/data": {
+      required: ["data-year", "data-doy", "data-station", "data-satellite"],
+      relevant: ["data-year", "data-doy", "data-station", "data-satellite", "data-format"],
+    },
+    "tec/raw/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+    },
+    "stations/available": {
+      required: ["data-year", "data-doy"],
+      relevant: ["data-year", "data-doy", "data-source", "data-format"],
+    },
+    "stations/map": {
+      required: ["data-year", "data-doy"],
+      relevant: ["data-year", "data-doy", "data-format"],
+    },
+  };
+
+  const plotEndpointRules = {
+    "plots/absoltec/average": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/absoltec/day": {
+      required: ["plot-year", "plot-doy", "plot-station"],
+      relevant: ["plot-year", "plot-doy", "plot-station", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/absoltec/multi-station": {
+      required: ["plot-year", "plot-doy", "plot-stations"],
+      relevant: ["plot-year", "plot-doy", "plot-stations", "plot-smooth", "plot-poly", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/absoltec/per-station-averages": {
+      required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
+      relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/tec/satellite": {
+      required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
+      relevant: ["plot-year", "plot-doy", "plot-station", "plot-satellite", "plot-column", "plot-valid-only", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/average": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/day": {
+      required: ["plot-year", "plot-doy", "plot-station"],
+      relevant: ["plot-year", "plot-doy", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/multi-station": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/vs-tec": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/per-station-averages": {
+      required: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations"],
+      relevant: ["plot-year", "plot-doy", "plot-doy-start", "plot-doy-end", "plot-stations", "plot-alpha", "plot-show-ci", "plot-show-var", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/absoltec/raw/day-by-day": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-columns", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/cb/raw/day-by-day": {
+      required: ["plot-year", "plot-doy-start", "plot-doy-end"],
+      relevant: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station", "plot-stations", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+    "plots/tec/sky-track": {
+      required: ["plot-year", "plot-doy", "plot-station", "plot-satellite"],
+      relevant: ["plot-year", "plot-doy", "plot-station", "plot-satellite", "plot-color-by-tec", "plot-valid-only", "plot-size-px", "plot-dpi", "plot-format"],
+    },
+    "plots/tec/all-satellites": {
+      required: ["plot-year", "plot-doy", "plot-station"],
+      relevant: ["plot-year", "plot-doy", "plot-station", "plot-column", "plot-valid-only", "plot-width-px", "plot-height-px", "plot-dpi", "plot-format"],
+    },
+  };
+
+  const dataFieldLabels = {
+    "data-year": "year",
+    "data-doy": "doy",
+    "data-doy-start": "doy_start",
+    "data-doy-end": "doy_end",
+    "data-station": "station",
+    "data-stations": "stations",
+    "data-satellite": "satellite",
+    "data-source": "source",
+    "data-alpha": "alpha",
+    "data-format": "format",
+  };
+
+  const plotFieldLabels = {
+    "plot-year": "year",
+    "plot-doy": "doy",
+    "plot-doy-start": "doy_start",
+    "plot-doy-end": "doy_end",
+    "plot-station": "station",
+    "plot-stations": "stations",
+    "plot-columns": "columns",
+    "plot-satellite": "satellite",
+    "plot-alpha": "alpha",
+    "plot-format": "format",
+    "plot-show-ci": "show_ci",
+    "plot-show-var": "show_var",
+    "plot-width-px": "width_px",
+    "plot-height-px": "height_px",
+    "plot-dpi": "dpi",
+    "plot-smooth": "smooth",
+    "plot-poly": "poly",
+    "plot-size-px": "size_px",
+    "plot-column": "column",
+    "plot-valid-only": "valid_only",
+    "plot-color-by-tec": "color_by_tec",
+  };
+
+  function clean(value) {
+    return String(value || "").trim();
+  }
+
+  function qpAppend(params, key, value) {
+    const v = clean(value);
+    if (v !== "") params.append(key, v);
+  }
+
+  function qpAppendCsvArray(params, key, valueOrArray) {
+    const items = Array.isArray(valueOrArray)
+      ? valueOrArray.map((v) => clean(v)).filter((v) => v !== "")
+      : clean(valueOrArray)
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v !== "");
+    for (const item of items) {
+      params.append(key, item);
+    }
+  }
+
+  function sortedNumericStrings(values) {
+    return Array.from(new Set(values || [])).sort((a, b) => {
+      const ai = Number(a);
+      const bi = Number(b);
+      if (isNaN(ai) || isNaN(bi)) return String(a).localeCompare(String(b));
+      if (ai !== bi) return ai - bi;
+      return String(a).length - String(b).length;
+    });
+  }
+
+  function setIndexOptionsStatus(kind, text) {
+    const el = document.getElementById("index-options-status");
+    if (!el) return;
+    el.textContent = text || "";
+    if (!text) {
+      el.style.color = "var(--text-muted)";
+      return;
+    }
+    if (kind === "error") {
+      el.style.color = "var(--danger-text)";
+      return;
+    }
+    if (kind === "warning") {
+      el.style.color = "var(--warning-text, #d3b37a)";
+      return;
+    }
+    if (kind === "success") {
+      el.style.color = "var(--success-text)";
+      return;
+    }
+    el.style.color = "var(--text-muted)";
+  }
+
+  function setPlotFetchStatus(kind, text) {
+    const el = document.getElementById("plot-fetch-msg");
+    if (!el) return;
+    el.textContent = text || "";
+    if (!text) {
+      el.style.color = "var(--text-muted)";
+      return;
+    }
+    if (kind === "error") {
+      el.style.color = "var(--danger-text)";
+      return;
+    }
+    if (kind === "success") {
+      el.style.color = "var(--success-text)";
+      return;
+    }
+    el.style.color = "var(--text-muted)";
+  }
+
+  function formatBackendError(payload, fallbackStatus) {
+    if (payload && Array.isArray(payload.detail) && payload.detail.length) {
+      return payload.detail.map(function (item) {
+        const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
+        const msg = clean(item.msg) || clean(item.type) || "Request error";
+        return loc ? (loc + ": " + msg) : msg;
+      }).join(" | ");
+    }
+    return "Request failed" + (fallbackStatus ? ": " + fallbackStatus : "");
+  }
+
+  function fillSelect(selectId, values, selectedValue) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const options = values || [];
+    if (!options.length) {
+      select.innerHTML = '<option value="">(none)</option>';
+      return;
+    }
+    select.innerHTML = options
+      .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+      .join("");
+    const target = clean(selectedValue) || options[0];
+    select.value = options.includes(target) ? target : options[0];
+  }
+
+  function fillMultiSelect(selectId, values, selectedValues) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const options = values || [];
+    select.innerHTML = options
+      .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+      .join("");
+    const selected = new Set(selectedValues || []);
+    for (const option of Array.from(select.options)) {
+      option.selected = selected.has(option.value);
+    }
+    if (!selected.size && select.options.length) {
+      select.options[0].selected = true;
+      if (select.options.length > 1) select.options[1].selected = true;
+    }
+  }
+
+  function getMultiSelectedValues(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return [];
+    return Array.from(select.selectedOptions || []).map((o) => o.value).filter((v) => clean(v) !== "");
+  }
+
+  function updateDataSelectors() {
+    const source = state.indexOptions[getDataSourceType()] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
+    const years = source.years || [];
+    fillSelect("data-year", years, document.getElementById("data-year")?.value || "");
+    const year = document.getElementById("data-year").value;
+    const doys = sortedNumericStrings((source.doysByYear || {})[year] || []);
+
+    fillSelect("data-doy", doys, document.getElementById("data-doy")?.value || "");
+    fillSelect("data-doy-start", doys, document.getElementById("data-doy-start")?.value || (doys[0] || ""));
+    fillSelect("data-doy-end", doys, document.getElementById("data-doy-end")?.value || (doys[doys.length - 1] || ""));
+
+    const doy = document.getElementById("data-doy").value;
+    const stationsByYear = (source.stationsByYearDoy || {})[year] || {};
+    const stations = sortedNumericStrings((stationsByYear[doy] || []).map((s) => String(s)));
+    const satellitesByYear = (source.satellitesByYearDoy || {})[year] || {};
+    const satellites = sortedNumericStrings((satellitesByYear[doy] || []).map((s) => String(s)));
+    fillSelect("data-station", stations, document.getElementById("data-station")?.value || "");
+    fillSelect("data-satellite", satellites, document.getElementById("data-satellite")?.value || "");
+    fillMultiSelect("data-stations", stations, getMultiSelectedValues("data-stations"));
+  }
+
+  function updatePlotSelectors() {
+    const source = state.indexOptions[getPlotSourceType()] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
+    const years = source.years || [];
+    fillSelect("plot-year", years, document.getElementById("plot-year")?.value || "");
+    const year = document.getElementById("plot-year").value;
+    const doys = sortedNumericStrings((source.doysByYear || {})[year] || []);
+
+    fillSelect("plot-doy", doys, document.getElementById("plot-doy")?.value || "");
+    fillSelect("plot-doy-start", doys, document.getElementById("plot-doy-start")?.value || (doys[0] || ""));
+    fillSelect("plot-doy-end", doys, document.getElementById("plot-doy-end")?.value || (doys[doys.length - 1] || ""));
+
+    const doy = document.getElementById("plot-doy").value;
+    const stationsByYear = (source.stationsByYearDoy || {})[year] || {};
+    const stations = sortedNumericStrings((stationsByYear[doy] || []).map((s) => String(s)));
+    const satellitesByYear = (source.satellitesByYearDoy || {})[year] || {};
+    const satellites = sortedNumericStrings((satellitesByYear[doy] || []).map((s) => String(s)));
+    fillSelect("plot-station", stations, document.getElementById("plot-station")?.value || "");
+    fillSelect("plot-satellite", satellites, document.getElementById("plot-satellite")?.value || "");
+    fillMultiSelect("plot-stations", stations, getMultiSelectedValues("plot-stations"));
+  }
+
+  async function loadIndexOptions() {
+    setIndexOptionsStatus("info", "Loading index options...");
+    try {
+      const res = await fetch("/analysis/index-options", { credentials: "same-origin" });
+      if (!res.ok) {
+        setIndexOptionsStatus("error", "Index options unavailable (" + res.status + "). Data-indexer may be unreachable or returning errors.");
+        return;
+      }
+      const payload = await res.json();
+      state.indexOptions = {
+        absoltec: {
+          years: Array.isArray(payload?.absoltec?.years) ? payload.absoltec.years.map((v) => String(v)) : [],
+          doysByYear: payload?.absoltec?.doysByYear || {},
+          stationsByYearDoy: payload?.absoltec?.stationsByYearDoy || {},
+          satellitesByYearDoy: payload?.absoltec?.satellitesByYearDoy || {},
+        },
+        tec: {
+          years: Array.isArray(payload?.tec?.years) ? payload.tec.years.map((v) => String(v)) : [],
+          doysByYear: payload?.tec?.doysByYear || {},
+          stationsByYearDoy: payload?.tec?.stationsByYearDoy || {},
+          satellitesByYearDoy: payload?.tec?.satellitesByYearDoy || {},
+        },
+      };
+      updateDataSelectors();
+      updatePlotSelectors();
+      const absYears = state.indexOptions.absoltec.years.length;
+      const tecYears = state.indexOptions.tec.years.length;
+      if (!absYears && !tecYears) {
+        setIndexOptionsStatus("warning", "Index loaded, but no data was discovered for configured parquet paths.");
+      } else {
+        setIndexOptionsStatus("success", "Index loaded: absoltec years=" + absYears + ", tec years=" + tecYears + ".");
+      }
+    } catch (_) {
+      setIndexOptionsStatus("error", "Failed to load index options. Check converter-hub and data-indexer connectivity, mounts, and parquet root paths.");
+    }
+  }
+
+  function getFieldGroupById(fieldId) {
+    const el = document.getElementById(fieldId);
+    if (!el) return null;
+    return el.closest(".form-group");
+  }
+
+  function setFieldClasses(fieldId, stateName) {
+    const group = getFieldGroupById(fieldId);
+    if (!group) return;
+    group.classList.remove("param-required", "param-irrelevant");
+    if (stateName === "required") {
+      group.classList.add("param-required");
+    } else if (stateName === "irrelevant") {
+      group.classList.add("param-irrelevant");
+    }
+  }
+
+  function updateDataFieldHighlights() {
+    const endpoint = document.getElementById("data-endpoint").value;
+    const rule = dataEndpointRules[endpoint] || { required: [], relevant: [] };
+    const requiredSet = new Set(rule.required);
+    const relevantSet = new Set(rule.relevant);
+
+    for (const fieldId of Object.keys(dataFieldLabels)) {
+      if (requiredSet.has(fieldId)) {
+        setFieldClasses(fieldId, "required");
+      } else if (relevantSet.has(fieldId)) {
+        setFieldClasses(fieldId, "relevant");
+      } else {
+        setFieldClasses(fieldId, "irrelevant");
+      }
+    }
+
+    const msg = document.getElementById("data-requirements-msg");
+    const requiredNames = rule.required.map((id) => dataFieldLabels[id]).join(", ");
+    msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>";
+  }
+
+  function updatePlotFieldHighlights() {
+    const endpoint = document.getElementById("plot-endpoint").value;
+    const rule = plotEndpointRules[endpoint] || { required: [], relevant: [] };
+    const requiredSet = new Set(rule.required);
+    const relevantSet = new Set(rule.relevant);
+
+    for (const fieldId of Object.keys(plotFieldLabels)) {
+      if (requiredSet.has(fieldId)) {
+        setFieldClasses(fieldId, "required");
+      } else if (relevantSet.has(fieldId)) {
+        setFieldClasses(fieldId, "relevant");
+      } else {
+        setFieldClasses(fieldId, "irrelevant");
+      }
+    }
+
+    const msg = document.getElementById("plot-requirements-msg");
+    const requiredNames = rule.required.map((id) => plotFieldLabels[id]).join(", ");
+    const note = endpoint === "plots/absoltec/per-station-averages" || endpoint === "plots/cb/per-station-averages"
+      ? " (path doy uses DOY field)"
+      : "";
+    msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>" + note;
+  }
+
+  function buildDataUrl() {
+    const endpoint = document.getElementById("data-endpoint").value;
+    const params = new URLSearchParams();
+    const year = document.getElementById("data-year").value;
+    const doy = document.getElementById("data-doy").value;
+    const doyStart = document.getElementById("data-doy-start").value;
+    const doyEnd = document.getElementById("data-doy-end").value;
+    const station = document.getElementById("data-station").value;
+    const satellite = document.getElementById("data-satellite").value;
+    const source = document.getElementById("data-source").value;
+    const alpha = document.getElementById("data-alpha").value;
+
+    qpAppend(params, "year", year);
+
+    if (endpoint === "absoltec/stations" || endpoint === "cb/stations" || endpoint === "tec/stations" || endpoint === "stations/available" || endpoint === "stations/map" || endpoint === "absoltec/raw" || endpoint === "cb/raw" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+      qpAppend(params, "doy", doy);
+    }
+    if (endpoint === "absoltec/days" || endpoint === "cb/days" || endpoint === "absoltec/raw" || endpoint === "cb/raw" || endpoint === "absoltec/statistics" || endpoint === "cb/statistics" || endpoint === "tec/satellites" || endpoint === "tec/data") {
+      qpAppend(params, "station", station);
+    }
+    if (endpoint === "absoltec/raw/range" || endpoint === "cb/raw/range" || endpoint === "tec/raw/range") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
+    }
+    if (endpoint === "absoltec/statistics" || endpoint === "cb/statistics" || endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "alpha", alpha);
+    }
+    if (endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
+      qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
+    }
+    if (endpoint === "tec/data") {
+      qpAppend(params, "satellite", satellite);
+    }
+    if (endpoint === "stations/available") {
+      qpAppend(params, "source", source);
+    }
+
+    qpAppend(params, "format", document.getElementById("data-format").value);
+    return "/analysis/api/" + endpoint + "?" + params.toString();
+  }
+
+  function buildPlotUrl() {
+    const endpointName = document.getElementById("plot-endpoint").value;
+    const doyPath = clean(document.getElementById("plot-doy").value) || "1";
+    const endpoint = (endpointName === "plots/absoltec/per-station-averages" || endpointName === "plots/cb/per-station-averages")
+      ? endpointName + "/" + encodeURIComponent(doyPath)
+      : endpointName;
+    const params = new URLSearchParams();
+    qpAppend(params, "year", document.getElementById("plot-year").value);
+    const doy = document.getElementById("plot-doy").value;
+    const doyStart = document.getElementById("plot-doy-start").value;
+    const doyEnd = document.getElementById("plot-doy-end").value;
+    const station = document.getElementById("plot-station").value;
+    const satellite = document.getElementById("plot-satellite").value;
+    const stations = getMultiSelectedValues("plot-stations");
+
+    if (endpointName === "plots/absoltec/average") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
+      qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+      qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+    } else if (endpointName === "plots/absoltec/day") {
+      qpAppend(params, "doy", doy);
+      qpAppend(params, "station", station);
+      qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+      qpAppend(params, "poly", document.getElementById("plot-poly").value);
+    } else if (endpointName === "plots/absoltec/multi-station") {
+      qpAppend(params, "doy", doy);
+      qpAppendCsvArray(params, "stations", stations);
+      qpAppend(params, "smooth", document.getElementById("plot-smooth").value);
+      qpAppend(params, "poly", document.getElementById("plot-poly").value);
+    } else if (endpointName === "plots/absoltec/per-station-averages") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppendCsvArray(params, "stations", stations);
+      qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
+      qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+      qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+    } else if (endpointName === "plots/absoltec/raw/day-by-day") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppendCsvArray(params, "stations", stations);
+      qpAppendCsvArray(params, "columns", document.getElementById("plot-columns").value);
+    } else if (endpointName === "plots/cb/average") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
+      qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+      qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+    } else if (endpointName === "plots/cb/day") {
+      qpAppend(params, "doy", doy);
+      qpAppend(params, "station", station);
+    } else if (endpointName === "plots/cb/multi-station") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppendCsvArray(params, "stations", stations);
+    } else if (endpointName === "plots/cb/vs-tec") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+    } else if (endpointName === "plots/cb/per-station-averages") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppendCsvArray(params, "stations", stations);
+      qpAppend(params, "alpha", document.getElementById("plot-alpha").value);
+      qpAppend(params, "show_ci", document.getElementById("plot-show-ci").value);
+      qpAppend(params, "show_var", document.getElementById("plot-show-var").value);
+    } else if (endpointName === "plots/cb/raw/day-by-day") {
+      qpAppend(params, "doy_start", doyStart);
+      qpAppend(params, "doy_end", doyEnd);
+      qpAppend(params, "station", station);
+      qpAppendCsvArray(params, "stations", stations);
+    } else if (endpointName === "plots/tec/satellite") {
+      qpAppend(params, "doy", doy);
+      qpAppend(params, "station", station);
+      qpAppend(params, "satellite", satellite);
+      qpAppend(params, "column", document.getElementById("plot-column").value);
+      qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+    } else if (endpointName === "plots/tec/sky-track") {
+      qpAppend(params, "doy", doy);
+      qpAppend(params, "station", station);
+      qpAppend(params, "satellite", satellite);
+      qpAppend(params, "color_by_tec", document.getElementById("plot-color-by-tec").value);
+      qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+    } else if (endpointName === "plots/tec/all-satellites") {
+      qpAppend(params, "doy", doy);
+      qpAppend(params, "station", station);
+      qpAppend(params, "column", document.getElementById("plot-column").value);
+      qpAppend(params, "valid_only", document.getElementById("plot-valid-only").value);
+    }
+
+    const rule = plotEndpointRules[endpointName] || { relevant: [] };
+    const relevant = new Set(rule.relevant || []);
+    if (relevant.has("plot-width-px")) {
+      qpAppend(params, "width_px", document.getElementById("plot-width-px").value);
+    }
+    if (relevant.has("plot-height-px")) {
+      qpAppend(params, "height_px", document.getElementById("plot-height-px").value);
+    }
+    if (relevant.has("plot-size-px")) {
+      qpAppend(params, "size_px", document.getElementById("plot-size-px").value);
+    }
+    if (relevant.has("plot-dpi")) {
+      qpAppend(params, "dpi", document.getElementById("plot-dpi").value);
+    }
+    qpAppend(params, "format", document.getElementById("plot-format").value);
+    return "/analysis/api/" + endpoint + "?" + params.toString();
+  }
+
+  function flattenAny(input) {
+    if (Array.isArray(input)) return input;
+    if (!input || typeof input !== "object") return [{ value: input }];
+
+    if (input.series && typeof input.series === "object") {
+      const keys = Object.keys(input.series);
+      const maxLen = keys.reduce((m, k) => Math.max(m, Array.isArray(input.series[k]) ? input.series[k].length : 0), 0);
+      const rows = [];
+      for (let i = 0; i < maxLen; i += 1) {
+        const row = {};
+        for (const k of keys) {
+          const arr = Array.isArray(input.series[k]) ? input.series[k] : [];
+          row[k] = arr[i];
+        }
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    const listKeys = Object.keys(input).filter((k) => Array.isArray(input[k]));
+    if (listKeys.length > 0) {
+      const rows = [];
+      for (const key of listKeys) {
+        for (const item of input[key]) {
+          if (item && typeof item === "object" && !Array.isArray(item)) {
+            rows.push({ collection: key, ...item });
+          } else {
+            rows.push({ collection: key, value: item });
+          }
+        }
+      }
+      return rows;
+    }
+
+    return [input];
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function renderTable(tableEl, rows, maxRows) {
+    if (!tableEl) return;
+    const limited = rows.slice(0, maxRows);
+    const cols = Array.from(new Set(limited.flatMap((r) => Object.keys(r))));
+    if (cols.length === 0) {
+      tableEl.innerHTML = "";
+      return;
+    }
+    let html = "<thead><tr>";
+    for (const col of cols) html += "<th>" + escapeHtml(col) + "</th>";
+    html += "</tr></thead><tbody>";
+    for (const row of limited) {
+      html += "<tr>";
+      for (const col of cols) {
+        const value = row[col] == null ? "" : row[col];
+        html += "<td>" + escapeHtml(value) + "</td>";
+      }
+      html += "</tr>";
+    }
+    html += "</tbody>";
+    tableEl.innerHTML = html;
+  }
+
+  function setupPivotSelectors(rows) {
+    const cols = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
+    const groupSelect = document.getElementById("pivot-group");
+    const valueSelect = document.getElementById("pivot-value");
+    const numericCols = cols.filter((c) => rows.some((r) => typeof r[c] === "number" || (!isNaN(Number(r[c])) && r[c] !== null && r[c] !== "")));
+
+    groupSelect.innerHTML = cols.map((c) => "<option value=\"" + escapeHtml(c) + "\">group: " + escapeHtml(c) + "</option>").join("");
+    valueSelect.innerHTML = numericCols.map((c) => "<option value=\"" + escapeHtml(c) + "\">value: " + escapeHtml(c) + "</option>").join("");
+  }
+
+  function runPivot() {
+    const rows = state.rows;
+    if (!rows.length) return;
+    const groupBy = document.getElementById("pivot-group").value;
+    const valueCol = document.getElementById("pivot-value").value;
+    const agg = document.getElementById("pivot-agg").value;
+
+    const acc = new Map();
+    for (const row of rows) {
+      const key = row[groupBy] == null ? "(null)" : String(row[groupBy]);
+      const val = Number(row[valueCol]);
+      const item = acc.get(key) || { group: key, sum: 0, count: 0 };
+      if (!isNaN(val)) item.sum += val;
+      item.count += 1;
+      acc.set(key, item);
+    }
+
+    const out = Array.from(acc.values()).map((it) => {
+      if (agg === "count") return { [groupBy]: it.group, count: it.count };
+      if (agg === "avg") return { [groupBy]: it.group, avg: it.count ? it.sum / it.count : 0 };
+      return { [groupBy]: it.group, sum: it.sum };
+    });
+    renderTable(document.getElementById("pivot-preview-table"), out, 200);
+  }
+
+  async function runDataQuery() {
+    const msg = document.getElementById("data-query-msg");
+    const format = document.getElementById("data-format").value;
+    const url = buildDataUrl();
+    state.lastDataUrl = url;
+    document.getElementById("data-query-url").textContent = url;
+
+    if (format !== "json") {
+      window.open(url, "_blank");
+      msg.textContent = "Download opened in new tab.";
+      return;
+    }
+
+    msg.textContent = "Loading...";
+    try {
+      const res = await fetch(url, { credentials: "same-origin" });
+      if (!res.ok) {
+        msg.textContent = "Request failed: " + res.status;
+        return;
+      }
+      const payload = await res.json();
+      const rows = flattenAny(payload);
+      state.rows = rows;
+
+      document.getElementById("data-preview-empty").style.display = "none";
+      document.getElementById("data-preview-wrap").style.display = "block";
+      document.getElementById("preview-row-count").textContent = String(rows.length);
+      renderTable(document.getElementById("data-preview-table"), rows, 200);
+      setupPivotSelectors(rows);
+      runPivot();
+      msg.textContent = "Loaded " + rows.length + " rows.";
+    } catch (err) {
+      msg.textContent = "Error: " + err;
+    }
+  }
+
+  let canvasState = { seriesList: [], globalYMin: 0, globalYMax: 0, w: 0, h: 0, pad: 50, hoveredPoints: [] };
+
+  function isNumericArray(values) {
+    if (!Array.isArray(values) || values.length === 0) return false;
+    return values.some((v) => Number.isFinite(Number(v)));
+  }
+
+  function detectSeriesXKey(series) {
+    if (!series || typeof series !== "object") return null;
+    const keys = Object.keys(series);
+    if (!keys.length) return null;
+
+    const preferred = ["ut", "hour", "time", "x"];
+    for (const key of preferred) {
+      if (Array.isArray(series[key])) return key;
+    }
+
+    const semantic = keys.find((k) => /(time|hour|ut|^x$)/i.test(k) && Array.isArray(series[k]));
+    if (semantic) return semantic;
+
+    const firstArrayKey = keys.find((k) => Array.isArray(series[k]));
+    return firstArrayKey || null;
+  }
+
+  function toPlotlyTraces(series) {
+    if (!series || typeof series !== "object") return [];
+    const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+    const keys = Object.keys(series);
+    if (!keys.length) return [];
+
+    const firstValue = series[keys[0]];
+    const nested = !!(firstValue && typeof firstValue === "object" && Array.isArray(firstValue.x) && Array.isArray(firstValue.y));
+
+    if (nested) {
+      return keys.map((key, idx) => {
+        const entry = series[key] || {};
+        const xVals = Array.isArray(entry.x) ? entry.x : [];
+        const yVals = Array.isArray(entry.y) ? entry.y : [];
+        return {
+          type: "scatter",
+          mode: "lines",
+          name: key,
+          x: xVals,
+          y: yVals,
+          line: { width: 2, color: colors[idx % colors.length] },
+          hovertemplate: "%{fullData.name}<br>x=%{x}<br>y=%{y}<extra></extra>",
+        };
+      }).filter((t) => Array.isArray(t.x) && t.x.length && Array.isArray(t.y) && t.y.length);
+    }
+
+    const xKey = detectSeriesXKey(series);
+    const xVals = xKey && Array.isArray(series[xKey]) ? series[xKey] : null;
+    if (!xVals) return [];
+
+    return keys
+      .filter((k) => k !== xKey && isNumericArray(series[k]))
+      .map((key, idx) => ({
+        type: "scatter",
+        mode: "lines",
+        name: key,
+        x: xVals,
+        y: series[key],
+        line: { width: 2, color: colors[idx % colors.length] },
+        hovertemplate: "%{fullData.name}<br>x=%{x}<br>y=%{y}<extra></extra>",
+      }));
+  }
+
+  function toRootXYTrace(payload) {
+    if (!payload || typeof payload !== "object") return null;
+    if (!Array.isArray(payload.x) || !Array.isArray(payload.y)) return null;
+    return {
+      type: payload.type || "scatter",
+      mode: payload.mode || "lines",
+      name: payload.name || payload.column || "series",
+      x: payload.x,
+      y: payload.y,
+    };
+  }
+
+  async function renderPlotlyChart(payload, chartEl) {
+    if (!chartEl || !window.Plotly || !payload || typeof payload !== "object") return false;
+
+    let traces = [];
+    // Case 1: backend already returns Plotly-like figure JSON.
+    if (Array.isArray(payload.data) && payload.data.length > 0) {
+      traces = payload.data;
+    }
+
+    // Case 2: existing ConverterHub structure with payload.series.
+    if (!traces.length) {
+      traces = toPlotlyTraces(payload.series);
+    }
+
+    // Case 3: root-level {x: [...], y: [...]}.
+    if (!traces.length) {
+      const rootTrace = toRootXYTrace(payload);
+      if (rootTrace) traces = [rootTrace];
+    }
+
+    // Case 4: flat/nested series provided at root level.
+    if (!traces.length) {
+      traces = toPlotlyTraces(payload);
+    }
+
+    if (!traces.length) return false;
+
+    const baseLayout = {
+      font: { color: "#fff8e3" },
+      title: {
+        text: payload.title || "Interactive Plot",
+        x: 0.5,
+        xanchor: "center",
+        y: 0.98,
+        yanchor: "top",
+        pad: { b: 20 },
+      },
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      hovermode: "x unified",
+      hoverlabel: {
+        bgcolor: "rgba(0,0,0,0.85)",
+        bordercolor: "#fff8e3",
+        font: { color: "#fff8e3" },
+      },
+      margin: { l: 64, r: 24, t: 72, b: 56 },
+      xaxis: {
+        title: payload.xlabel || "X",
+        gridcolor: "#ffbd00",
+        zerolinecolor: "#ffbd00",
+        showline: true,
+        linecolor: "#a98a37",
+        tickfont: { color: "#fff8e3" },
+        titlefont: { color: "#fff8e3" },
+      },
+      yaxis: {
+        title: payload.ylabel || "Value",
+        gridcolor: "#ffbd00",
+        zerolinecolor: "#ffbd00",
+        showline: true,
+        linecolor: "#a98a37",
+        tickfont: { color: "#fff8e3" },
+        titlefont: { color: "#fff8e3" },
+      },
+      legend: {
+        orientation: "h",
+        yanchor: "bottom",
+        y: 1.02,
+        xanchor: "left",
+        x: 0,
+        font: { color: "#fff8e3" },
+      },
+    };
+
+    const payloadLayout = payload.layout && typeof payload.layout === "object" ? payload.layout : {};
+    const layout = { ...baseLayout, ...payloadLayout };
+
+    const config = {
+      responsive: true,
+      displaylogo: false,
+      scrollZoom: true,
+      modeBarButtonsToRemove: ["select2d", "lasso2d"],
+    };
+
+    await window.Plotly.react(chartEl, traces, layout, config);
+    return true;
+  }
+
+  function drawSeriesOnCanvas(series, canvas) {
+    if (!canvas || !series) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Support two data structures:
+    // 1. Flat: { ut/hour/time/x: [...], column1: [...], column2: [...] }
+    // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
+
+    let seriesList = [];
+    const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
+
+    // Detect data structure
+    const firstKey = Object.keys(series)[0];
+    const firstValue = series[firstKey];
+
+    if (firstValue && typeof firstValue === "object" && firstValue.x && firstValue.y) {
+      // Nested structure with x/y
+      seriesList = Object.entries(series).map(([key, data], idx) => ({
+        name: key,
+        x: Array.isArray(data.x) ? data.x : [],
+        y: Array.isArray(data.y) ? data.y : [],
+        color: colors[idx % colors.length],
+      }));
+    } else {
+      // Flat structure with detected x-axis key (ut/hour/time/x)
+      const xKey = detectSeriesXKey(series);
+      const x = xKey && Array.isArray(series[xKey]) ? series[xKey] : null;
+      if (!x) return;
+      const yKeys = Object.keys(series).filter((k) => k !== xKey && isNumericArray(series[k]));
+      seriesList = yKeys.map((key, idx) => ({
+        name: key,
+        x: x,
+        y: series[key],
+        color: colors[idx % colors.length],
+      }));
+    }
+
+    if (!seriesList.length) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    // Find global x/y ranges across all series
+    let globalYMin = Infinity, globalYMax = -Infinity;
+    for (const s of seriesList) {
+      const yNums = s.y.map((v) => Number(v)).filter((v) => !isNaN(v));
+      if (yNums.length) {
+        globalYMin = Math.min(globalYMin, ...yNums);
+        globalYMax = Math.max(globalYMax, ...yNums);
+      }
+    }
+    if (!isFinite(globalYMin) || !isFinite(globalYMax)) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 2;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const pad = 50;
+
+    // Store state for hover interaction
+    canvasState = { seriesList, globalYMin, globalYMax, w, h, pad, hoveredPoints: [] };
+
+    // Draw grid
+    const gridColor = "#ffbd00";
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 0.5;
+    ctx.globalAlpha = 0.3;
+
+    // Vertical grid lines
+    const verticalGridLines = 10;
+    for (let i = 0; i <= verticalGridLines; i += 1) {
+      const x = pad + (i / verticalGridLines) * (w - pad * 2 - pad);
+      ctx.beginPath();
+      ctx.moveTo(x, pad);
+      ctx.lineTo(x, h - pad);
+      ctx.stroke();
+    }
+
+    // Horizontal grid lines
+    const horizontalGridLines = 8;
+    for (let i = 0; i <= horizontalGridLines; i += 1) {
+      const y = pad + (i / horizontalGridLines) * (h - pad * 2);
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(w - pad, y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw axis frame
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(pad, pad, w - pad * 2 - pad, h - pad * 2);
+    ctx.stroke();
+
+    // Draw each series
+    for (const s of seriesList) {
+      const { x, y, color } = s;
+      if (!x.length || !y.length) continue;
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+        const xv = Number(x[i]);
+        const yv = Number(y[i]);
+        if (isNaN(xv) || isNaN(yv)) continue;
+        const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2 - pad);
+        const py = pad + (1 - ((yv - globalYMin) / Math.max(1e-9, globalYMax - globalYMin))) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // Draw Y-axis labels
+    ctx.fillStyle = "#fff8e3";
+    ctx.font = "11px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(globalYMax.toFixed(2), pad - 8, pad + 5);
+    ctx.fillText(globalYMin.toFixed(2), pad - 8, h - pad + 5);
+
+    // Draw Y-axis name
+    ctx.save();
+    ctx.translate(12, h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff8e3";
+    ctx.font = "11px monospace";
+    ctx.fillText("Value", 0, 0);
+    ctx.restore();
+
+    // Draw X-axis name
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff8e3";
+    ctx.font = "11px monospace";
+    ctx.fillText("Index", w / 2, h - 12);
+  }
+
+  function findHoveredPoints(canvasX, canvasY, canvas) {
+    if (!canvas || !canvasState.seriesList.length) return [];
+    const { seriesList, globalYMin, globalYMax, w, h, pad } = canvasState;
+    const tolerance = 8;
+    const points = [];
+
+    for (const s of seriesList) {
+      const { x, y, name, color } = s;
+      if (!x.length || !y.length) continue;
+
+      for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+        const xv = Number(x[i]);
+        const yv = Number(y[i]);
+        if (isNaN(xv) || isNaN(yv)) continue;
+
+        const px = pad + (i / Math.max(1, x.length - 1)) * (w - pad * 2 - pad);
+        const py = pad + (1 - ((yv - globalYMin) / Math.max(1e-9, globalYMax - globalYMin))) * (h - pad * 2);
+
+        const dist = Math.sqrt((px - canvasX) ** 2 + (py - canvasY) ** 2);
+        if (dist < tolerance) {
+          points.push({ name, value: yv.toFixed(3), x: xv.toFixed(3), px, py, color });
+        }
+      }
+    }
+    return points;
+  }
+
+  function drawHoverLabels(canvas, points) {
+    if (!canvas || !points.length) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    const lineHeight = 16;
+    const padding = 8;
+
+    for (let i = 0; i < points.length; i += 1) {
+      const p = points[i];
+      const label = `${p.name}: ${p.value}`;
+      const metrics = ctx.measureText(label);
+      const boxWidth = metrics.width + padding * 2;
+      const boxHeight = lineHeight;
+      const boxX = p.px + 12;
+      const boxY = p.py - padding - lineHeight / 2 + i * (lineHeight + 4);
+
+      // Draw box background
+      ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+      // Draw text
+      ctx.fillStyle = p.color;
+      ctx.fillText(label, boxX + padding, boxY + padding + 8);
+    }
+  }
+
+  async function runPlotQuery() {
+    const format = document.getElementById("plot-format").value;
+    const url = buildPlotUrl();
+    state.lastPlotUrl = url;
+    document.getElementById("plot-query-url").textContent = url;
+    setPlotFetchStatus("info", "Fetching...");
+
+    const viewer = document.getElementById("plot-viewer");
+    const empty = document.getElementById("plot-empty");
+    const img = document.getElementById("plot-image");
+    const pre = document.getElementById("plot-json");
+    const canvas = document.getElementById("plot-canvas");
+    const plotlyChart = document.getElementById("plotly-chart");
+
+    if (format === "script") {
+      window.open(url, "_blank");
+      setPlotFetchStatus("info", "Opened in new tab.");
+      return;
+    }
+
+    viewer.style.display = "block";
+    empty.style.display = "none";
+    img.style.display = "none";
+    pre.style.display = "none";
+    canvas.style.display = "none";
+    plotlyChart.style.display = "none";
+    if (window.Plotly) {
+      window.Plotly.purge(plotlyChart);
+    }
+
+    try {
+      const res = await fetch(url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
+      if (!res.ok) {
+        const responseText = await res.text();
+        let payload = null;
+        try {
+          payload = JSON.parse(responseText);
+        } catch (_) {
+          payload = null;
+        }
+        const errorText = payload ? formatBackendError(payload, res.status) : ("Request failed: " + res.status);
+        setPlotFetchStatus("error", errorText);
+        pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
+        pre.style.display = "block";
+        return;
+      }
+
+      if (format === "png") {
+        const blob = await res.blob();
+        if (state.lastPlotObjectUrl) {
+          URL.revokeObjectURL(state.lastPlotObjectUrl);
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        state.lastPlotObjectUrl = objectUrl;
+        img.src = objectUrl;
+        img.style.display = "block";
+        setPlotFetchStatus("success", "OK (Fetched)");
+        return;
+      }
+
+      const responseText = await res.text();
+      let payload = null;
+      try {
+        payload = JSON.parse(responseText);
+      } catch (_) {
+        payload = null;
+      }
+
+      // In JSON mode we always show raw/pretty JSON (or text fallback) in the UI,
+      // and still continue to graph rendering below.
+      if (format === "json") {
+        pre.textContent = payload ? JSON.stringify(payload, null, 2) : responseText;
+        pre.style.display = "block";
+        if (payload) {
+          state.lastPlotPayload = payload;
+        }
+      }
+
+      if (!payload) {
+        pre.textContent = responseText;
+        pre.style.display = "block";
+        setPlotFetchStatus("success", "OK (Fetched)");
+        return;
+      }
+
+      state.lastPlotPayload = payload;
+
+      if (format === "json") {
+        pre.textContent = JSON.stringify(payload, null, 2);
+        pre.style.display = "block";
+      }
+
+      const rendered = await renderPlotlyChart(payload, plotlyChart);
+      if (rendered) {
+        plotlyChart.style.display = "block";
+      } else {
+        // Canvas fallback for legacy series structures.
+        const fallbackSeries =
+          payload.series && typeof payload.series === "object"
+            ? payload.series
+            : payload;
+        canvas.style.display = "block";
+        drawSeriesOnCanvas(fallbackSeries, canvas);
+        // If nothing drawable was found, keep JSON visible for troubleshooting.
+        if (canvasState.seriesList.length === 0) {
+          pre.textContent = JSON.stringify(payload, null, 2);
+          pre.style.display = "block";
+        }
+      }
+      setPlotFetchStatus("success", "OK (Fetched)");
+    } catch (err) {
+      pre.textContent = "Error: " + err;
+      pre.style.display = "block";
+      setPlotFetchStatus("error", "Error: " + err);
+    }
+  }
+
+  document.getElementById("analysis-data-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    runDataQuery();
+  });
+  document.getElementById("data-endpoint").addEventListener("change", function () {
+    updateDataSelectors();
+    updateDataFieldHighlights();
+  });
+  document.getElementById("data-year").addEventListener("change", updateDataSelectors);
+  document.getElementById("data-doy").addEventListener("change", updateDataSelectors);
+
+  document.getElementById("analysis-plot-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    runPlotQuery();
+  });
+  document.getElementById("plot-endpoint").addEventListener("change", function () {
+    updatePlotSelectors();
+    updatePlotFieldHighlights();
+  });
+  document.getElementById("plot-year").addEventListener("change", updatePlotSelectors);
+  document.getElementById("plot-doy").addEventListener("change", updatePlotSelectors);
+  document.getElementById("data-open-new").addEventListener("click", function () {
+    const url = state.lastDataUrl || buildDataUrl();
+    window.open(url, "_blank");
+  });
+  document.getElementById("plot-open-new").addEventListener("click", function () {
+    const url = state.lastPlotUrl || buildPlotUrl();
+    window.open(url, "_blank");
+  });
+  document.getElementById("pivot-run").addEventListener("click", runPivot);
+
+  // Canvas hover interaction
+  const canvas = document.getElementById("plot-canvas");
+  canvas.addEventListener("mousemove", function (e) {
+    if (canvas.style.display === "none" || !canvasState.seriesList.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    const points = findHoveredPoints(canvasX, canvasY, canvas);
+
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (state.lastPlotPayload && state.lastPlotPayload.series) {
+        drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
+      }
+      if (points.length > 0) {
+        drawHoverLabels(canvas, points);
+      }
+    }
+  });
+
+  canvas.addEventListener("mouseleave", function () {
+    if (state.lastPlotPayload) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (state.lastPlotPayload.series) {
+          drawSeriesOnCanvas(state.lastPlotPayload.series, canvas);
+        }
+      }
+    }
+  });
+
+  loadIndexOptions().finally(function () {
+    updateDataFieldHighlights();
+    updatePlotFieldHighlights();
+  });
+})();
