@@ -28,7 +28,7 @@ from app import config as cfg
 from app.auth import hash_password, verify_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
 from app.database import SessionLocal, engine
-from app.job_runtime import start_job_runtime, stop_job_runtime
+from app.job_runtime import mark_legacy_stopped_jobs, start_job_runtime, stop_job_runtime
 from app.models import Base, User
 
 logging.basicConfig(
@@ -82,6 +82,8 @@ async def lifespan(app: FastAPI):
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id ON job_events(job_id, event_type, id)")
         )
+
+        mark_legacy_stopped_jobs(conn)
 
     # If no users exist at all, create a default admin so the system is usable
     # immediately after first boot. The admin can then create other accounts.

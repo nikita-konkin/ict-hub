@@ -10,6 +10,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from xml.sax.saxutils import escape as xml_escape
 
+from sqlalchemy import Connection, text
 from sqlalchemy.orm import Session
 
 from app import config as cfg
@@ -112,6 +113,40 @@ def _prune_job_log_events(db: Session, job_id: int, keep_last: int) -> None:
     db.commit()
 
 
+# Exit code recorded for a job the user stopped. Container exit codes are
+# 0-255, so it never collides with a real one.
+STOPPED_EXIT_CODE = -2
+
+
+def status_for_exit_code(exit_code: int) -> str:
+    """Terminal job status for an exit code: "success", "stopped" or "failed"."""
+    if exit_code == 0:
+        return "success"
+    if exit_code == STOPPED_EXIT_CODE:
+        return "stopped"
+    return "failed"
+
+
+def mark_legacy_stopped_jobs(conn: Connection) -> None:
+    """
+    Jobs stopped by the user used to be stored as "failed" with the stop exit
+    code. Give them, and the `done` events they replay, the "stopped" status.
+    """
+    conn.execute(
+        text(
+            "UPDATE job_events SET payload_xml = "
+            "replace(payload_xml, '<status>failed</status>', '<status>stopped</status>') "
+            "WHERE event_type = 'done' AND job_id IN "
+            "(SELECT id FROM job_runs WHERE status = 'failed' AND exit_code = :code)"
+        ),
+        {"code": STOPPED_EXIT_CODE},
+    )
+    conn.execute(
+        text("UPDATE job_runs SET status = 'stopped' WHERE status = 'failed' AND exit_code = :code"),
+        {"code": STOPPED_EXIT_CODE},
+    )
+
+
 def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent | None:
     """
     Mark a running job terminal and emit its durable `done` event exactly once.
@@ -123,7 +158,7 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
     if job.status == "running":
         job.finished_at = job.finished_at or datetime.now(UTC)
         job.exit_code = exit_code
-        job.status = "success" if exit_code == 0 else "failed"
+        job.status = status_for_exit_code(exit_code)
     final_status = job.status
     recorded_exit_code = job.exit_code if job.exit_code is not None else exit_code
 

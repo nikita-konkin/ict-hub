@@ -35,10 +35,12 @@ from app.converters import FormError, is_truthy_checkbox, page_context, prepare_
 from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
 from app.job_runtime import (
+    STOPPED_EXIT_CODE,
     ensure_job_producer,
     persist_job_finished,
     reconcile_job_state,
     sse_event,
+    status_for_exit_code,
     xml_payload,
 )
 from app.models import JobEvent, JobRun, User
@@ -350,7 +352,7 @@ async def _stream_job_logs_direct(
             db.expire_all()
             db_job = db.query(JobRun).filter(JobRun.id == job.id).first()
             exit_code = int(payload)
-            status = "success" if exit_code == 0 else "failed"
+            status = status_for_exit_code(exit_code)
             if db_job is not None:
                 persist_job_finished(db, db_job, exit_code)
                 # A stop recorded earlier wins over the container's exit code.
@@ -801,7 +803,7 @@ async def stop_job(
     if job.container_id and job.status == "running":
         # Record the stop first: `docker stop` waits for the container to exit,
         # and that exit reaches the log producer before this call returns.
-        persist_job_finished(db, job, -2)  # sentinel for "stopped by user"
+        persist_job_finished(db, job, STOPPED_EXIT_CODE)
         await run_in_threadpool(stop_container, job.container_id)
 
     return RedirectResponse(f"/run/{job.converter}", status_code=302)

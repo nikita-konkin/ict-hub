@@ -137,10 +137,11 @@ class JobRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    # Container exit code: 0 = success, non-zero = failure, None = still running
+    # Container exit code: 0 = success, non-zero = failure, None = still running,
+    # -2 = stopped by the user, -1 = unknown or never started
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Human-readable status: "running" | "success" | "failed" | "error"
+    # Human-readable status: "running" | "success" | "failed" | "stopped" | "error"
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
 
     # Relationship back to user
@@ -262,6 +263,7 @@ class JobRun(Base):
             "running": "running",
             "success": "success",
             "failed": "danger",
+            "stopped": "muted",
             "error": "danger",
         }.get(self.status, "muted")
 

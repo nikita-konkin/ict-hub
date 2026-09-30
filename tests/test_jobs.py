@@ -1061,7 +1061,10 @@ class TestStopJob:
         mock_stop.assert_called_once_with("abc123def456")
 
         db.refresh(completed_job)
-        assert completed_job.status == "failed"
+        assert completed_job.status == "stopped"
+        assert completed_job.exit_code == -2
+        # The recent-runs list on the page the stop redirects to
+        assert b'<span class="badge badge-muted" data-recent-job-status>stopped</span>' in response.content
 
     @patch("app.jobs.stop_container")
     def test_container_exit_after_stop_keeps_the_stop(self, mock_stop, operator_client, completed_job, db):
@@ -1089,10 +1092,43 @@ class TestStopJob:
 
         db.expire_all()
         job = db.query(JobRun).filter(JobRun.id == job_id).first()
+        assert job.status == "stopped"
         assert job.exit_code == -2
         done_events = db.query(JobEvent).filter(JobEvent.job_id == job_id, JobEvent.event_type == "done").all()
         assert len(done_events) == 1
-        assert "<exit_code>-2</exit_code>" in done_events[0].payload_xml
+        assert "<status>stopped</status><exit_code>-2</exit_code>" in done_events[0].payload_xml
+
+    def test_legacy_stopped_jobs_are_migrated(self, completed_job, operator_user, db):
+        """Stops recorded before the "stopped" status existed were "failed" with exit code -2."""
+        from app.job_runtime import mark_legacy_stopped_jobs
+        from app.models import JobEvent, JobRun
+
+        completed_job.status = "failed"
+        completed_job.exit_code = -2
+        failed_job = JobRun(user_id=operator_user.id, converter="tec-suite", status="failed", exit_code=1)
+        db.add(failed_job)
+        db.flush()
+        for job in (completed_job, failed_job):
+            db.add(
+                JobEvent(
+                    job_id=job.id,
+                    event_type="done",
+                    payload_xml=f"<done><status>failed</status><exit_code>{job.exit_code}</exit_code></done>",
+                )
+            )
+        db.commit()
+
+        mark_legacy_stopped_jobs(db.connection())
+        db.commit()
+        db.expire_all()
+
+        def done_payload(job_id):
+            return db.query(JobEvent.payload_xml).filter_by(job_id=job_id, event_type="done").scalar()
+
+        assert db.get(JobRun, completed_job.id).status == "stopped"
+        assert done_payload(completed_job.id) == "<done><status>stopped</status><exit_code>-2</exit_code></done>"
+        assert db.get(JobRun, failed_job.id).status == "failed"
+        assert done_payload(failed_job.id) == "<done><status>failed</status><exit_code>1</exit_code></done>"
 
     def test_operator_cannot_stop_others_job(self, admin_client, completed_job, db):
         """An operator should get 403 when trying to stop a job they don't own."""

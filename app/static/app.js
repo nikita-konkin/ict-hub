@@ -56,14 +56,16 @@
 
   // ── Recent-runs helpers ────────────────────────────────────────────────
 
-  function updateRecentRunStatus(jobId, isSuccess, finishedAtIso) {
+  function updateRecentRunStatus(jobId, status, finishedAtIso) {
     const row = document.querySelector('[data-recent-job-id="' + jobId + '"]');
     if (!row) return;
     row.setAttribute("data-recent-job-running", "0");
     const badge = row.querySelector("[data-recent-job-status]");
     if (badge) {
-      badge.className = isSuccess ? "badge badge-success" : "badge badge-danger";
-      badge.textContent = isSuccess ? "success" : "failed";
+      const shown = status === "success" || status === "stopped" ? status : "failed";
+      const badgeClass = { success: "badge-success", stopped: "badge-muted" }[shown] || "badge-danger";
+      badge.className = "badge " + badgeClass;
+      badge.textContent = shown;
     }
     const pct = row.querySelector("[data-recent-job-progress]");
     if (pct) pct.setAttribute("hidden", "");
@@ -190,9 +192,9 @@
         lastEventId = event.lastEventId;
       }
       const payload = parseSseXml(event.data);
-      const isSuccess = readXmlText(payload, 'status') === 'success';
+      const status = readXmlText(payload, 'status');
       const finishedAtIso = readXmlText(payload, 'finished_at') || '';
-      updateRecentRunStatus(jobId, isSuccess, finishedAtIso);
+      updateRecentRunStatus(jobId, status, finishedAtIso);
       stopRecentRunTracker(jobId);
     });
 
@@ -316,6 +318,9 @@
     if (status === "failed") {
       const suffix = typeof exitCode === "number" ? " (" + exitCode + ")" : "";
       return '<span class="badge badge-danger">Failed' + suffix + '</span>';
+    }
+    if (status === "stopped") {
+      return '<span class="badge badge-muted">Stopped</span>';
     }
     return '<span class="badge badge-danger">Error</span>';
   }
@@ -539,7 +544,7 @@
         }
         if (isSuccess && progressLabel) progressLabel.textContent = "100%";
 
-        updateRecentRunStatus(jobId, isSuccess, finishedAtIso);
+        updateRecentRunStatus(jobId, status, finishedAtIso);
         flushLogBuffer();
         clearReconnectTimer();
         source.close();
