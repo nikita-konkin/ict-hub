@@ -156,14 +156,14 @@ class TestRunPage:
 
     def test_tec_suite_run_page_calls_async_rinex_indexer(self, operator_client, monkeypatch):
         """GET /run/tec-suite must use list_rinex_server_structure_async (not the sync variant)."""
-        import app.jobs as jobs_module
+        import app.converters as converters_module
         calls: list[str] = []
 
         async def _fake_rinex_async(host_root: str):
             calls.append(host_root)
             return [{"year": "2026_original", "days": [{"day": "001", "stations": 3}]}]
 
-        monkeypatch.setattr(jobs_module, "list_rinex_server_structure_async", _fake_rinex_async)
+        monkeypatch.setattr(converters_module, "list_rinex_server_structure_async", _fake_rinex_async)
 
         response = operator_client.get("/run/tec-suite", follow_redirects=True)
         assert response.status_code == 200
@@ -172,14 +172,14 @@ class TestRunPage:
 
     def test_abstec_run_page_calls_async_tecsuite_indexer(self, operator_client, monkeypatch):
         """GET /run/abstec-suite must use list_tecsuite_output_structure_async."""
-        import app.jobs as jobs_module
+        import app.converters as converters_module
         calls: list[str] = []
 
         async def _fake_tecsuite_async(host_root: str):
             calls.append(host_root)
             return [{"year": "2026", "days": [{"day": "001", "sites": ["aksu"]}]}]
 
-        monkeypatch.setattr(jobs_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
+        monkeypatch.setattr(converters_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
 
         response = operator_client.get("/run/abstec-suite", follow_redirects=True)
         assert response.status_code == 200
@@ -188,7 +188,7 @@ class TestRunPage:
 
     def test_dat_parquet_run_page_calls_all_four_async_indexers(self, operator_client, monkeypatch):
         """GET /run/dat-parquet-handler must call all four async indexers (via asyncio.gather)."""
-        import app.jobs as jobs_module
+        import app.converters as converters_module
         tecsuite_calls: list[str] = []
         abstec_calls: list[str] = []
         parquet_calls: list[str] = []
@@ -202,8 +202,8 @@ class TestRunPage:
             return []
 
         # Both tecsuite and parquet async functions are used for four trees
-        monkeypatch.setattr(jobs_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
-        monkeypatch.setattr(jobs_module, "list_parquet_output_structure_async", _fake_parquet_async)
+        monkeypatch.setattr(converters_module, "list_tecsuite_output_structure_async", _fake_tecsuite_async)
+        monkeypatch.setattr(converters_module, "list_parquet_output_structure_async", _fake_parquet_async)
 
         response = operator_client.get("/run/dat-parquet-handler", follow_redirects=True)
         assert response.status_code == 200
@@ -214,12 +214,12 @@ class TestRunPage:
 
     def test_run_page_renders_even_when_indexer_returns_empty(self, operator_client, monkeypatch):
         """A completely empty tree from the indexer must not cause a 500."""
-        import app.jobs as jobs_module
+        import app.converters as converters_module
 
         async def _empty_tree(host_root: str):
             return []
 
-        monkeypatch.setattr(jobs_module, "list_rinex_server_structure_async", _empty_tree)
+        monkeypatch.setattr(converters_module, "list_rinex_server_structure_async", _empty_tree)
 
         response = operator_client.get("/run/tec-suite", follow_redirects=True)
         assert response.status_code == 200
@@ -513,7 +513,7 @@ class TestStartJob:
         monkeypatch.setattr("app.jobs.cfg.ABSTEC_DOCKUR_VM_CONTAINER", "abstec-xp")
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_up")
-    @patch("app.jobs.ensure_container_running", return_value="running")
+    @patch("app.converters.ensure_container_running", return_value="running")
     def test_dockur_job_checks_vm_and_starts_when_already_running(
         self, mock_ensure, mock_start, operator_client, dockur_env
     ):
@@ -530,7 +530,7 @@ class TestStartJob:
         assert b"started automatically" not in response.content
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_started")
-    @patch("app.jobs.ensure_container_running", return_value="started")
+    @patch("app.converters.ensure_container_running", return_value="started")
     def test_dockur_job_autostarts_stopped_vm_and_shows_notice(
         self, mock_ensure, mock_start, operator_client, dockur_env
     ):
@@ -546,7 +546,7 @@ class TestStartJob:
         assert b"started automatically" in response.content
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_missing")
-    @patch("app.jobs.ensure_container_running", return_value="not_found")
+    @patch("app.converters.ensure_container_running", return_value="not_found")
     def test_dockur_job_rejected_when_vm_container_missing(
         self, mock_ensure, mock_start, operator_client, dockur_env
     ):
@@ -561,7 +561,7 @@ class TestStartJob:
         assert not mock_start.called
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_error")
-    @patch("app.jobs.ensure_container_running", side_effect=RuntimeError("daemon down"))
+    @patch("app.converters.ensure_container_running", side_effect=RuntimeError("daemon down"))
     def test_dockur_job_returns_500_when_vm_start_fails(
         self, mock_ensure, mock_start, operator_client, dockur_env
     ):
@@ -576,7 +576,7 @@ class TestStartJob:
         assert not mock_start.called
 
     @patch("app.jobs.start_container", return_value="container_abstec_wine")
-    @patch("app.jobs.ensure_container_running", return_value="running")
+    @patch("app.converters.ensure_container_running", return_value="running")
     def test_non_dockur_abstec_job_skips_vm_check(
         self, mock_ensure, mock_start, operator_client, dockur_env
     ):
