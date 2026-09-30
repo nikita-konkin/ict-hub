@@ -38,3 +38,6 @@ dist/
 
 # ESLint tooling (package.json)
 node_modules/
+
+# Third-party browser assets: scripts/fetch_vendor_assets.py (run by the Docker build)
+app/static/vendor/

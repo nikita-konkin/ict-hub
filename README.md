@@ -47,6 +47,13 @@ over long runs; use `CONVERTER_HUB_DATABASE_URL` if you need a compose-time over
 
 The UI is available at **http://localhost:8080** (or any LAN IP on port 8080).
 
+The image build downloads htmx, Plotly and the web fonts into `app/static/vendor/`
+(the app serves them itself, so browsers need no internet access), which means
+`docker-compose up --build` needs outbound access to unpkg.com, cdn.plot.ly and
+Google Fonts. Build arguments `HTTP_PROXY`/`HTTPS_PROXY` are honoured. When
+running the app outside Docker, fetch them once with
+`python scripts/fetch_vendor_assets.py`.
+
 ### 2. First login
 
 On first boot a default `admin` account is created with the password from the `ADMIN_PASSWORD` environment variable (default: `admin`). **Change it immediately** via the Users page.

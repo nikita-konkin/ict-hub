@@ -1,19 +1,26 @@
 """
 fetch_vendor_assets.py — populate app/static/vendor/ with self-hosted copies
-of the third-party assets base.html and the map pages currently load from
-CDNs (unpkg.com, cdn.plot.ly, fonts.googleapis.com).
+of the third-party assets the pages load (htmx, Plotly, the web fonts).
 
-Run this once from a machine that has outbound internet access, then commit
-the downloaded files (or bake them into the Docker image) — ConverterHub is a
-local-network tool and shouldn't depend on internet access at request time.
+ConverterHub is a local-network tool and shouldn't depend on internet access
+at request time, so the assets are served by the app itself. They are not
+committed: the Docker build runs this script (see the Dockerfile). Run it by
+hand only when serving the app outside Docker:
 
-Usage:
     python scripts/fetch_vendor_assets.py
+
+Scripts are pinned by SHA-256 and the run fails if a download differs. Google
+Fonts serves unversioned CSS, so the fonts are checked for shape instead
+(only fonts.gstatic.com URLs, every file a WOFF2 font).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
+import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -24,10 +31,18 @@ VENDOR = ROOT / "app" / "static" / "vendor"
 # clients and only returns modern woff2 (much smaller) to recognised browsers.
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+# path under vendor/ -> (url, sha256). To upgrade, change the URL and put the
+# new file's hash here (e.g. compare the CDN copy with the npm package on
+# cdn.jsdelivr.net, as was done for these).
 FILES = {
-    "htmx/htmx.min.js": "https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js",
-    "htmx/htmx-sse.js": "https://unpkg.com/htmx-ext-sse@2.2.1/sse.js",
-    "plotly/plotly.min.js": "https://cdn.plot.ly/plotly-2.35.2.min.js",
+    "htmx/htmx.min.js": (
+        "https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js",
+        "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452",
+    ),
+    "plotly/plotly.min.js": (
+        "https://cdn.plot.ly/plotly-2.35.2.min.js",
+        "6d21266ce1bd7d9e5ab4e115989c70c20de0382fd973a8f26ab58619eba4d603",
+    ),
 }
 
 GOOGLE_FONTS_CSS_URL = (
@@ -38,20 +53,40 @@ GOOGLE_FONTS_CSS_URL = (
     "&display=swap"
 )
 
+_ATTEMPTS = 3
+
+
+class FetchError(RuntimeError):
+    """A download failed or did not look like what was expected."""
+
 
 def _fetch(url: str) -> bytes:
-    # Only called with the fixed https CDN URLs listed in this script.
-    req = urllib.request.Request(url, headers={"User-Agent": UA})  # noqa: S310
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-        return resp.read()
+    """GET url, retrying transient network errors."""
+    for attempt in range(1, _ATTEMPTS + 1):
+        # Only called with the fixed https URLs in this script and the
+        # fonts.gstatic.com URLs the Google Fonts CSS points at.
+        req = urllib.request.Request(url, headers={"User-Agent": UA})  # noqa: S310
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+                return resp.read()
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt == _ATTEMPTS:
+                raise FetchError(f"{url}: {exc}") from exc
+            print(f"  {url}: {exc}; retrying")
+            time.sleep(2 * attempt)
+    raise AssertionError("unreachable")
 
 
 def fetch_plain_files() -> None:
-    for rel_path, url in FILES.items():
+    for rel_path, (url, expected_sha256) in FILES.items():
         dest = VENDOR / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"Fetching {url} -> {dest.relative_to(ROOT)}")
-        dest.write_bytes(_fetch(url))
+        data = _fetch(url)
+        actual_sha256 = hashlib.sha256(data).hexdigest()
+        if actual_sha256 != expected_sha256:
+            raise FetchError(f"{url}: sha256 {actual_sha256} does not match the pinned {expected_sha256}")
+        dest.write_bytes(data)
 
 
 def fetch_fonts() -> None:
@@ -64,27 +99,40 @@ def fetch_fonts() -> None:
     print(f"Fetching {GOOGLE_FONTS_CSS_URL}")
     css = _fetch(GOOGLE_FONTS_CSS_URL).decode("utf-8")
 
+    urls = sorted(set(re.findall(r"url\(([^)]+)\)", css)))
+    if not urls:
+        raise FetchError("the Google Fonts CSS references no font files")
+    foreign = [url for url in urls if not url.startswith("https://fonts.gstatic.com/")]
+    if foreign:
+        raise FetchError(f"the Google Fonts CSS references unexpected URLs: {foreign}")
+
     fonts_dir = VENDOR / "fonts"
     files_dir = fonts_dir / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
 
-    urls = sorted(set(re.findall(r"url\((https://fonts\.gstatic\.com/[^)]+)\)", css)))
     for font_url in urls:
         filename = font_url.rsplit("/", 1)[-1]
-        dest = files_dir / filename
         print(f"  Fetching font file {filename}")
-        dest.write_bytes(_fetch(font_url))
+        data = _fetch(font_url)
+        if not data.startswith(b"wOF2"):
+            raise FetchError(f"{font_url} is not a WOFF2 font")
+        (files_dir / filename).write_bytes(data)
         css = css.replace(font_url, f"files/{filename}")
 
     (fonts_dir / "fonts.css").write_text(css, encoding="utf-8")
     print(f"Wrote {fonts_dir / 'fonts.css'} referencing {len(urls)} local font file(s)")
 
 
-def main() -> None:
-    fetch_plain_files()
-    fetch_fonts()
+def main() -> int:
+    try:
+        fetch_plain_files()
+        fetch_fonts()
+    except FetchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print("\nDone. Restart the app (or just reload — StaticFiles serves these live).")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
