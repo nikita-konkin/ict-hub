@@ -84,7 +84,9 @@ _MIN_PLAUSIBLE_EPOCH = 1_000_000_000.0
 # (path → (file_list_hash, result)) — file list comparison cache
 # _rinex_cache: dict[str, tuple[str, list]] = {}
 _rinex_cache: dict[str, tuple[float, list]] = {}
-_refresh_in_progress: set[str] = set()
+# (cache type, root) pairs with a background refresh running.
+_refresh_in_progress: set[tuple[str, str]] = set()
+_refresh_lock = threading.Lock()
 _tecsuite_cache: dict[str, tuple[float, list]] = {}
 _abstec_cache: dict[str, tuple[float, list]] = {}
 _parquet_cache: dict[str, tuple[float, list]] = {}
@@ -307,8 +309,18 @@ if WATCHDOG_AVAILABLE:
 else:
     _observers: dict[str, object] = {}
 _watcher_disabled: set[str] = set()
-# Cache invalidation flags (path → bool)
-_cache_invalidated: dict[str, bool] = {}
+# Filesystem change tracking. The watcher bumps a root's generation on every
+# structural change, and each (cache type, root) remembers the generation its
+# data was scanned at. A cache is invalidated while its generation lags behind,
+# so one change refreshes every cache type built from that root (e.g. both
+# /parquet and /parquet-satellites), and a change that lands during a scan
+# triggers another scan instead of being lost.
+_root_generation: dict[str, int] = {}
+_scanned_generation: dict[tuple[str, str], int] = {}
+
+# Only these change what the indexer reports; opens, closes and in-place writes
+# (a converter filling its output files) would otherwise force constant rescans.
+_STRUCTURAL_EVENTS = {"created", "deleted", "moved"}
 
 YEAR_DIR_RE = re.compile(r"^\d{4}_original$")
 DAY_DIR_RE = re.compile(r"^\d{2,3}$")
@@ -347,7 +359,9 @@ if WATCHDOG_AVAILABLE:
             self.host_root = host_root
 
         def on_any_event(self, event):
-            _cache_invalidated[self.host_root] = True
+            if event.event_type not in _STRUCTURAL_EVENTS:
+                return
+            _root_generation[self.host_root] = _root_generation.get(self.host_root, 0) + 1
             logger.info(
                 "[WATCHER] Change detected for %s via %s on %s",
                 self.host_root,
@@ -387,7 +401,6 @@ def _ensure_watcher(host_root: str, root: Path) -> None:
             return
 
         _observers[host_root] = observer
-        _cache_invalidated.setdefault(host_root, False)
         logger.info("[WATCHER] Started observer for %s", host_root)
 
 
@@ -409,6 +422,29 @@ def stop_all_watchers() -> None:
             logger.warning("[WATCHER] Failed to stop observer for %s: %s", host_root, exc)
 
 
+def _cache_is_invalidated(cache_type: str, host_root: str) -> bool:
+    return _scanned_generation.get((cache_type, host_root), 0) < _root_generation.get(host_root, 0)
+
+
+def _scan_and_store(
+    cache_type: str,
+    host_root: str,
+    root: Path,
+    scan_fn,
+    cache_dict: dict,
+):
+    """Scan root, then store the result in memory and in the cache database."""
+    # Read the generation before scanning, so changes made during the scan
+    # leave this cache marked as invalidated.
+    generation = _root_generation.get(host_root, 0)
+    result = scan_fn(root)
+    ts = time.time()
+    cache_dict[host_root] = (ts, result)
+    _scanned_generation[(cache_type, host_root)] = generation
+    _save_cache_to_db(cache_type, host_root, (ts, result))
+    return result
+
+
 def _refresh_invalidated_cache(
     cache_type: str,
     host_root: str,
@@ -417,16 +453,11 @@ def _refresh_invalidated_cache(
     cache_dict: dict,
 ):
     """Refresh a cache synchronously after a filesystem event invalidates it."""
-    if not _cache_invalidated.get(host_root):
+    if not _cache_is_invalidated(cache_type, host_root):
         return None
 
     logger.info("[%s] Cache invalidated for %s - rescanning now", cache_type.upper(), host_root)
-    result = scan_fn(root)
-    ts = time.time()
-    cache_dict[host_root] = (ts, result)
-    _save_cache_to_db(cache_type, host_root, (ts, result))
-    _cache_invalidated[host_root] = False
-    return result
+    return _scan_and_store(cache_type, host_root, root, scan_fn, cache_dict)
 
 
 def _force_refresh_cache(
@@ -438,12 +469,7 @@ def _force_refresh_cache(
 ):
     """Force a synchronous rescan and update the in-memory + persistent cache."""
     logger.info("[%s] Forced refresh for %s", cache_type.upper(), host_root)
-    result = scan_fn(root)
-    ts = time.time()
-    cache_dict[host_root] = (ts, result)
-    _save_cache_to_db(cache_type, host_root, (ts, result))
-    _cache_invalidated[host_root] = False
-    return result
+    return _scan_and_store(cache_type, host_root, root, scan_fn, cache_dict)
 
 
 def _day_sort_key(name: str) -> tuple[int, int, str]:
@@ -573,10 +599,7 @@ def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[Y
 
     # Cold start — no cached data at all, must scan now
     logger.info(f"[RINEX] Cold start scan for {host_root}")
-    result = _scan_rinex(root)
-    _rinex_cache[host_root] = (time.time(), result)
-    _save_cache_to_db('rinex', host_root, (time.time(), result))
-    return result
+    return _scan_and_store('rinex', host_root, root, _scan_rinex, _rinex_cache)
 
 
 # def _trigger_background_refresh(host_root: str, root: Path) -> None:
@@ -611,23 +634,25 @@ def _trigger_background_refresh(
     cache_dict: dict,
 ) -> None:
     """Kick off a background thread to refresh any cache without blocking the caller."""
-    if host_root in _refresh_in_progress:
-        logger.debug(f"[{cache_type.upper()}] Refresh already in progress for {host_root}, skipping")
-        return
+    # Keyed by cache type as well: /parquet and /parquet-satellites share a root
+    # but are separate scans.
+    key = (cache_type, host_root)
+    with _refresh_lock:
+        if key in _refresh_in_progress:
+            logger.debug(f"[{cache_type.upper()}] Refresh already in progress for {host_root}, skipping")
+            return
+        _refresh_in_progress.add(key)
 
     def _do_refresh():
         try:
-            _refresh_in_progress.add(host_root)
             logger.info(f"[{cache_type.upper()}] Background refresh started for {host_root}")
-            result = scan_fn(root)
-            ts = time.time()
-            cache_dict[host_root] = (ts, result)
-            _save_cache_to_db(cache_type, host_root, (ts, result))
+            result = _scan_and_store(cache_type, host_root, root, scan_fn, cache_dict)
             logger.info(f"[{cache_type.upper()}] Background refresh complete — {len(result)} entries")
         except Exception as e:
             logger.error(f"[{cache_type.upper()}] Background refresh failed: {e}")
         finally:
-            _refresh_in_progress.discard(host_root)
+            with _refresh_lock:
+                _refresh_in_progress.discard(key)
 
     threading.Thread(target=_do_refresh, daemon=True).start()
 
@@ -873,11 +898,7 @@ def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> lis
 
     # Cold start
     logger.info(f"[TEC-SUITE] Cold start scan for {host_root}")
-    result = _scan_tecsuite_parallel(scan_root)
-    ts = time.time()
-    _tecsuite_cache[host_root] = (ts, result)
-    _save_cache_to_db('tecsuite', host_root, (ts, result))
-    return result
+    return _scan_and_store('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
 
 
 def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
@@ -917,11 +938,7 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
         return cached_result
 
     logger.info(f"[ABSTEC] Cold start scan for {host_root}")
-    result = _scan_abstec_output_parallel(root)
-    ts = time.time()
-    _abstec_cache[host_root] = (ts, result)
-    _save_cache_to_db('abstec', host_root, (ts, result))
-    return result
+    return _scan_and_store('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
 
 # def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
 #     """
@@ -982,11 +999,7 @@ def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list
 
     # Cold start
     logger.info(f"[PARQUET] Cold start scan for {host_root}")
-    result = _scan_parquet(root)
-    ts = time.time()
-    _parquet_cache[host_root] = (ts, result)
-    _save_cache_to_db('parquet', host_root, (ts, result))
-    return result
+    return _scan_and_store('parquet', host_root, root, _scan_parquet, _parquet_cache)
 
 # def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
 #     """
@@ -1048,11 +1061,7 @@ def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> l
 
     # Cold start
     logger.info(f"[PARQUET-SAT] Cold start scan for {host_root}")
-    result = _scan_parquet_satellites_parallel(root)
-    ts = time.time()
-    _parquet_sat_cache[host_root] = (ts, result)
-    _save_cache_to_db('parquet_sat', host_root, (ts, result))
-    return result
+    return _scan_and_store('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
 
 def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""

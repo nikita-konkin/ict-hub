@@ -12,7 +12,8 @@ All endpoints return XML responses.
 Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
 - DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
-- DATA_INDEXER_RUN_ON_STARTUP: Run initial indexing on startup (default: false)
+- DATA_INDEXER_RUN_ON_STARTUP: Index on startup: false (default), true/async
+  (in a background thread while serving) or sync (entrypoint.sh, before serving)
 - RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
 - TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
 - ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
@@ -25,7 +26,11 @@ data type is mounted inside their respective containers.
 """
 
 import os
-from fastapi import FastAPI, Query
+import posixpath
+import threading
+from pathlib import PurePosixPath
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 import dicttoxml
 import logging
@@ -64,6 +69,40 @@ DEFAULT_PATHS = {
     'parquet_abstec': os.getenv('PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER', '/mnt/abstec-parquet-out')
 }
 
+# Host-side spellings of the same roots, accepted for setups that run the
+# indexer outside the compose file (the hub falls back to host paths when the
+# *_CONTAINER variables are unset).
+_HOST_PATH_ENVS = (
+    'RINEX_DATA_PATH_HOST',
+    'TECSUITE_OUT_DAT_DATA_PATH_HOST',
+    'ABSTEC_OUTPUT_DATA_PATH_HOST',
+    'PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST',
+    'PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST',
+)
+
+
+def _normalized(path: str) -> PurePosixPath:
+    return PurePosixPath(posixpath.normpath(path.replace('\\', '/')))
+
+
+def _allowed_roots() -> list[PurePosixPath]:
+    configured = list(DEFAULT_PATHS.values()) + [os.getenv(name, '') for name in _HOST_PATH_ENVS]
+    return [_normalized(path) for path in configured if path.strip()]
+
+
+def _require_allowed_root(root: str) -> str:
+    """
+    Reject roots outside the configured data paths. The service is unauthenticated,
+    so an arbitrary root would let any caller on the network list, cache and
+    watch any directory the container can see.
+    """
+    candidate = _normalized(root)
+    for allowed in _allowed_roots():
+        if candidate == allowed or allowed in candidate.parents:
+            return root
+    raise HTTPException(status_code=400, detail="root must be inside a configured data path")
+
+
 def dict_to_xml_response(data, root_element="data"):
     """Convert dictionary to XML response."""
     xml_data = dicttoxml.dicttoxml(data, custom_root=root_element, attr_type=False)
@@ -71,9 +110,12 @@ def dict_to_xml_response(data, root_element="data"):
 
 @app.on_event("startup")
 async def startup_event():
-    """Run initial indexing on startup if enabled and not done recently."""
-    if os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').lower() == 'true':
-        import asyncio
+    """
+    Warm the caches while serving when DATA_INDEXER_RUN_ON_STARTUP is true/async.
+
+    "sync" indexes in entrypoint.sh before the server starts; "false" skips.
+    """
+    if os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').strip().lower() in ('true', 'async'):
         import logging
 
         from data_indexer import set_last_full_index_time, should_run_full_index
@@ -87,7 +129,7 @@ async def startup_event():
             logger.info("Skipping initial indexing: %s", reason)
             return
 
-        async def index_all():
+        def index_all():
             logger.info("Running initial indexing on startup (%s)...", reason)
             try:
                 # Index all data types to warm up caches
@@ -105,8 +147,9 @@ async def startup_event():
             except Exception as e:
                 logger.error(f"Initial indexing failed: {e}")
 
-        # Run indexing in background to not block startup
-        asyncio.create_task(index_all())
+        # The scans are blocking filesystem walks: run them in a thread so the
+        # event loop keeps answering /health and requests meanwhile.
+        threading.Thread(target=index_all, name="startup-index", daemon=True).start()
 
 
 @app.on_event("shutdown")
@@ -174,7 +217,7 @@ def rinex_index(
     refresh: bool = Query(default=False),
 ):
     """Get RINEX server structure as XML."""
-    
+    _require_allowed_root(root)
     logger.info(f"[APP] RINEX endpoint called with root: {root}")
     data = list_rinex_server_structure(root, refresh=refresh)
     
@@ -190,6 +233,7 @@ def rinex_station_map(
     refresh: bool = Query(default=False),
 ):
     """Return aggregated station metadata from RINEX headers as JSON."""
+    _require_allowed_root(root)
     try:
         data = list_rinex_station_map(root, year=year, day=day, refresh=refresh)
     except FileNotFoundError as exc:
@@ -204,6 +248,7 @@ def tecsuite_index(
     refresh: bool = Query(default=False),
 ):
     """Get TEC-suite DAT output structure as XML."""
+    _require_allowed_root(root)
     data = list_tecsuite_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "tecsuite_structure")
 
@@ -213,6 +258,7 @@ def abstec_index(
     refresh: bool = Query(default=False),
 ):
     """Get AbsTEC output structure as XML."""
+    _require_allowed_root(root)
     data = list_abstec_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "abstec_structure")
 
@@ -222,6 +268,7 @@ def parquet_index(
     refresh: bool = Query(default=False),
 ):
     """Get Parquet output structure as XML."""
+    _require_allowed_root(root)
     data = list_parquet_output_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "parquet_structure")
 
@@ -232,6 +279,7 @@ def parquet_satellite_index(
     refresh: bool = Query(default=False),
 ):
     """Get Parquet output structure with stations/satellites as XML."""
+    _require_allowed_root(root)
     data = list_parquet_satellite_structure(root, refresh=refresh)
     return dict_to_xml_response(data, "parquet_satellite_structure")
 
