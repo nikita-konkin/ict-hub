@@ -30,7 +30,8 @@ services:
       no_proxy: "localhost,127.0.0.1,data-indexer,converter-hub,tec-backend,host.docker.internal"
 
       # ── Security (CHANGE THESE before exposing to a network) ──────────────
-      SECRET_KEY: ${SECRET_KEY:-replace-me-with-a-random-32-char-string!!}
+      # Empty or a placeholder → a random key is generated and kept in the db volume.
+      SECRET_KEY: ${SECRET_KEY:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}           # password for the first-boot 'admin' user
 
       # ── Database ─────────────────────────────────────────────────────────
@@ -130,8 +131,9 @@ services:
     restart: unless-stopped
 
     ports:
-      # Map host port 5001 → container port 5001
-      - "5001:5001"
+      # The indexer has no authentication, so publish it on the host's loopback
+      # only. converter-hub reaches it over the compose network regardless.
+      - "127.0.0.1:5001:5001"
 
     # Load environment variables from local .env file.
     env_file:

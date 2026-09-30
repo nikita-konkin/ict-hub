@@ -11,6 +11,10 @@ The service uses the following environment variables (set in `.env` file):
   - Controls how often the service rescans directories for new files
   - Lower values = more frequent updates but higher CPU/disk usage
   - Higher values = less frequent updates but may miss new files sooner
+- Filesystem watchers (`watchdog`, inotify) invalidate a root's caches as soon as
+  files or folders are created, deleted or moved there, so new data shows up
+  without waiting for the TTL. If a watcher cannot start (e.g. the inotify watch
+  limit is reached, or a network mount without inotify), the TTL still applies.
 
 ### Persistent Cache Database
 - `DATA_INDEXER_CACHE_DB_PATH`: Path to SQLite database for persistent caching (default: `/app/data/cache.db`)
@@ -22,7 +26,7 @@ The service uses the following environment variables (set in `.env` file):
 - `DATA_INDEXER_RUN_ON_STARTUP`: Control initial indexing behavior (default: `false`)
   - `false`: No initial indexing (default FastAPI behavior)
   - `true` or `async`: Run indexing asynchronously on FastAPI startup (non-blocking)
-  - `sync`: Run indexing synchronously before starting FastAPI (blocking, requires Docker rebuild)
+  - `sync`: Index every configured root before starting FastAPI (blocking; done by `entrypoint.sh`)
 
 ### Data Paths
 - `INDEXER_RINEX_DATA_PATH_HOST`: Host path to RINEX data directory
@@ -81,7 +85,9 @@ docker compose logs -f data-indexer
 
 ## Endpoints
 
-All endpoints accept a `root` query parameter specifying the data directory path and return XML responses. If no `root` parameter is provided, the service uses the default container paths from environment variables.
+All endpoints accept a `root` query parameter specifying the data directory path and return XML responses. If no `root` parameter is provided, the service uses the default container paths from environment variables. A `root` must be one of those configured paths or a directory inside one; anything else is rejected with HTTP 400, since the service has no authentication.
+
+Port 5001 is published on the host's loopback interface only (`127.0.0.1:5001`); ConverterHub reaches the indexer over the compose network.
 
 ### GET /health
 Health check endpoint.
@@ -134,8 +140,8 @@ All endpoints return XML with the following structure:
 # Get RINEX structure (uses default path from env)
 curl "http://localhost:5001/rinex"
 
-# Get TEC-suite structure with custom path
-curl "http://localhost:5001/tecsuite?root=/custom/path"
+# Get TEC-suite structure for one year inside the configured root
+curl "http://localhost:5001/tecsuite?root=/mnt/tecsuite-out/2026"
 
 # Get AbsTEC structure (uses default path from env)
 curl "http://localhost:5001/abstec"

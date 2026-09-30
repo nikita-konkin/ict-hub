@@ -17,5 +17,6 @@ RUN chmod +x entrypoint.sh
 
 EXPOSE 5001
 
-# Use entrypoint script if DATA_INDEXER_RUN_ON_STARTUP is set to 'sync', otherwise use direct uvicorn
-CMD ["sh", "-c", "if [ \"${DATA_INDEXER_RUN_ON_STARTUP:-async}\" = \"sync\" ]; then ./entrypoint.sh; else uvicorn app:app --host 0.0.0.0 --port 5001; fi"]
+# entrypoint.sh handles DATA_INDEXER_RUN_ON_STARTUP (false | true/async | sync)
+# and then execs uvicorn.
+CMD ["./entrypoint.sh"]

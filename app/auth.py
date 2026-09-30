@@ -12,6 +12,7 @@ Routes:
   GET  /users           — list all users (admin only)
   POST /users           — create a user (admin only)
   POST /users/{id}/toggle — activate/deactivate a user (admin only)
+  POST /users/{id}/password — set a user's password (admin only)
 """
 from __future__ import annotations
 
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 templates = Jinja2Templates(directory="app/templates")
+
+MIN_PASSWORD_LENGTH = 8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +100,7 @@ async def login_form(request: Request):
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=302)
     response = templates.TemplateResponse(
+        request,
         "login.html",
         template_context(request, error=None, converters=CONVERTERS),
     )
@@ -117,6 +121,7 @@ async def login_submit(
         logger.warning("Failed login attempt for username=%r", username)
         lang = get_lang(request)
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -130,6 +135,7 @@ async def login_submit(
     if not user.is_active:
         lang = get_lang(request)
         response = templates.TemplateResponse(
+            request,
             "login.html",
             template_context(
                 request,
@@ -156,6 +162,36 @@ async def logout(request: Request):
     return RedirectResponse("/login", status_code=302)
 
 
+def _render_users(
+    request: Request,
+    db: Session,
+    admin: User,
+    error: str | None = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    users = db.query(User).order_by(User.created_at).all()
+    response = templates.TemplateResponse(
+        request,
+        "users.html",
+        template_context(
+            request,
+            users=users,
+            current_user=admin,
+            error=error,
+            min_password_length=MIN_PASSWORD_LENGTH,
+            converters=CONVERTERS,
+        ),
+        status_code=status_code,
+    )
+    return apply_lang_cookie(request, response)
+
+
+def _password_error(request: Request, password: str) -> str | None:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return translate(get_lang(request), "users_password_too_short", min=MIN_PASSWORD_LENGTH)
+    return None
+
+
 @router.get("/users", response_class=HTMLResponse)
 async def users_list(
     request: Request,
@@ -163,12 +199,7 @@ async def users_list(
     admin: User = Depends(get_admin_user),
 ):
     """Admin-only: list all users with their roles and status."""
-    users = db.query(User).order_by(User.created_at).all()
-    response = templates.TemplateResponse(
-        "users.html",
-        template_context(request, users=users, current_user=admin, converters=CONVERTERS),
-    )
-    return apply_lang_cookie(request, response)
+    return _render_users(request, db, admin)
 
 
 @router.post("/users", response_class=HTMLResponse)
@@ -183,19 +214,13 @@ async def create_user(
     """Admin-only: create a new user."""
     existing = db.query(User).filter(User.username == username).first()
     if existing:
-        users = db.query(User).order_by(User.created_at).all()
-        response = templates.TemplateResponse(
-            "users.html",
-            template_context(
-                request,
-                users=users,
-                current_user=admin,
-                error=f"Username '{username}' is already taken.",
-                converters=CONVERTERS,
-            ),
-            status_code=400,
+        return _render_users(
+            request, db, admin, error=f"Username '{username}' is already taken.", status_code=400
         )
-        return apply_lang_cookie(request, response)
+
+    password_error = _password_error(request, password)
+    if password_error:
+        return _render_users(request, db, admin, error=password_error, status_code=400)
 
     if role not in ("admin", "operator"):
         role = "operator"
@@ -225,4 +250,27 @@ async def toggle_user(
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
     user.is_active = not user.is_active
     db.commit()
+    return RedirectResponse("/users", status_code=302)
+
+
+@router.post("/users/{user_id}/password", response_class=HTMLResponse)
+async def set_user_password(
+    request: Request,
+    user_id: int,
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+):
+    """Admin-only: set a new password for any user, including yourself."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    password_error = _password_error(request, password)
+    if password_error:
+        return _render_users(request, db, admin, error=password_error, status_code=400)
+
+    user.hashed_pw = hash_password(password)
+    db.commit()
+    logger.info("Admin %r set a new password for user %r", admin.username, user.username)
     return RedirectResponse("/users", status_code=302)

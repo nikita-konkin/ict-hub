@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, '/app')
 from data_indexer import list_rinex_server_structure
 import time
 start = time.time()

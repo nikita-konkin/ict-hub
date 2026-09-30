@@ -397,11 +397,17 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             host_path = str(value).strip()
             if not host_path:
                 continue
-            container_path = conv["container_volumes"][flag["is_volume"]]
-            # RINEX must be writable because TEC-Suite extracts archives under
-            # /data/rinex/<day>/... before processing.
-            mode = "rw"
-            volumes[host_path] = {"bind": container_path, "mode": mode}
+            if host_path in volumes:
+                # Same host directory as an earlier flag (e.g. DAT <-> Parquet
+                # overwrite, where source == destination). Docker binds a host path
+                # once, so point this flag at the existing mount instead of
+                # replacing it and leaving the earlier flag's path unmounted.
+                container_path = volumes[host_path]["bind"]
+            else:
+                container_path = conv["container_volumes"][flag["is_volume"]]
+                # RINEX must be writable because TEC-Suite extracts archives under
+                # /data/rinex/<day>/... before processing.
+                volumes[host_path] = {"bind": container_path, "mode": "rw"}
             # Also emit the CLI flag pointing at the container-side path
             if converter_name == "tec-suite" and key == "root":
                 root_subpath = str(form_data.get("root_subpath", "")).strip()

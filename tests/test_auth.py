@@ -166,3 +166,80 @@ class TestUserManagement:
             follow_redirects=False,
         )
         assert response.status_code == 400
+
+    def test_short_password_is_rejected_on_create(self, admin_client, db):
+        response = admin_client.post(
+            "/users",
+            data={"username": "shorty", "password": "short", "role": "operator"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"at least 8 characters" in response.content
+
+        from app.models import User
+        assert db.query(User).filter(User.username == "shorty").first() is None
+
+
+class TestSetPassword:
+    """Tests for POST /users/{id}/password."""
+
+    def test_admin_can_set_another_users_password(self, admin_client, operator_user, db):
+        response = admin_client.post(
+            f"/users/{operator_user.id}/password",
+            data={"password": "brand-new-pass"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+        from app.auth import verify_password
+        db.refresh(operator_user)
+        assert verify_password("brand-new-pass", operator_user.hashed_pw)
+        assert not verify_password("operpass", operator_user.hashed_pw)
+
+    def test_admin_can_set_own_password(self, admin_client, admin_user, db):
+        response = admin_client.post(
+            f"/users/{admin_user.id}/password",
+            data={"password": "not-admin-anymore"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+        from app.auth import verify_password
+        db.refresh(admin_user)
+        assert verify_password("not-admin-anymore", admin_user.hashed_pw)
+
+    def test_short_password_is_rejected(self, admin_client, operator_user, db):
+        response = admin_client.post(
+            f"/users/{operator_user.id}/password",
+            data={"password": "1234567"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+        from app.auth import verify_password
+        db.refresh(operator_user)
+        assert verify_password("operpass", operator_user.hashed_pw)
+
+    def test_unknown_user_returns_404(self, admin_client):
+        response = admin_client.post(
+            "/users/99999/password",
+            data={"password": "long-enough-pass"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 404
+
+    def test_operator_cannot_set_passwords(self, operator_client, admin_user, db):
+        response = operator_client.post(
+            f"/users/{admin_user.id}/password",
+            data={"password": "hijacked-pass"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 403
+
+        from app.auth import verify_password
+        db.refresh(admin_user)
+        assert verify_password("adminpass", admin_user.hashed_pw)
+
+    def test_users_page_offers_set_password_form(self, admin_client, operator_user):
+        response = admin_client.get("/users")
+        assert f'action="/users/{operator_user.id}/password"'.encode() in response.content

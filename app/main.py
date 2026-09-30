@@ -8,17 +8,22 @@ routers, static files, and templates, then performs first-boot initialisation
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import analysis, auth, jobs
-from app.auth import hash_password
-from app.config import ADMIN_PASSWORD, SECRET_KEY
+from app.auth import hash_password, verify_password
+from app.config import ADMIN_PASSWORD, DATA_INDEXER_TIMEOUT_SEC, DATA_INDEXER_URL, SECRET_KEY
 from app.database import SessionLocal, engine
+from app.job_monitor import reconcile_running_jobs
 from app.models import Base, User
 
 logging.basicConfig(
@@ -59,8 +64,19 @@ async def lifespan(app: FastAPI):
                 "Password from ADMIN_PASSWORD env var (default: 'admin'). "
                 "Change it immediately via the Users page."
             )
+        for admin in db.query(User).filter(User.role == "admin", User.is_active == True).all():  # noqa: E712
+            if verify_password("admin", admin.hashed_pw):
+                logger.warning(
+                    "Admin user %r still has the default password 'admin'. "
+                    "Set a new one on the Users page.",
+                    admin.username,
+                )
     finally:
         db.close()
+
+    # Pick up jobs that were still running when the app last stopped. This
+    # talks to Docker, so it must not hold up startup.
+    threading.Thread(target=reconcile_running_jobs, name="job-reconcile", daemon=True).start()
 
     yield  # Application runs
 
@@ -89,8 +105,7 @@ app.add_middleware(
 )
 
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
-import os as _os
-_os.makedirs("app/static", exist_ok=True)
+os.makedirs("app/static", exist_ok=True)
 
 # Serve CSS / any future static assets
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -103,10 +118,6 @@ app.include_router(analysis.router)
 # ─────────────────────────────────────────────────────────────────────────────
 # API proxy routes for external services
 # ─────────────────────────────────────────────────────────────────────────────
-
-from fastapi.responses import JSONResponse
-import httpx
-from app.config import DATA_INDEXER_URL, DATA_INDEXER_TIMEOUT_SEC
 
 @app.get("/api/data-indexer/status")
 async def proxy_data_indexer_status():
@@ -140,14 +151,10 @@ async def proxy_data_indexer_status():
 # FastAPI by default turns HTTPExceptions into JSON responses. We need 303
 # redirects (from the auth dependency) to actually redirect, not return JSON.
 
-from fastapi import HTTPException
-from fastapi.responses import RedirectResponse as _RR
-
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 303:
-        location = exc.headers.get("Location", "/login")
-        return _RR(url=location, status_code=303)
-    # For all other HTTP errors, re-raise so FastAPI's default handler runs
-    from fastapi.exception_handlers import http_exception_handler as _default
-    return await _default(request, exc)
+        location = (exc.headers or {}).get("Location", "/login")
+        return RedirectResponse(url=location, status_code=303)
+    # For all other HTTP errors, fall back to FastAPI's default handler
+    return await default_http_exception_handler(request, exc)

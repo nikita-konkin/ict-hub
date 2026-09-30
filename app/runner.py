@@ -6,10 +6,11 @@ This module is the only place in the codebase that talks to Docker. It provides:
   - stream_logs()      → async generator yielding (event_type, data) tuples
   - parse_progress()   → extracts 0–100 progress from a single log line
   - stop_container()   → gracefully stops a running container
+  - wait_for_exit()    → blocks until a container stops, returns its exit code
 
 Design note: Docker's Python SDK is synchronous. All blocking calls are
-offloaded to a thread pool via asyncio.get_event_loop().run_in_executor()
-so they don't block FastAPI's event loop.
+offloaded to a thread pool via loop.run_in_executor() so they don't block
+FastAPI's event loop.
 """
 from __future__ import annotations
 
@@ -78,7 +79,8 @@ async def stream_logs(
     Yielded event types:
       ("log",      "<html-escaped log line>")   — a line of container stdout/stderr
       ("progress", <int 0–100>)                  — parsed progress percentage
-      ("done",     <int exit_code>)              — container finished
+      ("done",     <int exit_code> | None)       — logs ended; None if the
+                                                   container is still running
 
     The generator waits for log completion and emits final exit status.
     Container removal is controlled by Docker's auto-remove (--rm) setting.
@@ -129,7 +131,7 @@ async def stream_logs(
     thread = threading.Thread(target=_read_logs, daemon=True)
     thread.start()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stream_exit_code: int | None = None
     last_log_emit_at = 0.0
     last_progress: int | None = None
@@ -171,11 +173,10 @@ async def stream_logs(
                     yield ("progress", progress)
                     last_progress = progress
 
-    # Container has finished writing logs — resolve final exit code.
+    # Log stream is over — resolve the final exit code. This is None when the
+    # stream broke off while the container is still running.
     if stream_exit_code is not None:
-        exit_code = stream_exit_code
-    elif auto_remove:
-        exit_code = await loop.run_in_executor(None, _get_exit_code_only, container_id)
+        exit_code: int | None = stream_exit_code
     else:
         exit_code = await loop.run_in_executor(None, _get_exit_code_only, container_id)
 
@@ -196,6 +197,26 @@ def stop_container(container_id: str) -> None:
         pass  # already gone
     except Exception as exc:
         logger.warning("Error stopping container %s: %s", container_id[:12], exc)
+
+
+def wait_for_exit(container_id: str, auto_remove: bool = False) -> int | None:
+    """
+    Block until the container stops and return its exit code.
+
+    Returns None when the container no longer exists, e.g. an auto-removed
+    container that finished before we attached. Raises
+    docker.errors.DockerException when the daemon cannot be reached.
+    """
+    client = docker.from_env()
+    # An auto-removed container disappears right after it stops; waiting for
+    # "removed" still reports its exit status, "not-running" could race the removal.
+    condition = "removed" if auto_remove else "not-running"
+    try:
+        result = client.api.wait(container_id, timeout=None, condition=condition)
+    except docker.errors.NotFound:
+        return None
+    status_code = result.get("StatusCode") if isinstance(result, dict) else None
+    return status_code if isinstance(status_code, int) else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,16 +269,22 @@ def _line_matches_progress_patterns(line: str, patterns: list[str]) -> bool:
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_exit_code_only(container_id: str) -> int:
+def _get_exit_code_only(container_id: str) -> int | None:
     """
     Retrieve the container's exit code without attempting removal.
     Useful when Docker auto-remove (--rm) is enabled.
+
+    Returns None while the container is still running: its State.ExitCode is
+    a placeholder 0 then, not a result.
     """
     client = docker.from_env()
     try:
         container = client.containers.get(container_id)
         container.reload()
-        exit_code = container.attrs.get("State", {}).get("ExitCode", -1)
+        state = container.attrs.get("State", {})
+        if state.get("Running") or state.get("Restarting"):
+            return None
+        exit_code = state.get("ExitCode", -1)
         logger.info("Container %s finished with exit_code=%s", container_id[:12], exit_code)
         return exit_code
     except docker.errors.NotFound:

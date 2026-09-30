@@ -1,0 +1,7 @@
+# COPY . . would otherwise bake local config and caches into the image.
+.env
+.env.*
+!.env.example
+**/__pycache__
+# A stray local app/ directory would sit next to app.py and confuse 'import app'.
+app

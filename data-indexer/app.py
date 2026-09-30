@@ -12,7 +12,10 @@ All endpoints return XML responses.
 Configuration:
 - DATA_INDEXER_CACHE_TTL_SEC: Cache TTL in seconds (default: 300.0 = 5 minutes)
 - DATA_INDEXER_CACHE_DB_PATH: Path to persistent cache database (default: /app/data/cache.db)
-- DATA_INDEXER_RUN_ON_STARTUP: Run initial indexing on startup (default: false)
+- DATA_INDEXER_RUN_ON_STARTUP: Initial indexing (default: false)
+    false         — none
+    true | async  — in a background thread once the server is up
+    sync          — before the server starts (done by entrypoint.sh)
 - INDEXER_RINEX_DATA_PATH_CONTAINER: RINEX data path (default: /mnt/rinex-server)
 - INDEXER_TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: TEC-suite data path (default: /mnt/tecsuite-out)
 - INDEXER_ABSTEC_OUTPUT_DATA_PATH_CONTAINER: AbsTEC data path (default: /mnt/abstec-out)
@@ -21,7 +24,10 @@ Configuration:
 """
 
 import os
-from fastapi import FastAPI, Query
+import threading
+from contextlib import asynccontextmanager
+from pathlib import PurePosixPath
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 import dicttoxml
 import logging
@@ -31,6 +37,7 @@ from data_indexer import (
     list_parquet_output_structure,
     list_parquet_satellite_structure,
     stop_all_watchers,
+    warm_up_caches,
 )
 
 # Configure logging to show DEBUG messages
@@ -47,7 +54,19 @@ logging.getLogger('dicttoxml').setLevel(logging.WARNING)
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Data Indexer Service")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Warm the caches when DATA_INDEXER_RUN_ON_STARTUP is true/async; stop watchers on exit."""
+    mode = os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').strip().lower()
+    if mode in ('true', 'async'):
+        # Scans are blocking filesystem work: run them in a thread so the event
+        # loop keeps serving requests (and /health) while indexing.
+        threading.Thread(target=warm_up, name="initial-indexing", daemon=True).start()
+    yield
+    stop_all_watchers()
+
+
+app = FastAPI(title="Data Indexer Service", lifespan=lifespan)
 
 # Default paths from environment variables
 DEFAULT_PATHS = {
@@ -63,37 +82,26 @@ def dict_to_xml_response(data, root_element="data"):
     xml_data = dicttoxml.dicttoxml(data, custom_root=root_element, attr_type=False)
     return Response(content=xml_data, media_type="application/xml")
 
-@app.on_event("startup")
-async def startup_event():
-    """Run initial indexing on startup if enabled."""
-    if os.getenv('DATA_INDEXER_RUN_ON_STARTUP', 'false').lower() == 'true':
-        import asyncio
-        import logging
 
-        logger = logging.getLogger(__name__)
-
-        async def index_all():
-            logger.info("Running initial indexing on startup...")
-            try:
-                # Index all data types to warm up caches
-                list_rinex_server_structure(DEFAULT_PATHS['rinex'])
-                list_tecsuite_output_structure(DEFAULT_PATHS['tecsuite'])
-                list_parquet_output_structure(DEFAULT_PATHS['parquet_tecsuite'])
-                list_parquet_satellite_structure(DEFAULT_PATHS['parquet_tecsuite'])
-                list_parquet_output_structure(DEFAULT_PATHS['parquet_abstec'])
-                list_parquet_satellite_structure(DEFAULT_PATHS['parquet_abstec'])
-                logger.info("Initial indexing completed successfully")
-            except Exception as e:
-                logger.error(f"Initial indexing failed: {e}")
-
-        # Run indexing in background to not block startup
-        asyncio.create_task(index_all())
+def _require_allowed_root(root: str) -> str:
+    """
+    Reject roots outside the configured data paths. The service is unauthenticated,
+    so an arbitrary root would let any caller list, cache and watch any directory.
+    """
+    candidate = PurePosixPath(os.path.normpath(root).replace("\\", "/"))
+    for allowed in DEFAULT_PATHS.values():
+        base = PurePosixPath(os.path.normpath(allowed).replace("\\", "/"))
+        if candidate == base or base in candidate.parents:
+            return root
+    raise HTTPException(status_code=400, detail="root must be inside a configured data path")
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Stop filesystem watchers cleanly on service shutdown."""
-    stop_all_watchers()
+def warm_up() -> None:
+    """Index every configured root once (entrypoint.sh calls this in sync mode)."""
+    logger.info("Running initial indexing...")
+    warm_up_caches(DEFAULT_PATHS)
+    logger.info("Initial indexing finished")
+
 
 @app.get('/health')
 def health():
@@ -138,28 +146,30 @@ def indexer_status():
 @app.get('/rinex')
 def rinex_index(root: str = Query(default=DEFAULT_PATHS['rinex'])):
     """Get RINEX server structure as XML."""
-    
+    _require_allowed_root(root)
     logger.info(f"[APP] RINEX endpoint called with root: {root}")
     data = list_rinex_server_structure(root)
-    
     logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
     return dict_to_xml_response(data, "rinex_structure")
 
 @app.get('/tecsuite')
 def tecsuite_index(root: str = Query(default=DEFAULT_PATHS['tecsuite'])):
     """Get TEC-suite DAT output structure as XML."""
+    _require_allowed_root(root)
     data = list_tecsuite_output_structure(root)
     return dict_to_xml_response(data, "tecsuite_structure")
 
 @app.get('/abstec')
 def abstec_index(root: str = Query(default=DEFAULT_PATHS['abstec'])):
     """Get AbsTEC output structure as XML (same as tecsuite for now)."""
+    _require_allowed_root(root)
     data = list_tecsuite_output_structure(root)
     return dict_to_xml_response(data, "abstec_structure")
 
 @app.get('/parquet')
 def parquet_index(root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite'])):
     """Get Parquet output structure as XML."""
+    _require_allowed_root(root)
     data = list_parquet_output_structure(root)
     return dict_to_xml_response(data, "parquet_structure")
 
@@ -167,6 +177,7 @@ def parquet_index(root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite'])):
 @app.get('/parquet-satellites')
 def parquet_satellite_index(root: str = Query(default=DEFAULT_PATHS['parquet_tecsuite'])):
     """Get Parquet output structure with stations/satellites as XML."""
+    _require_allowed_root(root)
     data = list_parquet_satellite_structure(root)
     return dict_to_xml_response(data, "parquet_satellite_structure")
 

@@ -37,6 +37,16 @@ test_engine = create_engine(
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+@pytest.fixture(autouse=True)
+def no_job_watchers(monkeypatch):
+    """
+    Keep background job watchers away from the real Docker daemon: route tests
+    patch start_container, so the container IDs they produce do not exist.
+    """
+    monkeypatch.setattr("app.jobs.start_job_watcher", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.main.reconcile_running_jobs", lambda: None)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def create_tables():
     """Create all tables once for the entire test session."""

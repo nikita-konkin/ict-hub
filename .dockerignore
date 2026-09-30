@@ -1,0 +1,12 @@
+# Only requirements.txt and app/ are copied; keep local config and caches out
+# of the build context anyway.
+.env
+.env.*
+!.env.example
+.git
+.venv
+venv
+.pytest_cache
+**/__pycache__
+tests
+data-indexer

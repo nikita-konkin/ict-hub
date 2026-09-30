@@ -33,7 +33,8 @@ cd converter-hub
 
 # Copy and customise environment variables
 cp .env.example .env
-# → At minimum, change SECRET_KEY to a random 32-character string
+# → SECRET_KEY may stay empty: a random key is generated on first start
+#   and kept in the db volume. Set ADMIN_PASSWORD before the first start.
 
 docker-compose up --build -d
 ```
@@ -42,7 +43,7 @@ The UI is available at **http://localhost:8080** (or any LAN IP on port 8080).
 
 ### 2. First login
 
-On first boot a default `admin` account is created with the password from the `ADMIN_PASSWORD` environment variable (default: `admin`). **Change it immediately** via the Users page.
+On first boot a default `admin` account is created with the password from the `ADMIN_PASSWORD` environment variable (default: `admin`). **Change it immediately** via the Users page (*Set password* next to each user). While an admin still has the password `admin`, the app logs a warning at every start.
 
 ### 3. Running a TEC-Suite job
 
@@ -219,7 +220,8 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 ### Core Service
 | Variable           | Default                                  | Description                                   |
 |--------------------|------------------------------------------|-----------------------------------------------|
-| `SECRET_KEY`       | `change-me-in-production-please-32chars!!` | Session cookie signing key — **must change** |
+| `SECRET_KEY`       | *(empty)*                                | Session cookie signing key. Empty or a published placeholder → a random key is generated and stored in `SECRET_KEY_FILE` |
+| `SECRET_KEY_FILE`  | `.secret_key` next to the SQLite DB      | Where the generated key is kept                |
 | `ADMIN_PASSWORD`   | `admin`                                  | First-boot admin password                     |
 | `DATABASE_URL`     | `sqlite:////app/data/converter_hub.db`   | SQLAlchemy connection string                  |
 
@@ -229,7 +231,8 @@ Tests use an in-memory SQLite database and fully mock the Docker SDK — no Dock
 | `DATA_INDEXER_CACHE_TTL_SEC` | `300.0` | Cache time-to-live in seconds (default 5 minutes) |
 | `DATA_INDEXER_CACHE_DB_PATH` | `/app/data/cache.db` | Path to persistent SQLite cache database |
 | `DATA_INDEXER_RUN_ON_STARTUP` | `false` | Run indexing on startup: `false` (default), `async`, or `sync` |
-| `DATA_INDEXER_TIMEOUT_SEC` | `45` | Timeout for data-indexer HTTP requests |
+| `DATA_INDEXER_TIMEOUT_SEC` | `120` | Timeout for data-indexer HTTP requests |
+| `DATA_INDEXER_CLIENT_CACHE_TTL_SEC` | `30` | How long ConverterHub reuses a data-indexer response when rendering pages |
 
 ### Converter Configuration
 | Variable           | Default                                  | Description                                   |

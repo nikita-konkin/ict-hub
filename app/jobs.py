@@ -12,20 +12,24 @@ Routes:
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import re
 from datetime import datetime, timezone
 
 import docker.errors
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app import config as cfg
-from app.auth import get_admin_user, get_current_user
-from app.database import get_db
+from app.auth import get_current_user
+from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
+from app.job_monitor import start_job_watcher
 from app.models import JobRun, User
 from app.registry import CONVERTERS, build_command, get_converter
 from app.data_indexer_client import (
@@ -33,8 +37,7 @@ from app.data_indexer_client import (
     list_rinex_server_structure_async,
     list_tecsuite_output_structure_async,
 )
-from app.runner import parse_progress, start_container, stop_container, stream_logs
-from fastapi.templating import Jinja2Templates
+from app.runner import start_container, stop_container, stream_logs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
@@ -155,6 +158,14 @@ def _join_host_path(base_path: str, suffix: str) -> str:
     return f"{base_path.rstrip('/\\')}/{clean_suffix}"
 
 
+def _error_fragment(message: object, status_code: int) -> HTMLResponse:
+    """Render an alert fragment; the message may echo user input, so escape it."""
+    return HTMLResponse(
+        f'<div class="alert alert-danger">{html.escape(str(message))}</div>',
+        status_code=status_code,
+    )
+
+
 def _is_truthy_checkbox(value: object) -> bool:
     """Interpret common HTML checkbox encodings as booleans."""
     if isinstance(value, bool):
@@ -186,6 +197,7 @@ async def dashboard(
         .all()
     )
     response = templates.TemplateResponse(
+        request,
         "dashboard.html",
         template_context(
             request,
@@ -301,6 +313,7 @@ async def run_page(
         }
 
     response = templates.TemplateResponse(
+        request,
         "run.html",
         template_context(
             request,
@@ -361,10 +374,7 @@ async def start_job(
     conv = get_converter(converter_name)
     logger.info("User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form))
     if not conv:
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Unknown converter: {converter_name}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f"Unknown converter: {converter_name}", 400)
 
     # Convert form data to a regular dict for processing
     form_dict = {k: v for k, v in form.items() if k != "converter_name"}
@@ -402,10 +412,7 @@ async def start_job(
         day_to_raw = str(form.get("day_to", "")).strip()
         resolved_paths, error_message = _resolve_dat_parquet_paths(direction, profile_name, overwrite)
         if error_message:
-            return HTMLResponse(
-                f'<div class="alert alert-danger">{error_message}</div>',
-                status_code=400,
-            )
+            return _error_fragment(error_message, 400)
 
         day_from = None
         day_to = None
@@ -477,10 +484,7 @@ async def start_job(
         command, volumes = build_command(converter_name, form_dict)
     except Exception as exc:
         logger.error("Command build error: %s", exc)
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Failed to build command: {exc}</div>',
-            status_code=400,
-        )
+        return _error_fragment(f"Failed to build command: {exc}", 400)
 
     # Create the job record before starting the container so we always have
     # an audit trail, even if the container fails to start
@@ -509,7 +513,9 @@ async def start_job(
     db.refresh(job)
 
     try:
-        container_id = start_container(
+        # The Docker SDK blocks (and may pull an image), so keep it off the event loop.
+        container_id = await run_in_threadpool(
+            start_container,
             conv["image"],
             command,
             volumes,
@@ -523,10 +529,11 @@ async def start_job(
         job.finished_at = datetime.now(timezone.utc)
         job.exit_code = -1
         db.commit()
-        return HTMLResponse(
-            f'<div class="alert alert-danger">Docker error: {exc}</div>',
-            status_code=500,
-        )
+        return _error_fragment(f"Docker error: {exc}", 500)
+
+    # Record the outcome when the container stops, whether or not anyone
+    # keeps the log stream open until then.
+    start_job_watcher(job.id, container_id, auto_remove)
 
     # HTMX requests get a fragment swap; plain form posts should redirect back
     # to the converter page so the browser URL remains /run/{converter}.
@@ -535,6 +542,7 @@ async def start_job(
 
     # Return the SSE monitoring panel. HTMX will swap this into #job-output.
     response = templates.TemplateResponse(
+        request,
         "job_panel.html",
         template_context(request, job=job, converter=conv),
     )
@@ -614,7 +622,6 @@ async def stream_job_logs(
         """
         # Use a fresh DB session inside the generator since the request session
         # may be reused across async yield boundaries
-        from app.database import SessionLocal
         gen_db = SessionLocal()
 
         try:
@@ -641,10 +648,16 @@ async def stream_job_logs(
                     yield sse_event("log", f'<span class="log-line log-line-error">{payload}</span>')
 
                 elif event_type == "done":
+                    if payload is None:
+                        # The log stream broke off while the container still runs;
+                        # the job watcher records the real outcome later.
+                        yield sse_event("done", '<span class="badge badge-muted">Log stream interrupted</span>')
+                        break
                     exit_code = int(payload)
-                    # Persist the job outcome to the database
+                    # Persist the outcome unless the watcher or a stop request
+                    # already did (a stop's -2 sentinel must survive).
                     db_job = gen_db.query(JobRun).filter(JobRun.id == job_id).first()
-                    if db_job:
+                    if db_job and db_job.status == "running":
                         db_job.finished_at = datetime.now(timezone.utc)
                         db_job.exit_code = exit_code
                         db_job.status = "success" if exit_code == 0 else "failed"
@@ -660,7 +673,7 @@ async def stream_job_logs(
         except Exception as exc:
             logger.exception("Unexpected error in SSE stream for job %s", job_id)
             yield sse_event("error", '<span class="badge badge-danger">Error</span>')
-            yield sse_event("log", f'<span class="log-line log-line-error">Unexpected error: {exc}</span>')
+            yield sse_event("log", f'<span class="log-line log-line-error">Unexpected error: {html.escape(str(exc))}</span>')
         finally:
             gen_db.close()
 
@@ -694,7 +707,8 @@ async def stop_job(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if job.container_id and job.status == "running":
-        stop_container(job.container_id)
+        # docker stop waits up to 10 s for the container; don't block the event loop.
+        await run_in_threadpool(stop_container, job.container_id)
         job.status = "failed"
         job.finished_at = datetime.now(timezone.utc)
         job.exit_code = -2  # sentinel for "stopped by user"
@@ -719,6 +733,8 @@ async def history(
     Paginated audit log of job runs.
     Admins see all users' jobs; operators only see their own.
     """
+    page = max(1, page)
+    per_page = min(max(1, per_page), 200)
     query = db.query(JobRun)
     if not current_user.is_admin:
         query = query.filter(JobRun.user_id == current_user.id)
@@ -731,6 +747,7 @@ async def history(
         .all()
     )
     response = templates.TemplateResponse(
+        request,
         "history.html",
         template_context(
             request,

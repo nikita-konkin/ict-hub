@@ -398,9 +398,12 @@ class TestStartJob:
 
         from app.models import JobRun
 
-        _, _, volumes = mock_start.call_args.args
-        assert "/data/abstec-out" in volumes
-        assert volumes["/data/abstec-out"]["bind"] == "/output"
+        _, command, volumes = mock_start.call_args.args
+        # Source and destination are one host directory: it is mounted once and
+        # both flags must point at that mount, or the converter reads an empty path.
+        assert volumes == {"/data/abstec-out": {"bind": "/input", "mode": "rw"}}
+        assert command[command.index("-s") + 1] == "/input"
+        assert command[command.index("-d") + 1] == "/input"
 
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         flags = json.loads(job.flags_json)
@@ -799,3 +802,52 @@ class TestStopJob:
         )
         # Admin should be allowed; 403 only for mismatched operators
         assert response.status_code in (302, 303, 200)
+
+
+class TestReviewFixes:
+    """Escaping, pagination bounds, and background outcome tracking for /jobs routes."""
+
+    def test_unknown_converter_name_is_escaped(self, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data={"converter_name": "<img src=x onerror=alert(1)>"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"<img" not in response.content
+        assert b"&lt;img src=x onerror=alert(1)&gt;" in response.content
+
+    def test_dat_parquet_direction_is_escaped_in_error(self, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data={
+                "converter_name": "dat-parquet-handler",
+                "direction": "<script>x</script>",
+                "dataset_profile": "nope",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert b"<script>" not in response.content
+
+    @pytest.mark.parametrize("query", ["per_page=0", "per_page=-5", "page=0", "page=-3&per_page=100000"])
+    def test_history_tolerates_out_of_range_pagination(self, operator_client, query):
+        response = operator_client.get(f"/history?{query}")
+        assert response.status_code == 200
+
+    @patch("app.jobs.start_container", return_value="container_watch_me")
+    def test_started_job_gets_a_watcher(self, mock_start, operator_client, db, monkeypatch):
+        watched = []
+        monkeypatch.setattr("app.jobs.start_job_watcher", lambda *args: watched.append(args))
+
+        response = operator_client.post(
+            "/jobs/start",
+            data={"converter_name": "tec-suite", "root_subpath": "/2026_original/001", "auto_remove": "on"},
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+
+        from app.models import JobRun
+        job = db.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert watched == [(job.id, "container_watch_me", True)]
