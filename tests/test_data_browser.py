@@ -48,12 +48,12 @@ def indexer_serving(monkeypatch):
 async def test_rinex_xml_parsing_and_cache(indexer_serving) -> None:
     requested = indexer_serving(
         '<?xml version="1.0" encoding="UTF-8" ?>'
-        '<rinex_structure>'
-        '<item><year>2026_original</year><days>'
-        '<item><day>01</day><stations>2</stations></item>'
-        '<item><day>365</day><stations>1</stations></item>'
-        '</days></item>'
-        '</rinex_structure>'
+        "<rinex_structure>"
+        "<item><year>2026_original</year><days>"
+        "<item><day>01</day><stations>2</stations></item>"
+        "<item><day>365</day><stations>1</stations></item>"
+        "</days></item>"
+        "</rinex_structure>"
     )
 
     first = await client.list_rinex_server_structure_async("/mnt/rinex-server")
@@ -67,11 +67,11 @@ async def test_rinex_xml_parsing_and_cache(indexer_serving) -> None:
 async def test_tecsuite_xml_parsing(indexer_serving) -> None:
     indexer_serving(
         '<?xml version="1.0" encoding="UTF-8" ?>'
-        '<tecsuite_structure>'
-        '<item><year>2026</year><days>'
-        '<item><day>003</day><sites><item>aksu</item><item>alex</item></sites></item>'
-        '</days></item>'
-        '</tecsuite_structure>'
+        "<tecsuite_structure>"
+        "<item><year>2026</year><days>"
+        "<item><day>003</day><sites><item>aksu</item><item>alex</item></sites></item>"
+        "</days></item>"
+        "</tecsuite_structure>"
     )
 
     result = await client.list_tecsuite_output_structure_async("/mnt/tecsuite-out")
@@ -82,9 +82,9 @@ async def test_tecsuite_xml_parsing(indexer_serving) -> None:
 async def test_parquet_xml_parsing(indexer_serving) -> None:
     indexer_serving(
         '<?xml version="1.0" encoding="UTF-8" ?>'
-        '<parquet_structure>'
-        '<item><year>2026</year><days><item>001</item><item>007</item></days></item>'
-        '</parquet_structure>'
+        "<parquet_structure>"
+        "<item><year>2026</year><days><item>001</item><item>007</item></days></item>"
+        "</parquet_structure>"
     )
 
     result = await client.list_parquet_output_structure_async("/mnt/tecsuite-parquet-out")

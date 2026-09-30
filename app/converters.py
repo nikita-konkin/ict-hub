@@ -12,6 +12,7 @@ holds the per-converter logic around that data:
 Supporting a new converter means a registry entry plus, if it needs either
 behaviour, one function per hook registered in _PAGE_CONTEXT / _PREPARE_FORM.
 """
+
 from __future__ import annotations
 
 import asyncio

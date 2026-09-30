@@ -2,6 +2,7 @@
 config.py — Central settings loaded from environment variables.
 All values can be overridden via docker-compose environment section or a .env file.
 """
+
 import logging
 import os
 import secrets
@@ -61,9 +62,7 @@ def _resolve_secret_key() -> str:
             fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(generated)
-            logger.warning(
-                "SECRET_KEY is unset or a placeholder; generated a random key in %s", key_file
-            )
+            logger.warning("SECRET_KEY is unset or a placeholder; generated a random key in %s", key_file)
             return generated
         except FileExistsError:
             # Another worker created it first — use theirs so sessions agree.
@@ -73,8 +72,7 @@ def _resolve_secret_key() -> str:
             logger.warning("Cannot write SECRET_KEY_FILE %s: %s", key_file, exc)
 
     logger.warning(
-        "SECRET_KEY is unset or a placeholder; using a temporary random key. "
-        "Sessions will not survive a restart."
+        "SECRET_KEY is unset or a placeholder; using a temporary random key. Sessions will not survive a restart."
     )
     return generated
 

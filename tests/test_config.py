@@ -1,4 +1,5 @@
 """Tests for SECRET_KEY resolution in app/config.py."""
+
 import os
 import stat
 

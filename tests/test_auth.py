@@ -5,6 +5,7 @@ We test the full request lifecycle including cookies and session state,
 not just the route functions in isolation. This gives us confidence that
 the SessionMiddleware, password hashing, and redirect logic all work together.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -141,6 +142,7 @@ class TestUserManagement:
 
         # Verify the user was actually created in the database
         from app.models import User
+
         user = db.query(User).filter(User.username == "newuser").first()
         assert user is not None
         assert user.role == "operator"
@@ -185,6 +187,7 @@ class TestUserManagement:
         assert b"at least 8 characters" in response.content
 
         from app.models import User
+
         assert db.query(User).filter(User.username == "shorty").first() is None
 
 
@@ -200,6 +203,7 @@ class TestSetPassword:
         assert response.status_code == 302
 
         from app.auth import verify_password
+
         db.refresh(operator_user)
         assert verify_password("brand-new-pass", operator_user.hashed_pw)
         assert not verify_password("operpass", operator_user.hashed_pw)
@@ -213,6 +217,7 @@ class TestSetPassword:
         assert response.status_code == 302
 
         from app.auth import verify_password
+
         db.refresh(admin_user)
         assert verify_password("not-admin-anymore", admin_user.hashed_pw)
 
@@ -225,6 +230,7 @@ class TestSetPassword:
         assert response.status_code == 400
 
         from app.auth import verify_password
+
         db.refresh(operator_user)
         assert verify_password("operpass", operator_user.hashed_pw)
 
@@ -245,6 +251,7 @@ class TestSetPassword:
         assert response.status_code == 403
 
         from app.auth import verify_password
+
         db.refresh(admin_user)
         assert verify_password("adminpass", admin_user.hashed_pw)
 

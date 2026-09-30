@@ -108,8 +108,8 @@ def test_change_during_scan_triggers_another_scan(indexer, monkeypatch):
 @pytest.mark.parametrize(
     "cached_ts",
     [
-        12_345.0,               # written with the old monotonic clock (seconds since boot)
-        time.time() + 86_400,   # from the future: clock moved backwards since
+        12_345.0,  # written with the old monotonic clock (seconds since boot)
+        time.time() + 86_400,  # from the future: clock moved backwards since
     ],
 )
 def test_persisted_timestamps_that_make_no_sense_are_stale(indexer, monkeypatch, cached_ts):

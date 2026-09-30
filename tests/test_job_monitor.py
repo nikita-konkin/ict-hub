@@ -4,6 +4,7 @@ Tests for recording job outcomes independently of the browser:
   - app.runner.wait_for_exit / _get_exit_code_only
   - the SSE stream no longer overwriting an outcome that is already recorded
 """
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -52,6 +53,7 @@ def running_job(db, operator_user):
 # record_job_exit
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("exit_code, status", [(0, "success"), (3, "failed")])
 def test_record_job_exit_sets_outcome(monitor_db, running_job, exit_code, status):
     job_monitor.record_job_exit(running_job.id, exit_code)
@@ -86,6 +88,7 @@ def test_record_job_exit_keeps_user_stop(monitor_db, running_job):
 # Watcher thread and startup reconciliation
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_watcher_records_exit_code(monitor_db, running_job, monkeypatch):
     monkeypatch.setattr(job_monitor, "wait_for_exit", lambda container_id, auto_remove: 7)
 
@@ -110,7 +113,9 @@ def test_watcher_leaves_job_alone_when_docker_is_unreachable(monitor_db, running
 
 def test_start_job_watcher_runs_once_per_job(monkeypatch):
     started = []
-    monkeypatch.setattr(job_monitor.threading, "Thread", lambda **kw: MagicMock(start=lambda: started.append(kw["args"])))
+    monkeypatch.setattr(
+        job_monitor.threading, "Thread", lambda **kw: MagicMock(start=lambda: started.append(kw["args"]))
+    )
     monkeypatch.setattr(job_monitor, "_watched_jobs", set())
 
     job_monitor.start_job_watcher(41, "abc", False)
@@ -137,8 +142,8 @@ def test_reconcile_attaches_watchers_and_closes_containerless_jobs(monitor_db, r
 # Runner helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestWaitForExit:
 
+class TestWaitForExit:
     @patch("app.runner.docker.from_env")
     def test_auto_removed_container_waits_for_removal(self, mock_from_env):
         from app.runner import wait_for_exit
@@ -182,10 +187,12 @@ def test_exit_code_of_running_container_is_unknown(mock_from_env):
 # SSE stream
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _fake_stream(*events):
     async def _stream(*args, **kwargs):
         for event in events:
             yield event
+
     return _stream
 
 
@@ -216,8 +223,12 @@ def test_stream_does_not_overwrite_user_stop(operator_client, db, running_job, m
 
 def test_interrupted_stream_leaves_status_to_watcher(operator_client, db, running_job, monkeypatch):
     response = _stream_job(
-        operator_client, db, running_job, monkeypatch,
-        ("error", "connection reset"), ("done", None),
+        operator_client,
+        db,
+        running_job,
+        monkeypatch,
+        ("error", "connection reset"),
+        ("done", None),
     )
 
     assert "Log stream interrupted" in response.text

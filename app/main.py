@@ -5,6 +5,7 @@ This is the entry point Uvicorn runs. It wires together all the middleware,
 routers, static files, and templates, then performs first-boot initialisation
 (creating database tables and a default admin user if none exist).
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Lifespan (replaces deprecated @app.on_event("startup"))
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -67,8 +69,7 @@ async def lifespan(app: FastAPI):
         for admin in db.query(User).filter(User.role == "admin", User.is_active == True).all():  # noqa: E712
             if verify_password("admin", admin.hashed_pw):
                 logger.warning(
-                    "Admin user %r still has the default password 'admin'. "
-                    "Set a new one on the Users page.",
+                    "Admin user %r still has the default password 'admin'. Set a new one on the Users page.",
                     admin.username,
                 )
     finally:
@@ -119,14 +120,12 @@ app.include_router(analysis.router)
 # API proxy routes for external services
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @app.get("/api/data-indexer/status")
 async def proxy_data_indexer_status():
     """Proxy status requests to the data-indexer service."""
     if not DATA_INDEXER_URL:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Data indexer service not configured"}
-        )
+        return JSONResponse(status_code=503, content={"error": "Data indexer service not configured"})
 
     try:
         base = DATA_INDEXER_URL.rstrip("/")
@@ -135,14 +134,13 @@ async def proxy_data_indexer_status():
             response = await client.get(url, timeout=DATA_INDEXER_TIMEOUT_SEC)
             return JSONResponse(
                 status_code=response.status_code,
-                content=response.json() if response.status_code < 400 else {"error": "Data indexer service unavailable"}
+                content=response.json()
+                if response.status_code < 400
+                else {"error": "Data indexer service unavailable"},
             )
     except Exception as exc:
         logger.warning("Data-indexer status proxy failed: %s", exc)
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Data indexer service unavailable"}
-        )
+        return JSONResponse(status_code=503, content={"error": "Data indexer service unavailable"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +148,7 @@ async def proxy_data_indexer_status():
 # ─────────────────────────────────────────────────────────────────────────────
 # FastAPI by default turns HTTPExceptions into JSON responses. We need 303
 # redirects (from the auth dependency) to actually redirect, not return JSON.
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

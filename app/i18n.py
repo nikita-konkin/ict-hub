@@ -1,4 +1,5 @@
 """Simple i18n helpers for EN/RU UI localization."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

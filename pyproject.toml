@@ -7,6 +7,10 @@ target-version = "py311"
 line-length = 120
 src = [".", "data-indexer"]
 
+[tool.ruff.format]
+# Leave code examples in the docs as written.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = [
     "E", "W",   # pycodestyle

@@ -1,4 +1,5 @@
 """Client helpers for reading indexed trees from the data-indexer FastAPI service."""
+
 from __future__ import annotations
 
 import logging

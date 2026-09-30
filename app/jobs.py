@@ -9,6 +9,7 @@ Routes:
   POST /jobs/{id}/stop           — stop a running container
   GET  /history                  — audit log (admins see all, operators see own)
 """
+
 from __future__ import annotations
 
 import html
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 templates = Jinja2Templates(directory="app/templates")
 
+
 def _error_fragment(message: object, status_code: int) -> HTMLResponse:
     """Render an alert fragment; the message may echo user input, so escape it."""
     return HTMLResponse(
@@ -49,6 +51,7 @@ def _error_fragment(message: object, status_code: int) -> HTMLResponse:
 # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -60,11 +63,7 @@ async def dashboard(
     the user's 5 most recent jobs so they have immediate context on activity.
     """
     recent_jobs = (
-        db.query(JobRun)
-        .filter(JobRun.user_id == current_user.id)
-        .order_by(JobRun.started_at.desc())
-        .limit(5)
-        .all()
+        db.query(JobRun).filter(JobRun.user_id == current_user.id).order_by(JobRun.started_at.desc()).limit(5).all()
     )
     response = templates.TemplateResponse(
         request,
@@ -82,6 +81,7 @@ async def dashboard(
 # ─────────────────────────────────────────────────────────────────────────────
 # Converter run page
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/run/{converter_name}", response_class=HTMLResponse)
 async def run_page(
@@ -108,15 +108,8 @@ async def run_page(
     active_stream_tail = "all"
     resume_mode = request.query_params.get("resume", "0") == "1"
     if job_id is not None:
-        candidate = (
-            db.query(JobRun)
-            .filter(JobRun.id == job_id, JobRun.converter == converter_name)
-            .first()
-        )
-        if (
-            candidate
-            and (current_user.is_admin or candidate.user_id == current_user.id)
-        ):
+        candidate = db.query(JobRun).filter(JobRun.id == job_id, JobRun.converter == converter_name).first()
+        if candidate and (current_user.is_admin or candidate.user_id == current_user.id):
             active_job = candidate
             if resume_mode and candidate.status == "running":
                 # When reopening a running job from Recent runs, don't replay
@@ -145,6 +138,7 @@ async def run_page(
 # Start a job
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.post("/jobs/start", response_class=HTMLResponse)
 async def start_job(
     request: Request,
@@ -170,7 +164,9 @@ async def start_job(
     converter_name = str(form.get("converter_name", ""))
 
     conv = get_converter(converter_name)
-    logger.info("User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form))
+    logger.info(
+        "User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form)
+    )
     if not conv:
         return _error_fragment(f"Unknown converter: {converter_name}", 400)
 
@@ -254,6 +250,7 @@ async def start_job(
 # SSE log stream
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/jobs/{job_id}/stream")
 async def stream_job_logs(
     job_id: int,
@@ -289,7 +286,9 @@ async def stream_job_logs(
 
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
-    log_emit_interval_sec = conv.get("log_emit_interval_sec", cfg.LOG_EMIT_INTERVAL_SEC) if conv else cfg.LOG_EMIT_INTERVAL_SEC
+    log_emit_interval_sec = (
+        conv.get("log_emit_interval_sec", cfg.LOG_EMIT_INTERVAL_SEC) if conv else cfg.LOG_EMIT_INTERVAL_SEC
+    )
     auto_remove = False
     if job.flags_json:
         try:
@@ -374,7 +373,9 @@ async def stream_job_logs(
         except Exception as exc:
             logger.exception("Unexpected error in SSE stream for job %s", job_id)
             yield sse_event("error", '<span class="badge badge-danger">Error</span>')
-            yield sse_event("log", f'<span class="log-line log-line-error">Unexpected error: {html.escape(str(exc))}</span>')
+            yield sse_event(
+                "log", f'<span class="log-line log-line-error">Unexpected error: {html.escape(str(exc))}</span>'
+            )
         finally:
             gen_db.close()
 
@@ -391,6 +392,7 @@ async def stream_job_logs(
 # ─────────────────────────────────────────────────────────────────────────────
 # Stop a job
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.post("/jobs/{job_id}/stop")
 async def stop_job(
@@ -422,6 +424,7 @@ async def stop_job(
 # Job history
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/history", response_class=HTMLResponse)
 async def history(
     request: Request,
@@ -441,12 +444,7 @@ async def history(
         query = query.filter(JobRun.user_id == current_user.id)
 
     total = query.count()
-    jobs = (
-        query.order_by(JobRun.started_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
+    jobs = query.order_by(JobRun.started_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     response = templates.TemplateResponse(
         request,
         "history.html",

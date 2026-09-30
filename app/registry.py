@@ -31,6 +31,7 @@ Flag descriptor fields:
   container_subpath_field — for a volume flag, form field holding a subfolder
                             of the mount to pass on the command line
 """
+
 from __future__ import annotations
 import shlex
 from typing import Any
@@ -82,8 +83,8 @@ CONVERTERS: dict[str, dict] = {
         # Regex patterns used to extract a 0–100 progress value from log lines.
         # Patterns are tried in order; first match wins.
         "progress_patterns": [
-            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===", # === processing day folder: /data/rinex/001 ===
-            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)", # "Completed file 5/20"
+            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===",  # === processing day folder: /data/rinex/001 ===
+            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)",  # "Completed file 5/20"
         ],
         "flags": [
             {
@@ -147,8 +148,7 @@ CONVERTERS: dict[str, dict] = {
         # Flags the run page renders with its own controls instead of the generic form.
         "form_managed_fields": ("src", "dst", "direction"),
         "description": (
-            "Converts tec-suite DAT files to Parquet format (or back), "
-            "preserving the source directory layout."
+            "Converts tec-suite DAT files to Parquet format (or back), preserving the source directory layout."
         ),
         "log_emit_interval_sec": 1.0,
         "progress_patterns": [
@@ -466,8 +466,8 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
     if env_output:
         output_host_path = str(getattr(cfg, env_output["host_env"], "")).strip()
         if output_host_path:
-            output_container_path = (
-                getattr(cfg, env_output["container_env"], "") or conv["container_volumes"].get("output", "/app/out")
+            output_container_path = getattr(cfg, env_output["container_env"], "") or conv["container_volumes"].get(
+                "output", "/app/out"
             )
             volumes[output_host_path] = {"bind": output_container_path, "mode": "rw"}
 

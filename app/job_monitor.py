@@ -8,6 +8,7 @@ was only saved while someone kept its SSE log stream open until the end.
 On startup, reconcile_running_jobs() re-attaches watchers to jobs that were
 still "running" when the app stopped, so their outcome is not lost either.
 """
+
 from __future__ import annotations
 
 import json

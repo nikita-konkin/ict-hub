@@ -10,6 +10,7 @@ Key design decisions:
   - We use FastAPI's TestClient (backed by httpx) which runs the full ASGI
     middleware stack, including session middleware and auth dependencies.
 """
+
 import os
 import pytest
 from fastapi.testclient import TestClient
@@ -79,6 +80,7 @@ def client(db):
     test session. This is FastAPI's recommended approach to dependency
     injection in tests.
     """
+
     def override_get_db():
         try:
             yield db
@@ -94,6 +96,7 @@ def client(db):
 # ─────────────────────────────────────────────────────────────────────────────
 # User fixtures
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def admin_user(db) -> User:
@@ -144,6 +147,7 @@ def inactive_user(db) -> User:
 # Authenticated client helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _login(client: TestClient, username: str, password: str) -> TestClient:
     """Helper that logs in via the form endpoint and returns the client."""
     response = client.post(
@@ -170,6 +174,7 @@ def operator_client(client, operator_user) -> TestClient:
 # ─────────────────────────────────────────────────────────────────────────────
 # Sample job run fixture
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def completed_job(db, operator_user) -> JobRun:

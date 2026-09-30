@@ -14,6 +14,7 @@ Routes:
   POST /users/{id}/toggle — activate/deactivate a user (admin only)
   POST /users/{id}/password — set a user's password (admin only)
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,6 +42,7 @@ MIN_PASSWORD_LENGTH = 8
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependencies  (used in other routers via Depends)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
@@ -80,6 +82,7 @@ def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
 # Password helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def hash_password(password: str) -> str:
     # bcrypt.hashpw requires bytes input and returns bytes; we store as str in the DB
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -93,6 +96,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
@@ -214,9 +218,7 @@ async def create_user(
     """Admin-only: create a new user."""
     existing = db.query(User).filter(User.username == username).first()
     if existing:
-        return _render_users(
-            request, db, admin, error=f"Username '{username}' is already taken.", status_code=400
-        )
+        return _render_users(request, db, admin, error=f"Username '{username}' is already taken.", status_code=400)
 
     password_error = _password_error(request, password)
     if password_error:
