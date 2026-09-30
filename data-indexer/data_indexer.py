@@ -491,140 +491,67 @@ def _abstec_day_sort_key(name: str) -> tuple[int, int, str]:
     return (int(name), len(name), name)
 
 
-# def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
-#     """
-#     Return discovered RINEX server structure under host_root.
+_LOG_TAGS = {
+    "rinex": "RINEX",
+    "tecsuite": "TEC-SUITE",
+    "abstec": "ABSTEC",
+    "parquet": "PARQUET",
+    "parquet_sat": "PARQUET-SAT",
+}
 
-#     Results are cached and reused as long as the directory file list hasn't
-#     changed (detects added/removed files regardless of mtime issues).
 
-#         Supported layouts:
-#             <root>/YYYY_original/DOY/<station>.zip        (DOY can be 2 or 3 digits)
-#             <root>/YYYY_original/MM/DD/<station>.zip
-#     """
-#     logger.info(f"[RINEX] Function called with host_root: {host_root}")
-#     if not host_root:
-#         logger.warning("[RINEX] Empty host_root provided")
-#         return []
-#     root = Path(host_root)
-#     logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
-#     if not root.exists() or not root.is_dir():
-#         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
-#         return []
+def _cached_listing(
+    cache_type: str,
+    host_root: str,
+    scan_fn,
+    cache_dict: dict,
+    *,
+    refresh: bool = False,
+    scan_subdir: str | None = None,
+):
+    """
+    Listing of host_root served from cache_dict.
 
-#     current_hash = _get_directory_hash(root)
-    
-#     cached_hash, cached_result = _rinex_cache.get(host_root, (None, None))
-    
-#     logger.info(f"[RINEX] current_hash={current_hash[:16] if current_hash else None}, cached_hash={cached_hash[:16] if cached_hash else None}")
-#     if current_hash and current_hash == cached_hash:
-        
-#         logger.info(f"[RINEX] Cache HIT for {host_root} - returning cached result")
-#         return cached_result  # type: ignore[return-value]
-
-    
-#     logger.info(f"[RINEX] Cache MISS for {host_root} - starting full scan")
-#     result = _scan_rinex(root)
-#     logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
-#     _rinex_cache[host_root] = (current_hash, result)
-#     _save_cache_to_db('rinex', host_root, (current_hash, result))
-#     return result
-
-# def list_rinex_server_structure(host_root: str) -> list[YearInfo]:
-#     """
-#     Return discovered RINEX server structure under host_root.
-
-#     Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
-#     DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with
-#     performance.
-
-#     Supported layouts:
-#         <root>/YYYY_original/DOY/<station>.zip   (DOY can be 2 or 3 digits)
-#         <root>/YYYY_original/MM/DD/<station>.zip
-#     """
-#     logger.info(f"[RINEX] Function called with host_root: {host_root}")
-#     if not host_root:
-#         logger.warning("[RINEX] Empty host_root provided")
-#         return []
-#     root = Path(host_root)
-#     logger.debug(f"[RINEX] Checking root path: {root} (exists: {root.exists()}, is_dir: {root.is_dir()})")
-#     if not root.exists() or not root.is_dir():
-#         logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
-#         return []
-
-#     now = time.time()
-#     cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
-#     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
-#         cache_age = now - cached_time
-#         logger.debug(f"[RINEX] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-#         return cached_result  # type: ignore[return-value]
-
-#     logger.info(f"[RINEX] Cache expired/miss for {host_root} - starting full scan")
-#     result = _scan_rinex(root)
-#     logger.info(f"Completed RINEX indexing for path: {host_root} - found {len(result)} years")
-#     _rinex_cache[host_root] = (now, result)
-#     _save_cache_to_db('rinex', host_root, (now, result))
-#     return result
-
-def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[YearInfo]:
-    logger.info(f"[RINEX] Function called with host_root: {host_root}")
+    Fresh entries are returned as-is; stale ones are returned while a
+    background thread rescans; forced, invalidated (filesystem change) and
+    missing entries are scanned now. scan_subdir, when it exists under the
+    root, is scanned instead of the root itself; the cache key stays host_root.
+    """
+    tag = _LOG_TAGS[cache_type]
     if not host_root:
         return []
     root = Path(host_root)
     if not root.exists() or not root.is_dir():
-        logger.warning(f"[RINEX] Root path does not exist or is not a directory: {host_root}")
+        logger.warning("[%s] Root path does not exist or is not a directory: %s", tag, host_root)
         return []
 
     _ensure_watcher(host_root, root)
+    scan_root = root / scan_subdir if scan_subdir and (root / scan_subdir).is_dir() else root
     if refresh:
-        return _force_refresh_cache("rinex", host_root, root, _scan_rinex, _rinex_cache)
-    invalidated_result = _refresh_invalidated_cache('rinex', host_root, root, _scan_rinex, _rinex_cache)
+        return _force_refresh_cache(cache_type, host_root, scan_root, scan_fn, cache_dict)
+    invalidated_result = _refresh_invalidated_cache(cache_type, host_root, scan_root, scan_fn, cache_dict)
     if invalidated_result is not None:
         return invalidated_result
 
-    now = time.time()
-    cached_time, cached_result = _rinex_cache.get(host_root, (None, None))
-
+    cached_time, cached_result = cache_dict.get(host_root, (None, None))
     if cached_time is not None:
-        cache_age = now - cached_time
+        cache_age = time.time() - cached_time
         if cache_age < _CACHE_TTL_SEC:
-            # Fresh — return immediately
-            logger.debug(f"[RINEX] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
+            logger.debug("[%s] Cache HIT (age: %.1fs, TTL: %ss)", tag, cache_age, _CACHE_TTL_SEC)
             return cached_result
 
-        # Stale — return old data instantly, refresh in background
-        logger.info(f"[RINEX] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('rinex', host_root, root, _scan_rinex, _rinex_cache)
-        return cached_result  # ← don't block the request
+        # Stale: answer with the old data and refresh without blocking the request.
+        logger.info("[%s] Cache STALE (age: %.1fs) — serving old result, refreshing in background", tag, cache_age)
+        _trigger_background_refresh(cache_type, host_root, scan_root, scan_fn, cache_dict)
+        return cached_result
 
-    # Cold start — no cached data at all, must scan now
-    logger.info(f"[RINEX] Cold start scan for {host_root}")
-    return _scan_and_store('rinex', host_root, root, _scan_rinex, _rinex_cache)
+    logger.info("[%s] Cold start scan for %s", tag, host_root)
+    return _scan_and_store(cache_type, host_root, scan_root, scan_fn, cache_dict)
 
 
-# def _trigger_background_refresh(host_root: str, root: Path) -> None:
-#     """Kick off a background thread to refresh the RINEX cache without blocking the caller."""
-#     if host_root in _refresh_in_progress:
-#         logger.debug(f"[RINEX] Refresh already in progress for {host_root}, skipping")
-#         return
+def list_rinex_server_structure(host_root: str, refresh: bool = False) -> list[YearInfo]:
+    return _cached_listing("rinex", host_root, _scan_rinex, _rinex_cache, refresh=refresh)
 
-#     import threading
-
-#     def _do_refresh():
-#         try:
-#             _refresh_in_progress.add(host_root)
-#             logger.info(f"[RINEX] Background refresh started for {host_root}")
-#             result = _scan_rinex(root)
-#             ts = time.time()
-#             _rinex_cache[host_root] = (ts, result)
-#             _save_cache_to_db('rinex', host_root, (ts, result))
-#             logger.info(f"[RINEX] Background refresh complete — {len(result)} years")
-#         except Exception as e:
-#             logger.error(f"[RINEX] Background refresh failed: {e}")
-#         finally:
-#             _refresh_in_progress.discard(host_root)
-
-#     threading.Thread(target=_do_refresh, daemon=True).start()
 
 def _trigger_background_refresh(
     cache_type: str,
@@ -656,125 +583,6 @@ def _trigger_background_refresh(
 
     threading.Thread(target=_do_refresh, daemon=True).start()
 
-# def _scan_rinex(root: Path) -> list[YearInfo]:
-#     """Full filesystem scan — called only when cache is cold or stale."""
-    
-#     logger.debug(f"[RINEX] Starting scan of root directory: {root}")
-#     years: list[YearInfo] = []
-    
-#     try:
-#         dir_contents = list(root.iterdir())
-#         logger.debug(f"[RINEX] Found {len(dir_contents)} items in root directory")
-#         for item in dir_contents:
-#             logger.debug(f"[RINEX] Checking item: {item.name} (is_dir: {item.is_dir()})")
-#     except Exception as e:
-#         logger.warning(f"[RINEX] Error reading directory {root}: {e}")
-#         return years
-    
-#     for year_dir in root.iterdir():
-#         if not year_dir.is_dir():
-#             logger.debug(f"[RINEX] Skipping non-directory: {year_dir.name}")
-#             continue
-#         if not YEAR_DIR_RE.fullmatch(year_dir.name):
-#             logger.debug(f"[RINEX] Directory {year_dir.name} doesn't match year pattern (expected YYYY_original)")
-#             continue
-
-        
-#         logger.debug(f"[RINEX] Scanning year directory: {year_dir}")
-#         days: list[DayInfo] = []
-
-#         for top_dir in sorted(year_dir.iterdir(), key=lambda d: d.name):
-#             if not top_dir.is_dir():
-#                 continue
-#             if not DAY_DIR_RE.fullmatch(top_dir.name):
-#                 continue
-            
-#             logger.debug(f"[RINEX] Scanning day/month directory: {top_dir}")
-
-#             # Layout A: YYYY_original/DOY/<station>.zip (DOY can be 2 or 3 digits)
-#             direct_zips = sum(
-#                 1
-#                 for entry in top_dir.iterdir()
-#                 if entry.is_file() and entry.suffix.lower() == ".zip"
-#             )
-#             if direct_zips:
-#                 logger.debug(f"[RINEX] Found {direct_zips} zip files in {top_dir}")
-#                 days.append({"day": top_dir.name, "stations": direct_zips})
-#                 continue
-
-#             # Layout B: YYYY_original/MM/DD/<station>.zip
-#             month_num = int(top_dir.name)
-#             if not 1 <= month_num <= 12:
-#                 continue
-
-#             for day_dir in sorted(top_dir.iterdir(), key=lambda d: d.name):
-#                 if not day_dir.is_dir():
-#                     continue
-#                 if not DAY_IN_MONTH_RE.fullmatch(day_dir.name):
-#                     continue
-#                 day_num = int(day_dir.name)
-#                 if not 1 <= day_num <= 31:
-#                     continue
-
-#                 logger.debug(f"[RINEX] Scanning nested day directory: {day_dir}")
-#                 stations = sum(
-#                     1
-#                     for entry in day_dir.iterdir()
-#                     if entry.is_file() and entry.suffix.lower() == ".zip"
-#                 )
-#                 logger.debug(f"[RINEX] Found {stations} zip files in {day_dir}")
-#                 days.append({"day": f"{top_dir.name}/{day_dir.name}", "stations": stations})
-
-#         days.sort(key=lambda item: _day_sort_key(item["day"]))
-#         years.append({"year": year_dir.name, "days": days})
-
-#     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
-#     logger.info(f"[RINEX] Scan completed - found {len(years)} year directories")
-#     return years
-
-# def _scan_rinex(root: Path) -> list[YearInfo]:
-#     years: list[YearInfo] = []
-
-#     with os.scandir(root) as it:
-#         year_entries = [e for e in it if e.is_dir() and YEAR_DIR_RE.fullmatch(e.name)]
-
-#     for year_entry in year_entries:
-#         days: list[DayInfo] = []
-
-#         with os.scandir(year_entry.path) as it:
-#             top_entries = sorted(
-#                 [e for e in it if e.is_dir() and DAY_DIR_RE.fullmatch(e.name)],
-#                 key=lambda e: e.name
-#             )
-
-#         for top_entry in top_entries:
-#             with os.scandir(top_entry.path) as it:
-#                 entries = list(it)
-
-#             direct_zips = sum(
-#                 1 for e in entries
-#                 if e.is_file() and e.name.lower().endswith('.zip')
-#             )
-#             if direct_zips:
-#                 days.append({"day": top_entry.name, "stations": direct_zips})
-#                 continue
-
-#             # Layout B: MM/DD
-#             month_num = int(top_entry.name)
-#             if not 1 <= month_num <= 12:
-#                 continue
-#             for day_entry in sorted([e for e in entries if e.is_dir()], key=lambda e: e.name):
-#                 if not DAY_IN_MONTH_RE.fullmatch(day_entry.name):
-#                     continue
-#                 with os.scandir(day_entry.path) as it2:
-#                     stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith('.zip'))
-#                 days.append({"day": f"{top_entry.name}/{day_entry.name}", "stations": stations})
-
-#         days.sort(key=lambda item: _day_sort_key(item["day"]))
-#         years.append({"year": year_entry.name, "days": days})
-
-#     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
-#     return years
 
 def _scan_rinex(root: Path) -> list[YearInfo]:
     # Step 1: collect year directories
@@ -836,69 +644,9 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
     years.sort(key=lambda item: _year_sort_key(str(item["year"])), reverse=True)
     return years
 
-# def list_tecsuite_output_structure(host_root: str) -> list[AbsTecYearInfo]:
-#     """
-#     Return TEC-suite DAT output structure for AbsTEC selection UI.
-
-#     Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
-#     DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
-
-#     Expected layouts:
-#       <root>/YYYY/DDD/SITE/*.dat
-#       <root>/in/YYYY/DDD/SITE/*.dat
-#     """
-#     if not host_root:
-#         return []
-#     root = Path(host_root)
-#     if not root.exists() or not root.is_dir():
-#         return []
-
-#     now = time.time()
-#     cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
-#     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
-#         cache_age = now - cached_time
-#         logger.debug(f"[TEC-SUITE] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-#         return cached_result  # type: ignore[return-value]
-
-#     logger.info(f"[TEC-SUITE] Cache expired/miss for {host_root} - starting full scan")
-#     scan_root = root / "in" if (root / "in").is_dir() else root
-#     result = _scan_tecsuite(scan_root)
-#     logger.info(f"Completed TEC-suite indexing for path: {host_root} - found {len(result)} years")
-#     _tecsuite_cache[host_root] = (now, result)
-#     _save_cache_to_db('tecsuite', host_root, (now, result))
-#     return result
 
 def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
-    if not host_root:
-        return []
-    root = Path(host_root)
-    if not root.exists() or not root.is_dir():
-        return []
-
-    _ensure_watcher(host_root, root)
-    scan_root = root / "in" if (root / "in").is_dir() else root
-    if refresh:
-        return _force_refresh_cache("tecsuite", host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
-    invalidated_result = _refresh_invalidated_cache('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
-    if invalidated_result is not None:
-        return invalidated_result
-
-    now = time.time()
-    cached_time, cached_result = _tecsuite_cache.get(host_root, (None, None))
-
-    if cached_time is not None:
-        cache_age = now - cached_time
-        if cache_age < _CACHE_TTL_SEC:
-            logger.debug(f"[TEC-SUITE] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-            return cached_result
-
-        logger.info(f"[TEC-SUITE] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
-        return cached_result
-
-    # Cold start
-    logger.info(f"[TEC-SUITE] Cold start scan for {host_root}")
-    return _scan_and_store('tecsuite', host_root, scan_root, _scan_tecsuite_parallel, _tecsuite_cache)
+    return _cached_listing("tecsuite", host_root, _scan_tecsuite_parallel, _tecsuite_cache, refresh=refresh, scan_subdir="in")
 
 
 def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
@@ -911,157 +659,15 @@ def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[
     AbsTEC output does not necessarily contain `.dat` files, so we treat any
     non-empty SITE directory as indexed.
     """
-    if not host_root:
-        return []
-    root = Path(host_root)
-    if not root.exists() or not root.is_dir():
-        return []
+    return _cached_listing("abstec", host_root, _scan_abstec_output_parallel, _abstec_cache, refresh=refresh)
 
-    _ensure_watcher(host_root, root)
-    if refresh:
-        return _force_refresh_cache("abstec", host_root, root, _scan_abstec_output_parallel, _abstec_cache)
-    invalidated_result = _refresh_invalidated_cache('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
-    if invalidated_result is not None:
-        return invalidated_result
-
-    now = time.time()
-    cached_time, cached_result = _abstec_cache.get(host_root, (None, None))
-
-    if cached_time is not None:
-        cache_age = now - cached_time
-        if cache_age < _CACHE_TTL_SEC:
-            logger.debug(f"[ABSTEC] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-            return cached_result
-
-        logger.info(f"[ABSTEC] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
-        return cached_result
-
-    logger.info(f"[ABSTEC] Cold start scan for {host_root}")
-    return _scan_and_store('abstec', host_root, root, _scan_abstec_output_parallel, _abstec_cache)
-
-# def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
-#     """
-#     Return parquet output structure under host_root for the year/day UI.
-
-#     Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
-#     DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
-
-#     Expected layout (mirrors the DAT source root):
-#       <root>/YYYY/DDD/…   (any files/subdirs below DDD are ignored)
-#     """
-#     if not host_root:
-#         return []
-#     root = Path(host_root)
-#     if not root.exists() or not root.is_dir():
-#         return []
-
-#     now = time.time()
-#     cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
-#     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
-#         cache_age = now - cached_time
-#         logger.debug(f"[PARQUET] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-#         return cached_result  # type: ignore[return-value]
-
-#     logger.info(f"[PARQUET] Cache expired/miss for {host_root} - starting full scan")
-#     result = _scan_parquet(root)
-#     logger.info(f"Completed Parquet indexing for path: {host_root} - found {len(result)} years")
-#     _parquet_cache[host_root] = (now, result)
-#     _save_cache_to_db('parquet', host_root, (now, result))
-#     return result
 
 def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
-    if not host_root:
-        return []
-    root = Path(host_root)
-    if not root.exists() or not root.is_dir():
-        return []
+    return _cached_listing("parquet", host_root, _scan_parquet, _parquet_cache, refresh=refresh)
 
-    _ensure_watcher(host_root, root)
-    if refresh:
-        return _force_refresh_cache("parquet", host_root, root, _scan_parquet, _parquet_cache)
-    invalidated_result = _refresh_invalidated_cache('parquet', host_root, root, _scan_parquet, _parquet_cache)
-    if invalidated_result is not None:
-        return invalidated_result
-
-    now = time.time()
-    cached_time, cached_result = _parquet_cache.get(host_root, (None, None))
-
-    if cached_time is not None:
-        cache_age = now - cached_time
-        if cache_age < _CACHE_TTL_SEC:
-            logger.debug(f"[PARQUET] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-            return cached_result
-
-        logger.info(f"[PARQUET] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('parquet', host_root, root, _scan_parquet, _parquet_cache)
-        return cached_result
-
-    # Cold start
-    logger.info(f"[PARQUET] Cold start scan for {host_root}")
-    return _scan_and_store('parquet', host_root, root, _scan_parquet, _parquet_cache)
-
-# def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
-#     """
-#     Return parquet structure with stations and satellites under host_root.
-
-#     Results are cached and reused for CACHE_TTL_SEC seconds (configurable via
-#     DATA_INDEXER_CACHE_TTL_SEC environment variable) to balance freshness with performance.
-
-#     Expected layout (best effort):
-#       <root>/YYYY/DDD/SITE/*.parquet
-#       <root>/YYYY/DDD/**/*.parquet
-#     """
-#     if not host_root:
-#         return []
-#     root = Path(host_root)
-#     if not root.exists() or not root.is_dir():
-#         return []
-
-#     now = time.time()
-#     cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
-#     if cached_time is not None and now - cached_time < _CACHE_TTL_SEC:
-#         cache_age = now - cached_time
-#         logger.debug(f"[PARQUET-SAT] Cache HIT for {host_root} (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-#         return cached_result  # type: ignore[return-value]
-
-#     logger.info(f"[PARQUET-SAT] Cache expired/miss for {host_root} - starting full scan")
-#     result = _scan_parquet_satellites(root)
-#     logger.info(f"Completed Parquet satellite indexing for path: {host_root} - found {len(result)} years")
-#     _parquet_sat_cache[host_root] = (now, result)
-#     _save_cache_to_db('parquet_sat', host_root, (now, result))
-#     return result
 
 def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
-    if not host_root:
-        return []
-    root = Path(host_root)
-    if not root.exists() or not root.is_dir():
-        return []
-
-    _ensure_watcher(host_root, root)
-    if refresh:
-        return _force_refresh_cache("parquet_sat", host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
-    invalidated_result = _refresh_invalidated_cache('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
-    if invalidated_result is not None:
-        return invalidated_result
-
-    now = time.time()
-    cached_time, cached_result = _parquet_sat_cache.get(host_root, (None, None))
-
-    if cached_time is not None:
-        cache_age = now - cached_time
-        if cache_age < _CACHE_TTL_SEC:
-            logger.debug(f"[PARQUET-SAT] Cache HIT (age: {cache_age:.1f}s, TTL: {_CACHE_TTL_SEC}s)")
-            return cached_result
-
-        logger.info(f"[PARQUET-SAT] Cache STALE (age: {cache_age:.1f}s) — serving old result, refreshing in background")
-        _trigger_background_refresh('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
-        return cached_result
-
-    # Cold start
-    logger.info(f"[PARQUET-SAT] Cold start scan for {host_root}")
-    return _scan_and_store('parquet_sat', host_root, root, _scan_parquet_satellites_parallel, _parquet_sat_cache)
+    return _cached_listing("parquet_sat", host_root, _scan_parquet_satellites_parallel, _parquet_sat_cache, refresh=refresh)
 
 def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""
@@ -1415,10 +1021,6 @@ def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
             for site_dir in day_dir.iterdir():
                 if not site_dir.is_dir():
                     continue
-                # has_dat = any(
-                #     entry.is_file() and entry.suffix.lower() == ".dat"
-                #     for entry in site_dir.rglob("*")
-                # )
                 has_dat = any(
                     e.is_file() and e.name.lower().endswith('.dat')
                     for e in os.scandir(site_dir)
