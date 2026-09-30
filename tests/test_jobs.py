@@ -1162,6 +1162,35 @@ class TestDurableJobEvents:
         assert f"id: {second_id}" in body
         assert "event: done" in body
 
+    def test_stream_is_not_gzipped(self, operator_client, completed_job, db, monkeypatch):
+        """A gzipped event stream reaches EventSource in bursts, not live."""
+        import app.jobs as jobs_module
+        from app.models import JobEvent
+
+        db.add(
+            JobEvent(
+                job_id=completed_job.id,
+                event_type="done",
+                payload_xml="<done><status>success</status><exit_code>0</exit_code></done>",
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(jobs_module, "SessionLocal", lambda: db)
+
+        with operator_client.stream(
+            "GET",
+            f"/jobs/{completed_job.id}/stream",
+            headers={"Accept": "text/event-stream", "Accept-Encoding": "gzip"},
+        ) as response:
+            body = "".join(response.iter_text())
+        assert response.status_code == 200
+        assert "content-encoding" not in response.headers
+        assert "event: done" in body
+
+        # Everything else is still compressed.
+        page = operator_client.get("/static/app.js", headers={"Accept-Encoding": "gzip"})
+        assert page.headers.get("content-encoding") == "gzip"
+
     def test_stream_resumes_after_event_id(self, operator_client, completed_job, db, monkeypatch):
         import app.jobs as jobs_module
         from app.models import JobEvent

@@ -18,8 +18,10 @@ from fastapi.responses import PlainTextResponse
 from fastapi.responses import RedirectResponse as _RR
 from fastapi.responses import Response as _Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import Receive, Scope, Send
 
 from app import analysis, auth, feedback, indexed_data, ionmaps, jobs, stations_map, tec_map
 from app import config as cfg
@@ -153,9 +155,25 @@ app.add_middleware(
     same_site="lax",
 )
 
-# Compress responses over 1KB. base.html alone is ~64KB of inline CSS/JS
-# (every page ships it, since there's no SPA routing) — gzip cuts that to ~13KB.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+class _GZipExceptEventStreams(GZipMiddleware):
+    """
+    GZipMiddleware that leaves Server-Sent Events uncompressed. The compressor
+    holds output back until its buffer fills, so gzipped job-log events reached
+    the browser in bursts, or only when the job ended. Newer Starlette releases
+    skip text/event-stream themselves; the pinned one does not. The request is
+    enough to tell: EventSource always sends `Accept: text/event-stream`.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and "text/event-stream" in Headers(scope=scope).get("accept", ""):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+# Compress responses over 1KB (pages, and the CSS/JS under /static).
+app.add_middleware(_GZipExceptEventStreams, minimum_size=1000)
 
 
 # ── Security headers + CSRF (Origin) guard ────────────────────────────────────
