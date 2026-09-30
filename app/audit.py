@@ -10,7 +10,7 @@ trust X-Forwarded-For (client-spoofable unless a trusted proxy rewrites it).
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from contextlib import suppress
 
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -40,7 +40,7 @@ def record(
     action: str,
     *,
     request: Request | None = None,
-    actor: Optional[User] = None,
+    actor: User | None = None,
     actor_username: str | None = None,
     target: str | None = None,
     detail: str | None = None,
@@ -60,7 +60,5 @@ def record(
         db.commit()
     except Exception as exc:  # audit must never break a request
         logger.warning("Failed to write audit log (%s): %s", action, exc)
-        try:
+        with suppress(Exception):
             db.rollback()
-        except Exception:
-            pass

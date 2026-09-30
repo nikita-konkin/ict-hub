@@ -8,9 +8,8 @@ Tests validate:
   - Command building with new converter options
 """
 
-import pytest
-from app.registry import CONVERTERS, get_converter, build_command
 from app.i18n import _TRANSLATIONS as TRANSLATIONS
+from app.registry import CONVERTERS, build_command, get_converter
 
 
 class TestConverterRegistry:
@@ -118,8 +117,8 @@ class TestConverterRegistry:
     def test_all_converters_have_image_and_label(self):
         """Every converter should have image and label."""
         for conv_name, conv in CONVERTERS.items():
-            assert "image" in conv and conv["image"], f"Converter {conv_name} missing image"
-            assert "label" in conv and conv["label"], f"Converter {conv_name} missing label"
+            assert conv.get("image"), f"Converter {conv_name} missing image"
+            assert conv.get("label"), f"Converter {conv_name} missing label"
 
 
 class TestTranslationKeys:
@@ -189,7 +188,7 @@ class TestCommandBuilding:
 
     def test_build_tec_suite_command_with_days_filter(self):
         """TEC-Suite command with --days filter should include the flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
@@ -204,7 +203,7 @@ class TestCommandBuilding:
 
     def test_build_tec_suite_command_without_days_filter(self):
         """TEC-Suite command without --days filter should work without errors."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
@@ -219,7 +218,7 @@ class TestCommandBuilding:
 
     def test_build_tec_suite_command_uses_jobs_default(self):
         """TEC-Suite default jobs (1) should be used when not provided."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
@@ -233,7 +232,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_with_day_range(self):
         """DAT-Parquet command with day range should include both flags."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -251,7 +250,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_without_day_range(self):
         """DAT-Parquet command without day range should still be valid."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -266,7 +265,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_with_only_day_from(self):
         """DAT-Parquet with only day_from should include just that flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -282,7 +281,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_command_with_only_day_to(self):
         """DAT-Parquet with only day_to should include just that flag."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "parquet-to-dat",
@@ -299,7 +298,7 @@ class TestCommandBuilding:
     def test_build_dat_parquet_command_preserves_direction(self):
         """DAT-Parquet command should preserve direction flag."""
         for direction in ["dat-to-parquet", "parquet-to-dat"]:
-            cmd, vols = build_command(
+            cmd, _vols = build_command(
                 "dat-parquet-handler",
                 {
                     "direction": direction,
@@ -313,7 +312,7 @@ class TestCommandBuilding:
 
     def test_build_command_returns_volumes_dict(self):
         """build_command should return a volumes dict in Docker SDK format."""
-        cmd, vols = build_command(
+        _cmd, vols = build_command(
             "tec-suite",
             {
                 "root": "/data/rinex",
@@ -328,7 +327,7 @@ class TestCommandBuilding:
 
     def test_build_dat_parquet_volumes_include_src_dst(self):
         """DAT-Parquet volumes should include both src and dst."""
-        cmd, vols = build_command(
+        _cmd, vols = build_command(
             "dat-parquet-handler",
             {
                 "direction": "dat-to-parquet",
@@ -417,7 +416,7 @@ class TestFlagTranslationRendering:
                 long_name = flag.get("long", "")
                 if long_name and long_name.startswith("--"):
                     # Transform --flag-name to flag_name for translation key
-                    key = long_name.lstrip("--").replace("-", "_")
+                    key = long_name.lstrip("-").replace("-", "_")
                     # Verify the key format is valid
                     assert key.replace("_", "").isalnum(), (
                         f"Flag {long_name} in {conv_name} cannot be converted to a valid translation key"

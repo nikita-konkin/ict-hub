@@ -25,21 +25,22 @@ app/config.py in the repo root) so both services always agree on where each
 data type is mounted inside their respective containers.
 """
 
+import logging
 import os
 import posixpath
 import threading
 from pathlib import PurePosixPath
 
+import dicttoxml
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-import dicttoxml
-import logging
+
 from data_indexer import (
-    list_rinex_server_structure,
-    list_tecsuite_output_structure,
     list_abstec_output_structure,
     list_parquet_output_structure,
     list_parquet_satellite_structure,
+    list_rinex_server_structure,
+    list_tecsuite_output_structure,
     stop_all_watchers,
 )
 from rinex_station_map import list_rinex_station_map
@@ -146,7 +147,7 @@ async def startup_event():
                 set_last_full_index_time()
                 logger.info("Initial indexing completed successfully")
             except Exception as e:
-                logger.error(f"Initial indexing failed: {e}")
+                logger.error("Initial indexing failed: %s", e)
 
         # The scans are blocking filesystem walks: run them in a thread so the
         # event loop keeps answering /health and requests meanwhile.
@@ -169,16 +170,17 @@ def health():
 def indexer_status():
     """Get data indexer status and cache information."""
     import time
+
     from data_indexer import (
         _CACHE_TTL_SEC,
         _MIN_REINDEX_INTERVAL_SEC,
-        get_last_full_index_time,
-        should_run_full_index,
-        _rinex_cache,
-        _tecsuite_cache,
         _abstec_cache,
         _parquet_cache,
         _parquet_sat_cache,
+        _rinex_cache,
+        _tecsuite_cache,
+        get_last_full_index_time,
+        should_run_full_index,
     )
 
     cache_info = {
@@ -215,10 +217,10 @@ def rinex_index(
 ):
     """Get RINEX server structure as XML."""
     _require_allowed_root(root)
-    logger.info(f"[APP] RINEX endpoint called with root: {root}")
+    logger.info("[APP] RINEX endpoint called with root: %s", root)
     data = list_rinex_server_structure(root, refresh=refresh)
 
-    logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
+    logger.info("[APP] RINEX indexing completed, returning %s years", len(data))
     return dict_to_xml_response(data, "rinex_structure")
 
 
@@ -315,4 +317,4 @@ def parquet_abstec_satellite_index():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=5001)
+    uvicorn.run(app, host="0.0.0.0", port=5001)  # noqa: S104 - the service runs in its own container

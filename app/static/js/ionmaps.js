@@ -554,7 +554,7 @@
 
   if (framePngBtn) {
     framePngBtn.addEventListener("click", async function () {
-      let url = "";
+      let url;
       try {
         url = buildFrameUrl();
       } catch (err) {
@@ -640,7 +640,7 @@
 
   if (seriesBtn) {
     seriesBtn.addEventListener("click", async function () {
-      let url = "";
+      let url;
       try {
         url = buildSeriesUrl();
       } catch (err) {
@@ -740,7 +740,7 @@
 
   if (validateBtn) {
     validateBtn.addEventListener("click", async function () {
-      let url = "";
+      let url;
       try {
         url = buildValidateUrl();
       } catch (err) {
@@ -848,7 +848,7 @@
     evt.preventDefault();
     setStatus("info", "");
 
-    let url = "";
+    let url;
     try {
       url = buildRequestUrl();
     } catch (err) {

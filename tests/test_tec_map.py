@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from app.main import app
 import app.tec_map_render as tec_map_render_module
+from app.main import app
 from app.tec_map_pipeline import TecMapConfig
 from app.tec_map_render import TecMapRenderConfig, build_animation_gif_bytes, build_snapshot_plotly_json
 
@@ -658,15 +658,18 @@ def test_upsample_grid_preserves_nan_mask_and_values():
     # Valid corner keeps its value; interior stays within the input range.
     assert abs(upsampled[0, 0] - 1.0) < 1e-9
     finite = upsampled[np.isfinite(upsampled)]
-    assert finite.min() >= 1.0 - 1e-9 and finite.max() <= 4.0 + 1e-9
+    assert finite.min() >= 1.0 - 1e-9
+    assert finite.max() <= 4.0 + 1e-9
     # The all-NaN corner must stay masked.
     assert np.isnan(upsampled[-1, -1])
 
     lon, lat = np.meshgrid(np.array([0.0, 1.0, 2.0]), np.array([10.0, 11.0, 12.0]))
     up_lon, up_lat = upsample_coordinates(lon, lat, 2)
     assert up_lon.shape == (6, 6)
-    assert abs(up_lon[0, 0] - 0.0) < 1e-9 and abs(up_lon[0, -1] - 2.0) < 1e-9
-    assert abs(up_lat[0, 0] - 10.0) < 1e-9 and abs(up_lat[-1, 0] - 12.0) < 1e-9
+    assert abs(up_lon[0, 0] - 0.0) < 1e-9
+    assert abs(up_lon[0, -1] - 2.0) < 1e-9
+    assert abs(up_lat[0, 0] - 10.0) < 1e-9
+    assert abs(up_lat[-1, 0] - 12.0) < 1e-9
 
 
 def test_build_animation_gif_bytes_high_quality_and_upsample():
@@ -787,13 +790,18 @@ def test_kriging_reproduces_smooth_field_and_fits_variogram():
     rng = np.random.default_rng(42)
     pts_lon = rng.uniform(45.0, 55.0, 40)
     pts_lat = rng.uniform(50.0, 60.0, 40)
+
     # Smooth large-scale field: linear trend in lon/lat.
-    truth = lambda lon, lat: 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+    def truth(lon, lat):
+        return 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+
     values = truth(pts_lon, pts_lat)
 
     d = pairwise_distances_km(pts_lon, pts_lat)
     nugget, sill, range_km = fit_exponential_variogram(d, values)
-    assert nugget >= 0.0 and sill > 0.0 and 50.0 <= range_km <= 2000.0
+    assert nugget >= 0.0
+    assert sill > 0.0
+    assert 50.0 <= range_km <= 2000.0
 
     grid_lon, grid_lat = np.meshgrid(np.linspace(46.0, 54.0, 17), np.linspace(51.0, 59.0, 17))
     predicted = kriging_interpolate(pts_lon, pts_lat, values, grid_lon, grid_lat)
@@ -839,7 +847,8 @@ def test_interpolate_frame_dispatches_to_kriging():
     # Methods must differ (kriging has no nearest-neighbour plateaus) but stay
     # in the same physical range.
     assert not np.allclose(linear_grid, kriging_grid)
-    assert kriging_grid.min() > 4.0 and kriging_grid.max() < 16.0
+    assert kriging_grid.min() > 4.0
+    assert kriging_grid.max() < 16.0
 
     # Small frames fall back to the linear path without raising.
     tiny = frame.head(4)
@@ -948,7 +957,9 @@ def test_predict_at_points_dispatch_and_small_frame_fallback():
     linear = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="linear"))
     kriging = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="kriging"))
     lpi = predict_at_points(lon, lat, values, target_lon, target_lat, TecMapConfig(interpolation_method="lpi"))
-    assert np.isfinite(linear).all() and np.isfinite(kriging).all() and np.isfinite(lpi).all()
+    assert np.isfinite(linear).all()
+    assert np.isfinite(kriging).all()
+    assert np.isfinite(lpi).all()
     assert abs(float(linear[0]) - float(kriging[0])) > 1e-9
     assert abs(float(lpi[0]) - float(linear[0])) > 1e-9
 
@@ -967,7 +978,9 @@ def test_frame_accuracy_label_format_and_minimum_size():
     frame = _loso_frame_summary(10, plane=True)
     label = frame_accuracy_label(frame, pipeline)
     assert label is not None
-    assert label.startswith("LOSO RMSE ") and "TECU" in label and "(n=" in label
+    assert label.startswith("LOSO RMSE ")
+    assert "TECU" in label
+    assert "(n=" in label
 
     # Below MIN_STATIONS_FOR_LOSO no label is produced.
     assert frame_accuracy_label(frame.head(3), pipeline) is None
@@ -1012,7 +1025,10 @@ def test_lpi_interpolation_plane_constant_and_degenerate_geometry():
     rng = np.random.default_rng(11)
     pts_lon = rng.uniform(45.0, 55.0, 30)
     pts_lat = rng.uniform(50.0, 60.0, 30)
-    truth = lambda lon, lat: 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+
+    def truth(lon, lat):
+        return 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0)
+
     values = truth(pts_lon, pts_lat)
 
     grid_lon, grid_lat = np.meshgrid(np.linspace(46.0, 54.0, 17), np.linspace(51.0, 59.0, 17))
@@ -1033,7 +1049,8 @@ def test_lpi_interpolation_plane_constant_and_degenerate_geometry():
     col_values = np.linspace(5.0, 15.0, 10)
     col = lpi_interpolate(col_lon, col_lat, col_values, grid_lon, grid_lat)
     assert np.isfinite(col).all()
-    assert col.min() > 0.0 and col.max() < 25.0
+    assert col.min() > 0.0
+    assert col.max() < 25.0
 
     # A target far outside the cloud falls back to the nearest sample.
     far = lpi_interpolate(pts_lon, pts_lat, values, np.array([120.0]), np.array([10.0]))
@@ -1080,8 +1097,11 @@ def test_lpi_degree2_quadric_and_fallback_ladder():
     rng = np.random.default_rng(21)
     pts_lon = rng.uniform(45.0, 55.0, 60)
     pts_lat = rng.uniform(50.0, 60.0, 60)
+
     # Curved field: a dome peaking at (50, 55) — like the midday TEC bump.
-    curved = lambda lon, lat: 30.0 - 0.35 * (lon - 50.0) ** 2 - 0.5 * (lat - 55.0) ** 2
+    def curved(lon, lat):
+        return 30.0 - 0.35 * (lon - 50.0) ** 2 - 0.5 * (lat - 55.0) ** 2
+
     values = curved(pts_lon, pts_lat)
 
     # Dense interior: degree 2 must track the curvature clearly better.
@@ -1227,7 +1247,7 @@ def test_validate_stations_reports_missing_day_not_bad_spelling(tmp_path):
     from app.tec_map import _validate_stations_for_range
 
     day = pd.Timestamp("2026-06-29")
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="No parquet data for 2026-180") as excinfo:
         _validate_stations_for_range(
             root=tmp_path,
             start_day=day,
@@ -1245,7 +1265,7 @@ def test_validate_stations_reports_missing_range(tmp_path):
 
     from app.tec_map import _validate_stations_for_range
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="2026-180") as excinfo:
         _validate_stations_for_range(
             root=tmp_path,
             start_day=pd.Timestamp("2026-06-29"),
@@ -1254,7 +1274,8 @@ def test_validate_stations_reports_missing_range(tmp_path):
         )
 
     message = str(excinfo.value)
-    assert "2026-180" in message and "2026-182" in message
+    assert "2026-180" in message
+    assert "2026-182" in message
     assert "nikl" not in message
 
 
@@ -1272,7 +1293,7 @@ def test_validate_stations_still_flags_typos_when_the_day_exists(tmp_path):
     found = _validate_stations_for_range(root=tmp_path, start_day=day, end_day=day, stations=["nikl", "NURE"])
     assert found == ["nikl", "nure"]
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="Unknown stations") as excinfo:
         _validate_stations_for_range(root=tmp_path, start_day=day, end_day=day, stations=["nikl", "shny"])
     assert "Unknown stations" in str(excinfo.value)
     assert "shny" in str(excinfo.value)

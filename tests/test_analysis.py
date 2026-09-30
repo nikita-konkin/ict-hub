@@ -1,6 +1,6 @@
 """Tests for analysis router helpers and index-options endpoint."""
 
-from unittest.mock import AsyncMock
+from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
@@ -254,7 +254,7 @@ def test_analysis_proxy_filters_headers_both_ways(client: TestClient, monkeypatc
     class FakeResponse:
         status_code = 200
         content = b"decoded body"
-        headers = {
+        headers: ClassVar[dict[str, str]] = {
             "content-type": "text/csv",
             "content-encoding": "gzip",
             "content-length": "3",

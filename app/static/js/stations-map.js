@@ -113,12 +113,6 @@
     ].join("");
   }
 
-  function padRange(minValue, maxValue, ratio, fallbackPad) {
-    const span = Math.abs(maxValue - minValue);
-    const pad = Math.max(span * ratio, fallbackPad);
-    return [minValue - pad, maxValue + pad];
-  }
-
   function stationLabel(item) {
     const city = String(item.city || "").trim();
     const region = String(item.region || "").trim();

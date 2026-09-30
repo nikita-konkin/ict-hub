@@ -8,30 +8,47 @@ Outputs:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from io import BytesIO
 import json
 import logging
 import math
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
+from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from PIL import GifImagePlugin, Image
 from scipy.interpolate import griddata
-from scipy.ndimage import gaussian_filter, zoom
-
-import matplotlib
+from scipy.ndimage import gaussian_filter
+from scipy.ndimage import zoom as ndimage_zoom
 
 matplotlib.use("Agg")  # headless/server rendering
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from _plotly_utils.utils import PlotlyJSONEncoder
 from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
+
+from app.tec_map_fields import (
+    compute_bk_grid,
+    compute_gdd_grid,
+    resolve_signal_band,
+    signal_band_label,
+)
+from app.tec_map_iri import iri_vtec_grid_for_frames
+from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
+from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
+from app.tec_map_pipeline import TecMapConfig
+from app.tec_map_validation import frame_accuracy_label
+
+logger = logging.getLogger(__name__)
 
 
 def _configure_map_fonts() -> None:
@@ -52,23 +69,6 @@ _configure_map_fonts()
 
 PLOTLY_MAP_FONT_FAMILY = "Times New Roman, Liberation Serif, serif"
 
-import plotly.graph_objects as go
-from _plotly_utils.utils import PlotlyJSONEncoder
-
-from app.tec_map_pipeline import TecMapConfig
-from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
-from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
-from app.tec_map_validation import frame_accuracy_label
-from app.tec_map_fields import (
-    compute_bk_grid,
-    compute_gdd_grid,
-    resolve_signal_band,
-    signal_band_label,
-)
-from app.tec_map_iri import iri_vtec_grid_for_frames
-
-
-logger = logging.getLogger(__name__)
 
 TILE_SIZE_PX = 256
 WEB_MERCATOR_MAX_LAT_DEG = 85.05112878
@@ -399,8 +399,8 @@ def upsample_grid(grid: np.ndarray, factor: int) -> np.ndarray:
 
     valid = np.isfinite(grid)
     filled = np.where(valid, grid, 0.0)
-    zoomed_values = zoom(filled, factor, order=1, mode="nearest")
-    zoomed_weight = zoom(valid.astype(float), factor, order=1, mode="nearest")
+    zoomed_values = ndimage_zoom(filled, factor, order=1, mode="nearest")
+    zoomed_weight = ndimage_zoom(valid.astype(float), factor, order=1, mode="nearest")
 
     with np.errstate(divide="ignore", invalid="ignore"):
         upsampled = zoomed_values / zoomed_weight
@@ -414,8 +414,8 @@ def upsample_coordinates(grid_lon: np.ndarray, grid_lat: np.ndarray, factor: int
     if factor <= 1:
         return grid_lon, grid_lat
     return (
-        zoom(np.asarray(grid_lon, dtype=float), factor, order=1, mode="nearest"),
-        zoom(np.asarray(grid_lat, dtype=float), factor, order=1, mode="nearest"),
+        ndimage_zoom(np.asarray(grid_lon, dtype=float), factor, order=1, mode="nearest"),
+        ndimage_zoom(np.asarray(grid_lat, dtype=float), factor, order=1, mode="nearest"),
     )
 
 
@@ -660,8 +660,9 @@ def fetch_cached_xyz_tile(x: int, y: int, zoom: int, tiles_root: Path) -> Image.
 def fetch_tile_server_tile(x: int, y: int, zoom: int, url_template: str) -> Image.Image:
     wrapped_x = x % (2**zoom)
     url = url_template.format(z=zoom, x=wrapped_x, y=y)
-    request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
-    with urlopen(request, timeout=15) as response:
+    # url_template is the operator's TEC_MAP_BASEMAP_TILE_SERVER_URL, not user input.
+    request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})  # noqa: S310
+    with urlopen(request, timeout=15) as response:  # noqa: S310
         data = response.read()
     return Image.open(BytesIO(data)).convert("RGBA")
 
@@ -688,7 +689,7 @@ def fetch_openstreetmap_tile(
 
     url = f"https://tile.openstreetmap.org/{zoom}/{wrapped_x}/{y}.png"
     request = Request(url, headers={"User-Agent": "ict-hub/tec-map"})
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed https URL
         data = response.read()
     cache_path.write_bytes(data)
     return Image.open(BytesIO(data)).convert("RGBA")
@@ -1294,7 +1295,7 @@ def build_animation_gif_bytes(
     if animation_format == "gif":
         return _encode_gif(
             rendered_png_frames(),
-            duration_ms=int(round(duration_seconds * 1000.0)),
+            duration_ms=round(duration_seconds * 1000.0),
             high_quality=render.gif_high_quality,
         )
     return _encode_video(
@@ -1385,9 +1386,8 @@ def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: floa
         output_params = ["-crf", "30", "-b:v", "0"]
 
     # The ffmpeg writer needs a seekable file, not a pipe.
-    tmp = tempfile.NamedTemporaryFile(suffix=f".{video_format}", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
+    with tempfile.NamedTemporaryFile(suffix=f".{video_format}", delete=False) as tmp:
+        tmp_path = tmp.name
     wrote_any_frame = False
     try:
         writer = imageio.get_writer(
@@ -1417,10 +1417,8 @@ def _encode_video(png_frames, *, video_format: str, frame_duration_seconds: floa
             raise RuntimeError("No frames were rendered.")
         return Path(tmp_path).read_bytes()
     finally:
-        try:
+        with suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 def build_frame_image_bytes(
@@ -1465,6 +1463,8 @@ def build_frame_image_bytes(
         model_grid = model_grids[pd.Timestamp(frame_time)]
 
     if model_mode == "iri":
+        if model_grid is None:  # computed above whenever model_mode != "off"
+            raise RuntimeError("IRI model grid was not computed")
         grid = model_grid
         plot_grid_lon, plot_grid_lat = upsample_coordinates(grid_lon, grid_lat, render.upsample_factor)
     else:

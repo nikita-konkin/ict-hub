@@ -40,8 +40,9 @@ GOOGLE_FONTS_CSS_URL = (
 
 
 def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    # Only called with the fixed https CDN URLs listed in this script.
+    req = urllib.request.Request(url, headers={"User-Agent": UA})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
         return resp.read()
 
 

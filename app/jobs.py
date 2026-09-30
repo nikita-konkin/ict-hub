@@ -16,20 +16,24 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
 
 import docker.errors
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 from sqlalchemy.orm import Session
 
+from app import audit
 from app import config as cfg
-from app.auth import get_admin_user, get_current_user, require_converter_access, require_page_access
+from app.auth import get_current_user, require_converter_access, require_page_access
+from app.converters import FormError, is_truthy_checkbox, page_context, prepare_form
 from app.database import SessionLocal, get_db
 from app.i18n import apply_lang_cookie, template_context
-from app import audit
-from app.converters import FormError, is_truthy_checkbox, page_context, prepare_form
 from app.job_runtime import (
     ensure_job_producer,
     persist_job_finished,
@@ -50,8 +54,6 @@ from app.runner import (
     stop_container,
     stream_logs,
 )
-from fastapi.templating import Jinja2Templates
-from markupsafe import escape
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
@@ -86,7 +88,7 @@ def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> 
 
         flag_type = flag.get("type")
         default = flag.get("default", "")
-        raw_value = resolved.get(key, None)
+        raw_value = resolved.get(key)
 
         if flag_type == "checkbox":
             resolved[key] = is_truthy_checkbox(raw_value)
@@ -103,7 +105,7 @@ def _apply_converter_flag_defaults(conv: dict, form_dict: dict[str, object]) -> 
                     resolved.setdefault(key, "")
                 continue
             try:
-                resolved[key] = int(raw_value)  # type: ignore[arg-type]
+                resolved[key] = int(raw_value)  # type: ignore[call-overload]
             except (TypeError, ValueError):
                 resolved[key] = raw_value
             continue
@@ -252,7 +254,7 @@ def _discover_running_converter_containers(
 
         started_at = row.get("started_at")
         if not isinstance(started_at, datetime):
-            started_at = datetime.now(timezone.utc)
+            started_at = datetime.now(UTC)
 
         flags = {
             "discovered": True,
@@ -293,12 +295,14 @@ async def _stream_job_logs_direct(
     db: Session,
     *,
     tail: str | int = "all",
-) -> asyncio.AsyncGenerator[str, None]:
+) -> AsyncGenerator[str, None]:
     """
     Fallback path for live log delivery when durable job events are not being
     produced yet. This keeps the UI usable even if the background runtime is
     unhealthy for a specific job.
     """
+    if not job.container_id:
+        return
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
     auto_remove = _job_auto_remove_enabled(job)
@@ -508,7 +512,7 @@ async def start_job(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Convert form data to a regular dict for processing
-    form_dict = {k: v for k, v in form.items() if k != "converter_name"}
+    form_dict: dict[str, Any] = {k: v for k, v in form.items() if k != "converter_name"}
     try:
         prepared = await prepare_form(converter_name, form_dict, db)
     except FormError as exc:
@@ -574,7 +578,7 @@ async def start_job(
     except docker.errors.DockerException as exc:
         logger.error("Docker error starting job %s: %s", job.id, exc)
         job.status = "error"
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         job.exit_code = -1
         db.commit()
         return _error_fragment(f"Docker error: {exc}", 500)
@@ -629,7 +633,7 @@ async def stream_job_logs(
             parsed_tail = int(tail_param)
             stream_tail = max(0, parsed_tail)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid tail parameter")
+            raise HTTPException(status_code=400, detail="Invalid tail parameter") from None
 
     after_event_id_raw = request.query_params.get("after_event_id", "").strip()
     if not after_event_id_raw:
@@ -639,7 +643,7 @@ async def stream_job_logs(
         try:
             after_event_id = max(0, int(after_event_id_raw))
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid after_event_id")
+            raise HTTPException(status_code=400, detail="Invalid after_event_id") from None
 
     if job.status == "running":
         await ensure_job_producer(job_id)

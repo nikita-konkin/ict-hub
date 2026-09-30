@@ -9,12 +9,14 @@ routers, static files, and templates, then performs first-boot initialisation
 from __future__ import annotations
 
 import logging
+import os
+import urllib.parse
 from contextlib import asynccontextmanager
 
-import urllib.parse
-
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+from fastapi.responses import RedirectResponse as _RR
+from fastapi.responses import Response as _Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -204,9 +206,8 @@ def _apply_security_headers(request: Request, response) -> None:
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    if cfg.CSRF_ORIGIN_CHECK_ENABLED and request.method not in _SAFE_METHODS:
-        if not _request_is_same_origin(request):
-            return PlainTextResponse("Cross-origin request blocked", status_code=403)
+    if cfg.CSRF_ORIGIN_CHECK_ENABLED and request.method not in _SAFE_METHODS and not _request_is_same_origin(request):
+        return PlainTextResponse("Cross-origin request blocked", status_code=403)
     response = await call_next(request)
     if cfg.SECURITY_HEADERS_ENABLED:
         _apply_security_headers(request, response)
@@ -214,9 +215,7 @@ async def security_middleware(request: Request, call_next):
 
 
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
-import os as _os
-
-_os.makedirs("app/static", exist_ok=True)
+os.makedirs("app/static", exist_ok=True)
 
 # Serve CSS / any future static assets
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -240,10 +239,6 @@ app.include_router(tec_map.router)
 # ─────────────────────────────────────────────────────────────────────────────
 # FastAPI by default turns HTTPExceptions into JSON responses. We need 303
 # redirects (from the auth dependency) to actually redirect, not return JSON.
-
-from fastapi import HTTPException
-from fastapi.responses import RedirectResponse as _RR
-from fastapi.responses import Response as _Response
 
 
 @app.exception_handler(HTTPException)

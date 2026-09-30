@@ -25,10 +25,12 @@ from sqlalchemy.orm import sessionmaker
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["JOB_RUNTIME_ENABLED"] = "0"
 
+from datetime import UTC
+
 from app.auth import hash_password
 from app.database import Base, get_db
-from app.models import User, JobRun
 from app.main import app
+from app.models import JobRun, User
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory database for tests
@@ -65,7 +67,7 @@ def create_tables():
     Base.metadata.drop_all(bind=test_engine)
 
 
-@pytest.fixture()
+@pytest.fixture
 def db():
     """
     Provide a clean database session for each test and roll back all changes
@@ -82,7 +84,7 @@ def db():
     connection.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(db):
     """
     FastAPI TestClient with the database dependency overridden to use our
@@ -107,7 +109,7 @@ def client(db):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture
 def admin_user(db) -> User:
     """Create and persist an admin user for use in tests."""
     user = User(
@@ -122,7 +124,7 @@ def admin_user(db) -> User:
     return user
 
 
-@pytest.fixture()
+@pytest.fixture
 def operator_user(db) -> User:
     """Create and persist an operator user for use in tests."""
     user = User(
@@ -137,7 +139,7 @@ def operator_user(db) -> User:
     return user
 
 
-@pytest.fixture()
+@pytest.fixture
 def inactive_user(db) -> User:
     """Create an inactive (deactivated) user."""
     user = User(
@@ -168,13 +170,13 @@ def _login(client: TestClient, username: str, password: str) -> TestClient:
     return client
 
 
-@pytest.fixture()
+@pytest.fixture
 def admin_client(client, admin_user) -> TestClient:
     """TestClient with an active admin session."""
     return _login(client, "test_admin", "adminpass")
 
 
-@pytest.fixture()
+@pytest.fixture
 def operator_client(client, operator_user) -> TestClient:
     """TestClient with an active operator session."""
     return _login(client, "test_operator", "operpass")
@@ -185,11 +187,11 @@ def operator_client(client, operator_user) -> TestClient:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture
 def completed_job(db, operator_user) -> JobRun:
     """A finished (successful) job owned by the operator user."""
     import json
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
 
     job = JobRun(
         user_id=operator_user.id,
@@ -199,8 +201,8 @@ def completed_job(db, operator_user) -> JobRun:
         output_path="/app/out",
         container_id="abc123def456",
         status="success",
-        started_at=datetime.now(timezone.utc) - timedelta(seconds=120),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC) - timedelta(seconds=120),
+        finished_at=datetime.now(UTC),
         exit_code=0,
     )
     db.add(job)

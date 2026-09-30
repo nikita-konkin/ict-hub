@@ -336,7 +336,7 @@ async def _prepare_dat_parquet(form: FormData, db: Session) -> PreparedRun:
 # Hooks
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, object]]]] = {
+_PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {
     "tec-suite": _tec_suite_page,
     "abstec-suite": _abstec_page,
     "dat-parquet-handler": _dat_parquet_page,
@@ -349,7 +349,7 @@ _PREPARE_FORM: dict[str, Callable[[FormData, Session], Awaitable[PreparedRun]]] 
 }
 
 
-def _default_page_context() -> dict[str, object]:
+def _default_page_context() -> dict[str, Any]:
     """Variables run.html expects on every converter page."""
     return {
         "tec_rinex_host_path": "",
@@ -366,7 +366,7 @@ def _default_page_context() -> dict[str, object]:
     }
 
 
-async def page_context(converter_name: str) -> dict[str, object]:
+async def page_context(converter_name: str) -> dict[str, Any]:
     """Template variables for a converter's run page."""
     context = _default_page_context()
     hook = _PAGE_CONTEXT.get(converter_name)

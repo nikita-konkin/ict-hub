@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
 import math
 import time
+from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-
-import pandas as pd
-
-from dataclasses import replace
 
 from app import config as cfg
 from app.auth import get_current_user_or_401
@@ -27,7 +25,6 @@ from app.tec_map_pipeline import (
     build_leveled_links,
     load_tecs_parquet,
 )
-from app.tec_map_validation import loso_cross_validate, summarize_validation
 from app.tec_map_render import (
     ANIMATION_MEDIA_TYPES,
     TecMapRenderConfig,
@@ -35,7 +32,7 @@ from app.tec_map_render import (
     build_frame_image_bytes,
     build_snapshot_plotly_json,
 )
-
+from app.tec_map_validation import loso_cross_validate, summarize_validation
 
 logger = logging.getLogger(__name__)
 
@@ -547,7 +544,7 @@ def tec_map_gif(
                 end_time=end_time,
             )
             duration_hours = float((heuristic_end_dt - heuristic_start_dt).total_seconds() / 3600.0)
-            frame_count = int(math.ceil(duration_hours * 60.0 / max(int(frame_minutes), 1)))
+            frame_count = math.ceil(duration_hours * 60.0 / max(int(frame_minutes), 1))
             if frame_count >= 80:
                 chosen_dpi = 80
             elif frame_count >= 48:
@@ -610,7 +607,7 @@ def tec_map_gif(
             ),
         )
     duration_minutes = (range_end_dt - range_start_dt).total_seconds() / 60.0
-    estimated_frames = int(math.ceil(duration_minutes / max(int(frame_minutes), 1)))
+    estimated_frames = math.ceil(duration_minutes / max(int(frame_minutes), 1))
     if estimated_frames > TEC_MAP_MAX_FRAMES_PER_REQUEST:
         raise HTTPException(
             status_code=413,
@@ -1113,7 +1110,7 @@ def tec_map_validate(
             ),
         )
     duration_minutes = (range_end_dt - range_start_dt).total_seconds() / 60.0
-    estimated_frames = int(math.ceil(duration_minutes / max(int(frame_minutes), 1)))
+    estimated_frames = math.ceil(duration_minutes / max(int(frame_minutes), 1))
     if estimated_frames > TEC_MAP_MAX_FRAMES_PER_REQUEST:
         raise HTTPException(
             status_code=413,
@@ -1330,7 +1327,7 @@ def tec_map_series(
             ),
         )
     duration_minutes = (range_end_dt - range_start_dt).total_seconds() / 60.0
-    estimated_frames = int(math.ceil(duration_minutes / max(int(frame_minutes), 1)))
+    estimated_frames = math.ceil(duration_minutes / max(int(frame_minutes), 1))
     if estimated_frames > TEC_MAP_MAX_FRAMES_PER_REQUEST:
         raise HTTPException(
             status_code=413,
@@ -1459,7 +1456,8 @@ def _read_station_position(root: Path, year: int, doy: int, station: str) -> dic
     for path in _iter_station_day_parquet_files(root, year, doy, station):
         try:
             meta = _parquet_header_metadata_from_schema(pq.read_schema(path))
-        except Exception:
+        except Exception as exc:
+            logger.debug("Skipping unreadable parquet %s: %s", path, exc)
             continue
         lon = meta.get("site_lon")
         lat = meta.get("site_lat")

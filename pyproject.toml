@@ -39,11 +39,12 @@ ignore = [
     # The UI is bilingual: Cyrillic letters and typographic characters (—, ×, …)
     # in strings, docstrings and comments are intentional.
     "RUF001", "RUF002", "RUF003",
+    # Line length is the formatter's job; what it leaves long are string literals
+    # (API parameter descriptions, messages), which read better unsplit.
+    "E501",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# One translation per line, however long, so strings stay easy to find.
-"app/i18n.py" = ["E501"]
 "tests/**" = [
     "S101",          # assert is how pytest checks
     "S105", "S106",  # fixed test passwords
@@ -57,6 +58,8 @@ ignore = [
 extend-immutable-calls = [
     "fastapi.Depends", "fastapi.Query", "fastapi.Form", "fastapi.Path",
     "fastapi.Body", "fastapi.Header", "fastapi.Cookie", "fastapi.File",
+    # Dependency factories: Depends(require_page_access("analysis")).
+    "app.auth.require_page_access", "app.auth.require_converter_access",
 ]
 
 [tool.mypy]
@@ -69,5 +72,13 @@ warn_redundant_casts = true
 files = ["app"]
 
 [[tool.mypy.overrides]]
-module = ["dicttoxml"]
+# No type information published for these.
+module = [
+    "dicttoxml",
+    "pandas", "pandas.*",
+    "scipy", "scipy.*",
+    "plotly", "plotly.*", "_plotly_utils.*",
+    "pyarrow", "pyarrow.*",
+    "PyIRI", "PyIRI.*",
+]
 ignore_missing_imports = true

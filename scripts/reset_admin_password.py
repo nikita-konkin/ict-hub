@@ -26,9 +26,9 @@ import sys
 # Allow `import app.*` when run as `python scripts/reset_admin_password.py`.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.auth import hash_password  # noqa: E402
-from app.database import SessionLocal  # noqa: E402
-from app.models import User  # noqa: E402
+from app.auth import hash_password
+from app.database import SessionLocal
+from app.models import User
 
 MIN_LEN = 8
 

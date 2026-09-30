@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
-import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -220,13 +220,19 @@ async def _fetch_async(
             )
         response.raise_for_status()
         return parse(response)
-    except Exception as exc:  # noqa: BLE001 - external service errors should be non-fatal
+    except Exception as exc:
         logger.warning("data-indexer request failed for %s: %s (%r)", endpoint, type(exc).__name__, exc)
         return None
 
 
 async def _fetch_xml_async(endpoint: str, root_path: str, refresh: bool = False) -> ET.Element | None:
-    return await _fetch_async(endpoint, root_path, lambda response: ET.fromstring(response.text), refresh=refresh)
+    # The XML comes from our own data-indexer service, not from users.
+    return await _fetch_async(
+        endpoint,
+        root_path,
+        lambda response: ET.fromstring(response.text),  # noqa: S314
+        refresh=refresh,
+    )
 
 
 def _json_object(response: httpx.Response) -> dict[str, Any] | None:

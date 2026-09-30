@@ -40,7 +40,7 @@ class FakeMissingPath(FakePath):
         return False
 
 
-@pytest.fixture()
+@pytest.fixture
 def indexer(monkeypatch):
     module = _load_data_indexer_module(monkeypatch)
     monkeypatch.setattr(module, "Path", FakePath)
@@ -143,7 +143,7 @@ def test_watcher_ignores_non_structural_events(monkeypatch):
     assert module._root_generation["/r"] == 3
 
 
-@pytest.fixture()
+@pytest.fixture
 def indexer_app(monkeypatch):
     """data-indexer/app.py with its own top-level modules on sys.path."""
     pytest.importorskip("dicttoxml")

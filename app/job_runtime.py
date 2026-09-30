@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape as xml_escape
 
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ _ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _INVALID_XML_CHAR_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
-def _sanitize_xml_text(value: str) -> str:
+def _sanitize_xml_text(value: object) -> str:
     """Remove ANSI/control characters and XML-invalid codepoints."""
     text = str(value)
     text = _ANSI_ESCAPE_RE.sub("", text)
@@ -121,7 +121,7 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
     the direct stream as well; it must not overwrite the stop.
     """
     if job.status == "running":
-        job.finished_at = job.finished_at or datetime.now(timezone.utc)
+        job.finished_at = job.finished_at or datetime.now(UTC)
         job.exit_code = exit_code
         job.status = "success" if exit_code == 0 else "failed"
     final_status = job.status
@@ -144,7 +144,7 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
             "done",
             status=final_status,
             exit_code=recorded_exit_code,
-            finished_at=(job.finished_at or datetime.now(timezone.utc)).isoformat(),
+            finished_at=(job.finished_at or datetime.now(UTC)).isoformat(),
         ),
     )
     db.add(event)
@@ -159,11 +159,10 @@ def reconcile_job_state(job_id: int, db: Session | None = None) -> bool:
     is already terminal, even if no SSE consumer is attached.
     """
     owns_session = db is None
-    if owns_session:
+    if db is None:
         db = SessionLocal()
 
     try:
-        assert db is not None
         job = db.query(JobRun).filter(JobRun.id == job_id).first()
         if not job or job.status != "running" or not job.container_id:
             return False
@@ -206,7 +205,7 @@ async def ensure_job_producer(job_id: int) -> None:
         with suppress(asyncio.CancelledError):
             exc = done_task.exception()
             if exc is not None:
-                logger.exception("Job producer %s crashed", job_id, exc_info=exc)
+                logger.error("Job producer %s crashed", job_id, exc_info=exc)
 
     new_task.add_done_callback(_cleanup_task)
 

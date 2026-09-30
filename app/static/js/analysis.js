@@ -720,7 +720,7 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
+      .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
 
@@ -1121,7 +1121,7 @@
     // 1. Flat: { ut/hour/time/x: [...], column1: [...], column2: [...] }
     // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
 
-    let seriesList = [];
+    let seriesList;
     const colors = themeTokens.palette;
 
     // Detect data structure
@@ -1361,7 +1361,7 @@
     const res = await fetch(absUrl + (absUrl.includes("?") ? "&" : "?") + "_t=" + Date.now(), { credentials: "same-origin" });
     if (!res.ok) return false;
 
-    let absPayload = null;
+    let absPayload;
     try {
       absPayload = await res.json();
     } catch (_) {

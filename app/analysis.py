@@ -18,8 +18,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
-from app.auth import get_current_user, require_page_access
-from app.data_indexer_client import clear_cache as clear_data_indexer_cache, list_parquet_satellite_structure_async
+from app.auth import require_page_access
+from app.data_indexer_client import clear_cache as clear_data_indexer_cache
+from app.data_indexer_client import list_parquet_satellite_structure_async
 from app.i18n import apply_lang_cookie, template_context
 from app.models import User
 from app.registry import CONVERTERS
@@ -200,13 +201,13 @@ async def analysis_proxy(
                 headers=_filter_outgoing_headers(request),
                 content=await request.body(),
             )
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Analysis API timeout")
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Analysis API timeout") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
             detail=f"Analysis API error (base={base_url}): {exc}",
-        )
+        ) from exc
 
     response_headers = _filter_incoming_headers(dict(upstream.headers))
     return Response(

@@ -6,9 +6,6 @@ not just the route functions in isolation. This gives us confidence that
 the SessionMiddleware, password hashing, and redirect logic all work together.
 """
 
-import pytest
-from fastapi.testclient import TestClient
-
 
 class TestLoginForm:
     """Tests for GET /login — the login page itself."""

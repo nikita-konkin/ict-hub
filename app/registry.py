@@ -24,13 +24,12 @@ Flag descriptor fields:
 """
 
 from __future__ import annotations
+
+import logging
 import re
-import shlex
 from typing import Any
 
 from app import config as cfg
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -557,6 +556,6 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             "mode": "rw",
         }
 
-    logger.debug(f"Built command for converter '{converter_name}': {cmd} with volumes {volumes}")
+    logger.debug("Built command for converter '%s': %s with volumes %s", converter_name, cmd, volumes)
 
     return cmd, volumes

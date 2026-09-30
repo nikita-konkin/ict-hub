@@ -36,9 +36,9 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, reason, age = di.should_run_full_index()
 
-        self.assertTrue(allowed)
-        self.assertIn("no previous index", reason)
-        self.assertIsNone(age)
+        assert allowed
+        assert "no previous index" in reason
+        assert age is None
 
     def test_refuses_immediately_after_an_index(self) -> None:
         # The restart case: indexing just finished, service comes back up.
@@ -47,8 +47,8 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, reason, _ = di.should_run_full_index()
 
-        self.assertFalse(allowed)
-        self.assertIn("minimum re-index interval", reason)
+        assert not allowed
+        assert "minimum re-index interval" in reason
 
     def test_refuses_just_below_the_interval(self) -> None:
         self._set_interval(86400)
@@ -56,7 +56,7 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, _, _ = di.should_run_full_index()
 
-        self.assertFalse(allowed)
+        assert not allowed
 
     def test_runs_once_the_index_is_stale(self) -> None:
         self._set_interval(86400)
@@ -64,8 +64,8 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, _, age = di.should_run_full_index()
 
-        self.assertTrue(allowed)
-        self.assertGreater(age, 86400)
+        assert allowed
+        assert age > 86400
 
     def test_zero_interval_disables_the_check(self) -> None:
         self._set_interval(0)
@@ -73,8 +73,8 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, reason, _ = di.should_run_full_index()
 
-        self.assertTrue(allowed)
-        self.assertIn("disabled", reason)
+        assert allowed
+        assert "disabled" in reason
 
     def test_future_timestamp_does_not_block_forever(self) -> None:
         # Host clock sync can move time backwards; a marker "in the future"
@@ -84,8 +84,8 @@ class ReindexGateTests(unittest.TestCase):
 
         allowed, reason, _ = di.should_run_full_index()
 
-        self.assertTrue(allowed)
-        self.assertIn("future", reason)
+        assert allowed
+        assert "future" in reason
 
     def test_marker_survives_a_restart(self) -> None:
         self._set_interval(86400)
@@ -95,8 +95,8 @@ class ReindexGateTests(unittest.TestCase):
         di._rinex_cache.clear()
         stored = di.get_last_full_index_time()
 
-        self.assertIsNotNone(stored)
-        self.assertAlmostEqual(stored, time.time(), delta=60)
+        assert stored is not None
+        assert abs(stored - time.time()) <= 60
 
     def test_marker_is_wall_clock_not_monotonic(self) -> None:
         # time.monotonic() is measured from boot, so it cannot express "a day
@@ -106,7 +106,7 @@ class ReindexGateTests(unittest.TestCase):
 
         stored = di.get_last_full_index_time()
 
-        self.assertGreater(stored, 1_600_000_000)  # comfortably after 2020
+        assert stored > 1_600_000_000  # comfortably after 2020
 
 
 if __name__ == "__main__":

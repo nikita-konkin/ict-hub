@@ -1,8 +1,8 @@
 (function () {
-  var modal = document.getElementById("feedback-modal");
-  var form = modal ? modal.querySelector("form[action='/feedback']") : null;
-  var result = modal ? modal.querySelector("#feedback-result") : null;
-  var toastRoot = document.getElementById("feedback-toast-root");
+  const modal = document.getElementById("feedback-modal");
+  const form = modal ? modal.querySelector("form[action='/feedback']") : null;
+  const result = modal ? modal.querySelector("#feedback-result") : null;
+  let toastRoot = document.getElementById("feedback-toast-root");
   if (!toastRoot) {
     toastRoot = document.createElement("div");
     toastRoot.id = "feedback-toast-root";
@@ -11,7 +11,7 @@
   }
 
   function toast(text, kind) {
-    var node = document.createElement("div");
+    const node = document.createElement("div");
     node.className = "toast " + (kind === "error" ? "toast-error" : "toast-ok");
     node.textContent = String(text || "");
     toastRoot.appendChild(node);
@@ -26,11 +26,11 @@
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
     try {
-      var textarea = modal.querySelector("textarea[name='message']");
+      const textarea = modal.querySelector("textarea[name='message']");
       if (textarea) textarea.focus();
     } catch (_) {}
     try {
-      var page = modal.querySelector("input[name='page_url']");
+      const page = modal.querySelector("input[name='page_url']");
       if (page) page.value = window.location.href;
     } catch (_) {}
   }
@@ -52,10 +52,10 @@
       e.preventDefault();
       if (result) result.innerHTML = "";
 
-      var submitBtn = form.querySelector("button[type='submit']");
+      const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
 
-      var data = new FormData(form);
+      const data = new FormData(form);
       fetch("/feedback", {
         method: "POST",
         body: data,
@@ -71,13 +71,13 @@
           if (res.ok && res.payload && res.payload.ok) {
             toast(res.payload.message || "Sent.", "ok");
             try {
-              var textarea = form.querySelector("textarea[name='message']");
+              const textarea = form.querySelector("textarea[name='message']");
               if (textarea) textarea.value = "";
             } catch (_) {}
             closeModal();
             return;
           }
-          var err = (res.payload && (res.payload.error || res.payload.message)) || "Failed to send feedback.";
+          const err = (res.payload && (res.payload.error || res.payload.message)) || "Failed to send feedback.";
           toast(err, "error");
           if (result) {
             result.innerHTML = '<div class="alert alert-danger">' + String(err) + '</div>';

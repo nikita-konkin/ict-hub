@@ -10,20 +10,20 @@ It does NOT run tec-suite, and it does NOT parse `.dat` files.
 
 from __future__ import annotations
 
+import json
+import math
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
-import math
-import re
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from scipy.optimize import minimize_scalar
-
 
 EARTH_RADIUS_KM = 6371.0
 DEFAULT_MSTD_SEARCH_BOUNDS_TECU = (-150.0, 150.0)
@@ -415,8 +415,7 @@ def _iter_station_day_parquet_files(root: Path, year: int, doy: int, station: st
         # archives produce shards whose epochs complement the daily file, so
         # dropping them loses data. Exact-duplicate rows are removed later in
         # load_tecs_parquet.
-        for path in sorted(station_dir.glob("*.parquet")):
-            yield path
+        yield from sorted(station_dir.glob("*.parquet"))
 
 
 def load_tecs_parquet(
@@ -496,7 +495,7 @@ def load_tecs_parquet(
 
             meta = _parquet_header_metadata_from_schema(schema) if schema is not None else {}
 
-            filters: list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None = None
+            filters: list[tuple[str, str, Any]] | list[list[tuple[str, str, Any]]] | None = None
             try:
                 start_seconds = float((pd.Timestamp(start_dt) - pd.Timestamp(base_date)).total_seconds())
                 end_seconds = float((pd.Timestamp(end_dt) - pd.Timestamp(base_date)).total_seconds())
@@ -505,8 +504,8 @@ def load_tecs_parquet(
                 interval_seconds = meta.get("interval_seconds")
                 if available_columns and "tsn" in available_columns and interval_seconds:
                     dt_seconds = float(interval_seconds)
-                    start_tsn = int(math.floor(start_seconds / dt_seconds))
-                    end_tsn = int(math.ceil(end_seconds / dt_seconds))
+                    start_tsn = math.floor(start_seconds / dt_seconds)
+                    end_tsn = math.ceil(end_seconds / dt_seconds)
                     if wraps:
                         filters = [[("tsn", ">=", start_tsn)], [("tsn", "<=", end_tsn)]]
                     else:
@@ -945,7 +944,7 @@ def estimate_receiver_bias_mstd_group(
     mapping_factor = sample["mapping_factor"].to_numpy(dtype=float)
     frame_time = pd.to_datetime(sample["datetime"]).to_numpy(dtype="datetime64[ns]")
     # Precompute epoch groups once to avoid rebuilding DataFrames inside the optimizer.
-    epoch_ids, inverse = np.unique(frame_time, return_inverse=True)
+    _epoch_ids, inverse = np.unique(frame_time, return_inverse=True)
     counts = np.bincount(inverse)
     valid_epochs = counts >= 2
     if not bool(valid_epochs.any()):
@@ -980,10 +979,7 @@ def estimate_receiver_bias_mstd_group(
 
 def ecef_to_geodetic(x_m: float, y_m: float, z_m: float) -> tuple[float, float, float]:
     p = math.hypot(x_m, y_m)
-    if p < 1e-9:
-        lon = 0.0
-    else:
-        lon = math.atan2(y_m, x_m)
+    lon = 0.0 if p < 1e-9 else math.atan2(y_m, x_m)
     theta = math.atan2(z_m * WGS84_A_M, p * WGS84_B_M)
     sin_theta = math.sin(theta)
     cos_theta = math.cos(theta)

@@ -7,9 +7,11 @@ with the right arguments and handle both success and failure paths.
 """
 
 import json
+from datetime import UTC
+from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture(autouse=True)
@@ -78,8 +80,8 @@ class TestRunPage:
         assert f'data-stream-url="/jobs/{completed_job.id}/stream'.encode() not in response.content
 
     def test_run_page_auto_attaches_running_job(self, operator_client, completed_job, db, monkeypatch):
-        import app.jobs as jobs_module
         import app.job_runtime as runtime_module
+        import app.jobs as jobs_module
 
         monkeypatch.setattr(
             runtime_module,
@@ -99,10 +101,11 @@ class TestRunPage:
         assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail={expected_tail}"'.encode() in response.content
 
     def test_run_page_discovers_running_container_by_image(self, admin_client, db, monkeypatch):
-        import app.jobs as jobs_module
+        from datetime import datetime
+
         import app.job_runtime as runtime_module
+        import app.jobs as jobs_module
         from app.models import JobRun
-        from datetime import datetime, timezone
 
         fake_container_id = "deadbeef" * 8  # 64 chars
         monkeypatch.setattr(
@@ -119,7 +122,7 @@ class TestRunPage:
                     "name": "external-tec-suite",
                     "image": "tec-suite:latest",
                     "labels": {},
-                    "started_at": datetime.now(timezone.utc),
+                    "started_at": datetime.now(UTC),
                 }
             ],
         )
@@ -138,8 +141,8 @@ class TestRunPage:
     def test_running_job_id_replays_backlog_even_with_resume_flag(
         self, operator_client, completed_job, db, monkeypatch
     ):
-        import app.jobs as jobs_module
         import app.job_runtime as runtime_module
+        import app.jobs as jobs_module
 
         monkeypatch.setattr(
             runtime_module,
@@ -202,7 +205,6 @@ class TestRunPage:
         import app.converters as converters_module
 
         tecsuite_calls: list[str] = []
-        abstec_calls: list[str] = []
         parquet_calls: list[str] = []
 
         async def _fake_tecsuite_async(host_root: str):
@@ -1131,8 +1133,8 @@ class TestDurableJobEvents:
     """Tests for persisted SSE replay and detached container reconciliation."""
 
     def test_stream_replays_persisted_events_with_ids(self, operator_client, completed_job, db, monkeypatch):
-        from app.models import JobEvent
         import app.jobs as jobs_module
+        from app.models import JobEvent
 
         first = JobEvent(
             job_id=completed_job.id,
@@ -1161,8 +1163,8 @@ class TestDurableJobEvents:
         assert "event: done" in body
 
     def test_stream_resumes_after_event_id(self, operator_client, completed_job, db, monkeypatch):
-        from app.models import JobEvent
         import app.jobs as jobs_module
+        from app.models import JobEvent
 
         first = JobEvent(
             job_id=completed_job.id,

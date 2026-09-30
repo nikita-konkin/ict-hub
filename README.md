@@ -344,7 +344,7 @@ pytest tests/test_runner.py -v
 
 # data-indexer's own tests (it has a top-level "app" module of its own, so
 # they run from its directory rather than with the hub's tests)
-cd data-indexer && pytest test_reindex_gate.py test_rinex_station_map.py
+cd data-indexer && pytest
 ```
 
 Tests use an in-memory SQLite database and fully mock the Docker SDK — no Docker daemon required.

@@ -49,10 +49,10 @@ def _resolve_secret_key() -> str:
 
     if REQUIRE_STRONG_SECRET:
         raise RuntimeError(
-            "SECRET_KEY is unset, too short (<%d chars), or a known placeholder. "
+            f"SECRET_KEY is unset, too short (<{_MIN_SECRET_KEY_LEN} chars), or a known placeholder. "
             "Generate a strong random value and set it in .env:\n"
             '    python -c "import secrets; print(secrets.token_hex(32))"\n'
-            "(REQUIRE_STRONG_SECRET is enabled, so booting with a weak key is refused.)" % _MIN_SECRET_KEY_LEN
+            "(REQUIRE_STRONG_SECRET is enabled, so booting with a weak key is refused.)"
         )
 
     # Local/dev/test fallback: an EPHEMERAL random key. This is unguessable, so
