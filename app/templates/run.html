@@ -180,10 +180,7 @@
 
         {% for flag in converter.flags %}
           {% set key = flag.long.lstrip('-').replace('-','_') %}
-          {% set skip_tecsuite_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
-          {% set skip_abstec_flag = converter_name == 'abstec-suite' and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
-          {% set skip_dat_parquet_flag = converter_name == 'dat-parquet-handler' and key in ('src', 'dst', 'direction') %}
-          {% set skip_default_flag = skip_tecsuite_flag or skip_abstec_flag or skip_dat_parquet_flag %}
+          {% set skip_default_flag = key in (converter.form_managed_fields or ()) %}
           {% set translated_label = t('flag_label_' ~ key) %}
           {% set display_label = translated_label if translated_label != ('flag_label_' ~ key) else flag.label %}
           {% set translated_help = t('flag_help_' ~ key) %}

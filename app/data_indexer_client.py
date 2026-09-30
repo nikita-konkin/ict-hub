@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
@@ -36,35 +37,6 @@ def _as_int(value: str, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _fetch_xml(endpoint: str, root_path: str) -> ET.Element | None:
-    if not DATA_INDEXER_URL:
-        return None
-
-    base = DATA_INDEXER_URL.rstrip("/")
-    url = f"{base}/{endpoint}"
-    if root_path:
-        url = f"{url}?root={quote(root_path, safe='/:\\')}"
-
-    try:
-        # trust_env=False avoids accidental proxy routing for internal Docker service calls.
-        response = httpx.get(url, timeout=DATA_INDEXER_TIMEOUT_SEC, trust_env=False)
-        if response.status_code >= 400:
-            logger.warning(
-                "data-indexer upstream status=%s endpoint=%s url=%s server=%s body_prefix=%s",
-                response.status_code,
-                endpoint,
-                url,
-                response.headers.get("server", ""),
-                response.text[:180],
-            )
-        response.raise_for_status()
-        root = ET.fromstring(response.text)
-        return root
-    except Exception as exc:  # noqa: BLE001 - external service errors should be non-fatal
-        logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
-        return None
 
 
 def _get_cached(cache_key: tuple[str, str]) -> list[dict[str, object]] | None:
@@ -190,15 +162,19 @@ def _parse_parquet_sat_root(root: ET.Element) -> list[dict[str, object]]:
     return years
 
 
-async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None":
-    """Async version of _fetch_xml — does not block the event loop."""
+# Path characters left unescaped in the ?root= query value.
+_ROOT_SAFE_CHARS = "/:\\"
+
+
+async def _fetch_xml(endpoint: str, root_path: str) -> ET.Element | None:
+    """GET an indexer endpoint and parse its XML; None if unconfigured or failing."""
     if not DATA_INDEXER_URL:
         return None
 
     base = DATA_INDEXER_URL.rstrip("/")
     url = f"{base}/{endpoint}"
     if root_path:
-        url = f"{url}?root={quote(root_path, safe='/:\\')}"
+        url = f"{url}?root={quote(root_path, safe=_ROOT_SAFE_CHARS)}"
 
     try:
         # trust_env=False avoids accidental proxy routing for internal Docker service calls.
@@ -215,115 +191,45 @@ async def _fetch_xml_async(endpoint: str, root_path: str) -> "ET.Element | None"
             )
         response.raise_for_status()
         return ET.fromstring(response.text)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - external service errors should be non-fatal
         logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
         return None
 
 
-async def list_parquet_satellite_structure_async(host_root: str) -> list[dict[str, object]]:
-    """Async variant of list_parquet_satellite_structure — for use inside async FastAPI handlers."""
-    cache_key = ("parquet-satellites", host_root)
+async def _cached_listing(
+    endpoint: str,
+    host_root: str,
+    parse: Callable[[ET.Element], list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Fetch and parse one indexer listing, reusing a recent result if there is one."""
+    cache_key = (endpoint, host_root)
     cached = _get_cached(cache_key)
     if cached is not None:
         return cached
 
-    root = await _fetch_xml_async("parquet-satellites", host_root)
+    root = await _fetch_xml(endpoint, host_root)
     if root is None:
+        # Failures are not cached, so the next page load retries.
         return []
 
-    return _set_cache("parquet-satellites", host_root, _parse_parquet_sat_root(root))
+    return _set_cache(endpoint, host_root, parse(root))
 
 
 async def list_rinex_server_structure_async(host_root: str) -> list[dict[str, object]]:
-    cache_key = ("rinex", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = await _fetch_xml_async("rinex", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("rinex", host_root, _parse_rinex_root(root))
+    """RINEX tree from the indexer's /rinex endpoint."""
+    return await _cached_listing("rinex", host_root, _parse_rinex_root)
 
 
 async def list_tecsuite_output_structure_async(host_root: str) -> list[dict[str, object]]:
-    cache_key = ("tecsuite", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = await _fetch_xml_async("tecsuite", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
+    """TEC-suite DAT output tree from the indexer's /tecsuite endpoint."""
+    return await _cached_listing("tecsuite", host_root, _parse_tecsuite_root)
 
 
 async def list_parquet_output_structure_async(host_root: str) -> list[dict[str, object]]:
-    cache_key = ("parquet", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = await _fetch_xml_async("parquet", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("parquet", host_root, _parse_parquet_root(root))
+    """Year/day tree of a parquet (or any YYYY/DDD) root from /parquet."""
+    return await _cached_listing("parquet", host_root, _parse_parquet_root)
 
 
-def list_rinex_server_structure(host_root: str) -> list[dict[str, object]]:
-    """Return RINEX tree from data-indexer /rinex endpoint."""
-    cache_key = ("rinex", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = _fetch_xml("rinex", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("rinex", host_root, _parse_rinex_root(root))
-
-
-def list_tecsuite_output_structure(host_root: str) -> list[dict[str, object]]:
-    """Return DAT tree from data-indexer /tecsuite endpoint."""
-    cache_key = ("tecsuite", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = _fetch_xml("tecsuite", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("tecsuite", host_root, _parse_tecsuite_root(root))
-
-
-def list_parquet_output_structure(host_root: str) -> list[dict[str, object]]:
-    """Return parquet tree from data-indexer /parquet endpoint."""
-    cache_key = ("parquet", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = _fetch_xml("parquet", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("parquet", host_root, _parse_parquet_root(root))
-
-
-def list_parquet_satellite_structure(host_root: str) -> list[dict[str, object]]:
-    """Return parquet year/day/station/satellite tree from /parquet-satellites."""
-    cache_key = ("parquet-satellites", host_root)
-    cached = _get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    root = _fetch_xml("parquet-satellites", host_root)
-    if root is None:
-        return []
-
-    return _set_cache("parquet-satellites", host_root, _parse_parquet_sat_root(root))
+async def list_parquet_satellite_structure_async(host_root: str) -> list[dict[str, object]]:
+    """Year/day/station/satellite tree from /parquet-satellites."""
+    return await _cached_listing("parquet-satellites", host_root, _parse_parquet_sat_root)

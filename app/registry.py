@@ -10,6 +10,12 @@ Each entry describes:
   description — shown in the UI
   container_volumes — fixed container-side mount points
   flags       — list of flag descriptors that drive the form renderer
+  form_managed_fields — flag keys the run page renders with its own controls
+  env_output_volume   — optional output mount taken from config, not a flag:
+                        {"host_env": ..., "container_env": ...}
+
+Behaviour beyond this data (folder pickers, server-side path resolution,
+form validation) lives in app/converters.py.
 
 Flag descriptor fields:
   name     — CLI flag (e.g. "-j")
@@ -21,6 +27,9 @@ Flag descriptor fields:
   options  — list of (value, label) pairs for "select" type
   help     — tooltip / description text
   min/max  — for "number" type
+  is_volume — container_volumes key: the value is a host path to mount there
+  container_subpath_field — for a volume flag, form field holding a subfolder
+                            of the mount to pass on the command line
 """
 from __future__ import annotations
 import shlex
@@ -48,6 +57,8 @@ CONVERTERS: dict[str, dict] = {
     "tec-suite": {
         "image": cfg.TECSUITE_IMAGE,
         "label": "TEC-Suite",
+        # Flags the run page renders with its own controls instead of the generic form.
+        "form_managed_fields": ("root", "out"),
         "description": (
             "Reconstructs slant Total Electron Content (TEC) from GNSS RINEX observation "
             "data. Supports GPS, GLONASS, Galileo, BeiDou, GEO, and IRNSS systems."
@@ -56,6 +67,13 @@ CONVERTERS: dict[str, dict] = {
         "container_volumes": {
             "rinex": "/data/rinex",
             "output": "/app/out",
+        },
+        # Output is persisted through a mount configured in the environment,
+        # not a CLI flag: host path from host_env, container path from
+        # container_env (falling back to container_volumes["output"]).
+        "env_output_volume": {
+            "host_env": "TECSUITE_OUT_DAT_DATA_PATH_HOST",
+            "container_env": "TECSUITE_OUT_DAT_DATA_PATH",
         },
         # Path used inside the container for the tecs configuration file.
         # This file must already exist in the container image.
@@ -80,6 +98,8 @@ CONVERTERS: dict[str, dict] = {
                     "with .zip RINEX archives. E.g. N:\\RINEX or /mnt/data/rinex"
                 ),
                 "is_volume": "rinex",  # special marker: this flag maps to a volume
+                # Point --root at the year/day folder chosen in the form, inside the mount.
+                "container_subpath_field": "root_subpath",
             },
             {
                 "name": "-j",
@@ -124,6 +144,8 @@ CONVERTERS: dict[str, dict] = {
     "dat-parquet-handler": {
         "image": cfg.DAT_PARQUET_IMAGE,
         "label": "DAT <-> Parquet",
+        # Flags the run page renders with its own controls instead of the generic form.
+        "form_managed_fields": ("src", "dst", "direction"),
         "description": (
             "Converts tec-suite DAT files to Parquet format (or back), "
             "preserving the source directory layout."
@@ -209,6 +231,8 @@ CONVERTERS: dict[str, dict] = {
     "abstec-suite": {
         "image": cfg.ABSTEC_SUITE_IMAGE,
         "label": "AbsTEC Suite",
+        # Flags the run page renders with its own controls instead of the generic form.
+        "form_managed_fields": ("dat_path", "output_dir", "year", "day_of_year", "days", "site"),
         "description": (
             "Runs TayAbsTEC from tec-suite DAT inputs, updates absolTEC.dia, and "
             "supports both single-run and multi-day batch execution."
@@ -409,9 +433,10 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
                 # /data/rinex/<day>/... before processing.
                 volumes[host_path] = {"bind": container_path, "mode": "rw"}
             # Also emit the CLI flag pointing at the container-side path
-            if converter_name == "tec-suite" and key == "root":
-                root_subpath = str(form_data.get("root_subpath", "")).strip()
-                cmd.extend([flag["long"], _join_container_path(container_path, root_subpath)])
+            subpath_field = flag.get("container_subpath_field")
+            if subpath_field:
+                subpath = str(form_data.get(subpath_field, "")).strip()
+                cmd.extend([flag["long"], _join_container_path(container_path, subpath)])
             else:
                 cmd.extend([flag["name"], container_path])
 
@@ -436,13 +461,15 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
     if "tecs_path" in conv:
         cmd.extend(["-t", conv["tecs_path"]])
 
-    # Persist tec-suite output using env-configured host path (no --out flag).
-    if converter_name == "tec-suite" and cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST:
-        output_container_path = cfg.TECSUITE_OUT_DAT_DATA_PATH or conv["container_volumes"].get("output", "/app/out")
-        volumes[str(cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)] = {
-            "bind": output_container_path,
-            "mode": "rw",
-        }
+    # Output mount configured from the environment (no CLI flag).
+    env_output = conv.get("env_output_volume")
+    if env_output:
+        output_host_path = str(getattr(cfg, env_output["host_env"], "")).strip()
+        if output_host_path:
+            output_container_path = (
+                getattr(cfg, env_output["container_env"], "") or conv["container_volumes"].get("output", "/app/out")
+            )
+            volumes[output_host_path] = {"bind": output_container_path, "mode": "rw"}
 
     logger.debug(f"Built command for converter '{converter_name}': {cmd} with volumes {volumes}")
 
