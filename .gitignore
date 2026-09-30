@@ -35,3 +35,6 @@ dist/
 # IDE/editor folders
 .vscode/
 .idea/
+
+# ESLint tooling (package.json)
+node_modules/

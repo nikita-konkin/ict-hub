@@ -201,7 +201,10 @@ converter-hub/
 ├── docker-compose.yml           # Orchestrates converter-hub + data-indexer + volumes
 ├── requirements.txt
 ├── requirements-test.txt
+├── requirements-dev.txt         # + ruff, mypy (see "Linting")
 ├── pytest.ini
+├── pyproject.toml               # ruff and mypy settings
+├── package.json                 # ESLint for app/static (no JS build step)
 └── app/
     ├── main.py                  # FastAPI app factory, middleware, startup hook
     ├── config.py                # Settings from environment variables
@@ -211,10 +214,12 @@ converter-hub/
     ├── jobs.py                  # Dashboard, run form, SSE stream, history
     ├── runner.py                # Docker SDK wrapper — starts/stops containers, streams logs
     ├── registry.py              # Converter registry + command builder
+    ├── converters.py            # Per-converter run-page data and form validation
     ├── data_indexer_client.py   # HTTP client for data-indexer XML parsing + caching
     ├── analysis.py              # Analysis API proxy integration
+    ├── static/                  # app.css/app.js, plus per-page js/ and css/
     └── templates/               # Jinja2 templates (Cormorant Garamond + DM Sans)
-        ├── base.html            # Sidebar layout, all CSS, HTMX scripts
+        ├── base.html            # Sidebar layout, HTMX scripts
         ├── login.html
         ├── dashboard.html
         ├── run.html             # Converter form page
@@ -225,7 +230,7 @@ converter-hub/
 data-indexer/                   # Separate microservice for fast data indexing
 ├── app.py                       # FastAPI app for indexing service
 ├── data_indexer.py              # Core indexing engine with persistent SQLite cache
-├── Dockerfile                   # Python 3.12-slim image
+├── Dockerfile                   # Python 3.11-slim image
 ├── entrypoint.sh                # Container startup script
 ├── requirements.txt
 └── README.md                    # Detailed data-indexer configuration
@@ -236,7 +241,7 @@ tests/
 ├── test_jobs.py                 # Job creation, history access control (Docker mocked)
 ├── test_runner.py               # Progress parsing, command building, Docker SDK mocking
 ├── test_data_indexer_client.py  # data-indexer client XML parsing tests
-└── (8 test modules, 182 tests total)
+└── ...
 ```
 
 ---
@@ -276,6 +281,11 @@ CONVERTERS = {
 ```
 
 That's it — the form, command builder, and Docker invocation all adapt automatically.
+
+If the run page needs extra data (such as a folder picker built from a data-indexer
+tree) or the submitted form needs server-side validation or paths filled in from the
+environment, add a function for it in `app/converters.py` and register it in
+`_PAGE_CONTEXT` / `_PREPARE_FORM`; the existing converters there are the examples.
 
 ---
 
@@ -320,7 +330,7 @@ See [data-indexer/README.md](data-indexer/README.md) for detailed configuration 
 
 ## Testing
 
-All 182 tests pass with full coverage of authentication, job management, data indexing, and converter execution:
+The tests cover authentication, job management, data indexing, and converter execution:
 
 ```bash
 # Install test dependencies (in a venv or dev container)
@@ -331,9 +341,39 @@ pytest
 
 # Run a specific module
 pytest tests/test_runner.py -v
+
+# data-indexer's own tests (it has a top-level "app" module of its own, so
+# they run from its directory rather than with the hub's tests)
+cd data-indexer && pytest test_reindex_gate.py test_rinex_station_map.py
 ```
 
 Tests use an in-memory SQLite database and fully mock the Docker SDK — no Docker daemon required.
+
+## Linting
+
+Python is linted and formatted with [ruff](https://docs.astral.sh/ruff/) and
+type-checked with mypy; the browser scripts in `app/static` are linted with
+ESLint. Configuration lives in `pyproject.toml` and `eslint.config.mjs`.
+
+```bash
+pip install -r requirements-dev.txt
+
+ruff check .            # lint (add --fix for the auto-fixable ones)
+ruff format .           # format (--check to only report)
+mypy                    # hub (app/)
+mypy --python-version 3.11 data-indexer/app.py data-indexer/data_indexer.py data-indexer/rinex_station_map.py
+```
+
+mypy runs twice because the data-indexer has its own top-level `app` module
+(and runs on Python 3.11).
+
+ESLint needs Node.js 20+; without a local install, run it in a container:
+
+```bash
+npm ci && npm run lint
+# or
+docker run --rm -v "$PWD:/work" -v ict-hub-node-modules:/work/node_modules -w /work node:22-alpine sh -c "npm ci && npm run lint"
+```
 
 ## Key design decisions
 
