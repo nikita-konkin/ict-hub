@@ -5,13 +5,12 @@ Two tables: User (authentication & role) and JobRun (audit log of every
 container execution). Keeping them in one file makes the data schema easy
 to understand at a glance.
 """
+
 import json
 import re
 from datetime import datetime
 
-from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, String, Text, func
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -305,6 +304,7 @@ class AuditLog(Base):
     snapshot of the attempted/acting name so the entry stays meaningful even if
     the user is later removed.
     """
+
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

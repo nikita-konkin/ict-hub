@@ -2,6 +2,7 @@
 config.py — Central settings loaded from environment variables.
 All values can be overridden via docker-compose environment section or a .env file.
 """
+
 import logging
 import os
 import secrets
@@ -20,14 +21,16 @@ def _is_truthy(value: str | None) -> bool:
 #
 # Known-insecure values that must never be used to sign real sessions. These are
 # the historical placeholder defaults shipped in source / compose / .env.example.
-INSECURE_SECRET_KEYS: frozenset[str] = frozenset({
-    "",
-    "change-me-in-production-please-32chars!!",
-    "replace-me-with-a-random-32-char-string!!",
-    "change-me-in-production",
-    "changeme",
-    "secret",
-})
+INSECURE_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "",
+        "change-me-in-production-please-32chars!!",
+        "replace-me-with-a-random-32-char-string!!",
+        "change-me-in-production",
+        "changeme",
+        "secret",
+    }
+)
 
 # Minimum acceptable length for an operator-supplied key.
 _MIN_SECRET_KEY_LEN = 32
@@ -49,8 +52,7 @@ def _resolve_secret_key() -> str:
             "SECRET_KEY is unset, too short (<%d chars), or a known placeholder. "
             "Generate a strong random value and set it in .env:\n"
             '    python -c "import secrets; print(secrets.token_hex(32))"\n'
-            "(REQUIRE_STRONG_SECRET is enabled, so booting with a weak key is refused.)"
-            % _MIN_SECRET_KEY_LEN
+            "(REQUIRE_STRONG_SECRET is enabled, so booting with a weak key is refused.)" % _MIN_SECRET_KEY_LEN
         )
 
     # Local/dev/test fallback: an EPHEMERAL random key. This is unguessable, so
@@ -77,9 +79,17 @@ ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 # Passwords considered trivially guessable. A seeded admin using one of these
 # (or any password < 8 chars) is flagged must_change_password so the operator is
 # forced to rotate it on first login instead of silently running admin/admin.
-WEAK_ADMIN_PASSWORDS: frozenset[str] = frozenset({
-    "admin", "password", "changeme", "admin123", "root", "letmein", "12345678",
-})
+WEAK_ADMIN_PASSWORDS: frozenset[str] = frozenset(
+    {
+        "admin",
+        "password",
+        "changeme",
+        "admin123",
+        "root",
+        "letmein",
+        "12345678",
+    }
+)
 
 
 def is_weak_admin_password(password: str) -> bool:
@@ -102,7 +112,11 @@ SECURITY_HEADERS_ENABLED: bool = os.getenv("SECURITY_HEADERS_ENABLED", "1").stri
 # Reject cross-origin state-changing requests (browser CSRF defense) by comparing
 # the Origin/Referer host to the request host. On by default; harmless for
 # same-origin browser use and for non-browser clients (which omit Origin).
-CSRF_ORIGIN_CHECK_ENABLED: bool = os.getenv("CSRF_ORIGIN_CHECK_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+CSRF_ORIGIN_CHECK_ENABLED: bool = os.getenv("CSRF_ORIGIN_CHECK_ENABLED", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
 
 # ── Login rate limiting (brute-force / credential-stuffing defense) ───────────
 LOGIN_RATE_LIMIT_ENABLED: bool = os.getenv("LOGIN_RATE_LIMIT_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
@@ -132,14 +146,10 @@ TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: str = os.getenv("TECSUITE_OUT_DAT_DATA_PAT
 TECSUITE_OUT_DAT_DATA_PATH: str = os.getenv("TECSUITE_OUT_DAT_DATA_PATH", "/app/out")
 
 # Docker image name for the dat-parquet handler container
-DAT_PARQUET_IMAGE: str = os.getenv(
-    "DAT_PARQUET_IMAGE", "nikitaikonkin/dat-parquet-handler:latest"
-)
+DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "nikitaikonkin/dat-parquet-handler:latest")
 
 # Docker image name for the AbsTEC Suite container
-ABSTEC_SUITE_IMAGE: str = os.getenv(
-    "ABSTEC_SUITE_IMAGE", "nikitaikonkin/abstec-suite:latest"
-)
+ABSTEC_SUITE_IMAGE: str = os.getenv("ABSTEC_SUITE_IMAGE", "nikitaikonkin/abstec-suite:latest")
 
 # Host path where AbsTEC output should be persisted.
 ABSTEC_OUTPUT_DATA_PATH_HOST: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH_HOST", "")

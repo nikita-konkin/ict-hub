@@ -11,6 +11,7 @@ Design note: Docker's Python SDK is synchronous. All blocking calls are
 offloaded to a thread pool via asyncio.get_event_loop().run_in_executor()
 so they don't block FastAPI's event loop.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _parse_docker_datetime(value: str | None) -> datetime | None:
     raw = str(value or "").strip()
@@ -126,7 +128,10 @@ def start_container(
     client = docker.from_env()
     logger.info(
         "Starting container: image=%s command=%s volumes=%s auto_remove=%s",
-        image, command, list(volumes.keys()), auto_remove
+        image,
+        command,
+        list(volumes.keys()),
+        auto_remove,
     )
     container = client.containers.run(
         image=image,
@@ -168,9 +173,7 @@ def ensure_container_running(name: str) -> str:
         return "started"
     if bool(state.get("Running", False)):
         return "running"
-    logger.info(
-        "Container %s is %s; starting it", name, state.get("Status", "unknown")
-    )
+    logger.info("Container %s is %s; starting it", name, state.get("Status", "unknown"))
     container.start()
     return "started"
 
@@ -247,9 +250,7 @@ async def stream_logs(
     while True:
         # get() is blocking — run it in the executor to avoid blocking the loop
         try:
-            event_type, payload = await loop.run_in_executor(
-                None, lambda: log_queue.get(timeout=15.0)
-            )
+            event_type, payload = await loop.run_in_executor(None, lambda: log_queue.get(timeout=15.0))
         except queue.Empty:
             # Heartbeat: keeps the SSE connection alive during long pauses
             yield ("heartbeat", "")
@@ -349,6 +350,7 @@ def get_container_state(container_id: str) -> dict[str, object]:
 # Progress parsing
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def parse_progress(line: str, patterns: list[str]) -> int | None:
     """
     Try each regex pattern against a log line and return a 0–100 integer if
@@ -384,6 +386,7 @@ def parse_progress(line: str, patterns: list[str]) -> int | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _get_exit_code_only(container_id: str) -> int:
     """

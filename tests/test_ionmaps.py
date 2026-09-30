@@ -33,7 +33,7 @@ def test_ionmaps_page_exposes_tecmap_date_range_contract(client: TestClient):
         script = client.get("/static/js/ionmaps.js").text
         assert 'params.set("year", yearValue);' in script
         assert 'params.set("doy", doyValue);' in script
-        assert 'const effectiveDate = canonicalDate || dateValue;' in script
+        assert "const effectiveDate = canonicalDate || dateValue;" in script
         assert 'params.set("date", effectiveDate);' in script
         assert 'params.set("end_date", endDateValue);' in script
     finally:
@@ -97,7 +97,7 @@ def test_ionmaps_strings_avoid_quotes_that_jinja_escapes(client: TestClient):
     try:
         for lang in ("en", "ru"):
             html = client.get(f"/ionmaps?lang={lang}").text
-            body = html[html.index("page-header"):]
+            body = html[html.index("page-header") :]
             assert "&#39;" not in body, f"{lang}: escaped apostrophe in rendered page"
             assert "&#34;" not in body, f"{lang}: escaped quote in rendered page"
     finally:

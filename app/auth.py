@@ -13,6 +13,7 @@ Routes:
   POST /users           — create a user (admin only)
   POST /users/{id}/toggle — activate/deactivate a user (admin only)
 """
+
 from __future__ import annotations
 
 import logging
@@ -131,7 +132,11 @@ def require_page_access(page: str):
             return current_user
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+            headers={
+                "Location": current_user.default_landing_path()
+                if hasattr(current_user, "default_landing_path")
+                else "/login"
+            },
         )
 
     return _dep
@@ -148,7 +153,11 @@ def require_converter_access():
             return current_user
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": current_user.default_landing_path() if hasattr(current_user, "default_landing_path") else "/login"},
+            headers={
+                "Location": current_user.default_landing_path()
+                if hasattr(current_user, "default_landing_path")
+                else "/login"
+            },
         )
 
     return _dep
@@ -157,6 +166,7 @@ def require_converter_access():
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependencies  (used in other routers via Depends)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
@@ -185,12 +195,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     # needed to complete (or abandon) that flow to avoid a redirect loop.
     if getattr(user, "must_change_password", False):
         path = request.url.path
-        if not (
-            path == "/account/password"
-            or path == "/logout"
-            or path == "/login"
-            or path.startswith("/static/")
-        ):
+        if not (path == "/account/password" or path == "/logout" or path == "/login" or path.startswith("/static/")):
             raise HTTPException(
                 status_code=status.HTTP_303_SEE_OTHER,
                 headers={"Location": "/account/password"},
@@ -227,6 +232,7 @@ def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
 # Password helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def hash_password(password: str) -> str:
     # bcrypt.hashpw requires bytes input and returns bytes; we store as str in the DB
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -240,6 +246,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
@@ -269,8 +276,7 @@ async def login_submit(
     # checking the password, to blunt brute-force / credential-stuffing.
     if login_is_locked(ip, username):
         logger.warning("Login locked out for username=%r from ip=%s", username, ip)
-        audit.record(db, "login.locked", request=request, actor_username=username,
-                     detail="too many failed attempts")
+        audit.record(db, "login.locked", request=request, actor_username=username, detail="too many failed attempts")
         response = templates.TemplateResponse(
             request,
             "login.html",
@@ -309,8 +315,7 @@ async def login_submit(
         return apply_lang_cookie(request, response)
 
     if not user.is_active:
-        audit.record(db, "login.failed", request=request, actor=user,
-                     detail="account deactivated")
+        audit.record(db, "login.failed", request=request, actor=user, detail="account deactivated")
         response = templates.TemplateResponse(
             request,
             "login.html",
@@ -343,8 +348,7 @@ async def logout(request: Request, db: Session = Depends(get_db)):
     request.session.clear()
     if uid:
         user = db.query(User).filter(User.id == uid).first()
-        audit.record(db, "logout", request=request, actor=user,
-                     actor_username=(user.username if user else None))
+        audit.record(db, "logout", request=request, actor=user, actor_username=(user.username if user else None))
     return RedirectResponse("/login", status_code=302)
 
 
@@ -415,8 +419,7 @@ async def create_user(
     db.add(new_user)
     db.commit()
     logger.info("Admin %r created user %r (role=%s)", admin.username, username, role)
-    audit.record(db, "user.create", request=request, actor=admin, target=username,
-                 detail=f"role={role}")
+    audit.record(db, "user.create", request=request, actor=admin, target=username, detail=f"role={role}")
     return RedirectResponse("/users", status_code=302)
 
 
@@ -435,14 +438,16 @@ async def toggle_user(
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
     user.is_active = not user.is_active
     db.commit()
-    audit.record(db, "user.toggle", request=request, actor=admin, target=user.username,
-                 detail=f"is_active={user.is_active}")
+    audit.record(
+        db, "user.toggle", request=request, actor=admin, target=user.username, detail=f"is_active={user.is_active}"
+    )
     return RedirectResponse("/users", status_code=302)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Self-service password change (also the forced-rotation landing page)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/account/password", response_class=HTMLResponse)
 async def change_password_form(
@@ -494,8 +499,7 @@ async def change_password_submit(
         return apply_lang_cookie(request, response)
 
     if not verify_password(current_password, current_user.hashed_pw):
-        audit.record(db, "password.change_failed", request=request, actor=current_user,
-                     detail="wrong current password")
+        audit.record(db, "password.change_failed", request=request, actor=current_user, detail="wrong current password")
         return _render(error=translate(lang, "acct_err_current_wrong"), status_code=400)
 
     if new_password != confirm_password:
@@ -519,6 +523,7 @@ async def change_password_submit(
 # Audit log (admin-only accounting view)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/audit", response_class=HTMLResponse)
 async def audit_log_view(
     request: Request,
@@ -526,12 +531,7 @@ async def audit_log_view(
     admin: User = Depends(get_admin_user),
 ):
     """Admin-only: recent security/accounting events, newest first."""
-    entries = (
-        db.query(AuditLog)
-        .order_by(AuditLog.id.desc())
-        .limit(500)
-        .all()
-    )
+    entries = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(500).all()
     response = templates.TemplateResponse(
         request,
         "audit.html",

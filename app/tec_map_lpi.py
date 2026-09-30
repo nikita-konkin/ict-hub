@@ -51,8 +51,8 @@ EFFECTIVE_WEIGHT = 0.1
 def _solve_local_fit(basis: np.ndarray, weights: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Batched weighted least squares; returns the intercept (= prediction)."""
     k = basis.shape[-1]
-    normal = np.einsum("mnp,mn,mnq->mpq", basis, weights, basis)   # (m, k, k)
-    rhs = np.einsum("mnp,mn,n->mp", basis, weights, values)        # (m, k)
+    normal = np.einsum("mnp,mn,mnq->mpq", basis, weights, basis)  # (m, k, k)
+    rhs = np.einsum("mnp,mn,n->mp", basis, weights, values)  # (m, k)
 
     ridge = SLOPE_RIDGE_FRACTION * (np.trace(normal, axis1=1, axis2=2) + 1e-12)
     for i in range(1, k):
@@ -110,7 +110,7 @@ def lpi_interpolate(
     v = EARTH_RADIUS_KM * (plat[None, :] - glat[:, None]) / sigma
 
     ones = np.ones_like(u)
-    plane_basis = np.stack([ones, u, v], axis=-1)                              # (m, n, 3)
+    plane_basis = np.stack([ones, u, v], axis=-1)  # (m, n, 3)
     prediction = _solve_local_fit(plane_basis, weights, values)
 
     if degree == 2 and n >= MIN_POINTS_FOR_QUADRATIC:
@@ -119,7 +119,7 @@ def lpi_interpolate(
             quad_basis = np.concatenate(
                 [plane_basis[rich], np.stack([u[rich] ** 2, u[rich] * v[rich], v[rich] ** 2], axis=-1)],
                 axis=-1,
-            )                                                                  # (m_rich, n, 6)
+            )  # (m_rich, n, 6)
             prediction[rich] = _solve_local_fit(quad_basis, weights[rich], values)
 
     total_weight = weights.sum(axis=1)

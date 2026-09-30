@@ -4,6 +4,7 @@ feedback.py — Lightweight user feedback / bug report capture.
 Variant A: a quick in-page widget for logged-in users, with an admin-only
 page to review all submissions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -112,6 +113,7 @@ async def submit_feedback(
         if "no such table" in msg and "feedback_reports" in msg:
             try:
                 from app.models import Base
+
                 Base.metadata.create_all(bind=engine)
                 db.rollback()
                 db.add(report)
@@ -146,11 +148,7 @@ async def feedback_admin(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
 ):
-    query = (
-        db.query(FeedbackReport)
-        .options(joinedload(FeedbackReport.user))
-        .order_by(FeedbackReport.created_at.desc())
-    )
+    query = db.query(FeedbackReport).options(joinedload(FeedbackReport.user)).order_by(FeedbackReport.created_at.desc())
     filt = str(status_filter or "").strip().lower()
     if filt in {"new", "seen"}:
         query = query.filter(FeedbackReport.status == filt)
@@ -210,10 +208,7 @@ async def download_feedback_xml(
     admin: User = Depends(get_admin_user),
 ):
     report = (
-        db.query(FeedbackReport)
-        .options(joinedload(FeedbackReport.user))
-        .filter(FeedbackReport.id == report_id)
-        .first()
+        db.query(FeedbackReport).options(joinedload(FeedbackReport.user)).filter(FeedbackReport.id == report_id).first()
     )
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback report not found")

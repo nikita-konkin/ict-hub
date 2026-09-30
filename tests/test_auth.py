@@ -5,6 +5,7 @@ We test the full request lifecycle including cookies and session state,
 not just the route functions in isolation. This gives us confidence that
 the SessionMiddleware, password hashing, and redirect logic all work together.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -141,6 +142,7 @@ class TestUserManagement:
 
         # Verify the user was actually created in the database
         from app.models import User
+
         user = db.query(User).filter(User.username == "newuser").first()
         assert user is not None
         assert user.role == "operator"

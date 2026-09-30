@@ -29,15 +29,22 @@ from typing import TypedDict
 
 import threading
 import errno
+
 # For file watching approach
 try:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
+
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
 
-_WATCHERS_ENABLED: bool = os.getenv("DATA_INDEXER_WATCHERS_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+_WATCHERS_ENABLED: bool = os.getenv("DATA_INDEXER_WATCHERS_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 _MAX_YEARS: int = int(os.getenv("DATA_INDEXER_MAX_YEARS", "0") or "0")
 
 # Set up logging
@@ -49,7 +56,8 @@ logger.info("[MODULE] data_indexer module loaded")
 logger.debug("[MODULE] Debug logging test")
 
 # Minimum seconds between full re-scans
-_CACHE_TTL_SEC: float = float(os.getenv('DATA_INDEXER_CACHE_TTL_SEC', '300.0'))
+_CACHE_TTL_SEC: float = float(os.getenv("DATA_INDEXER_CACHE_TTL_SEC", "300.0"))
+
 
 # Max workers used during filesystem scans (I/O bound).
 def _scan_workers() -> int:
@@ -64,18 +72,17 @@ def _scan_workers() -> int:
         return max(1, min(8, cpu))
     return max(1, min(32, value))
 
+
 # Persistent cache database path
-_CACHE_DB_PATH = os.getenv('DATA_INDEXER_CACHE_DB_PATH', '/app/data/cache.db')
+_CACHE_DB_PATH = os.getenv("DATA_INDEXER_CACHE_DB_PATH", "/app/data/cache.db")
 
 # How stale the previous full index must be before startup indexing runs again.
 # Restarting the service is cheap; re-walking the whole RINEX tree is not, so a
 # restart shortly after a successful index should not trigger another scan.
-_MIN_REINDEX_INTERVAL_SEC: float = float(
-    os.getenv('DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC', '86400')
-)
+_MIN_REINDEX_INTERVAL_SEC: float = float(os.getenv("DATA_INDEXER_MIN_REINDEX_INTERVAL_SEC", "86400"))
 
 # Key used in the meta table for the last completed full index (wall clock).
-_LAST_FULL_INDEX_KEY = 'last_full_index_at'
+_LAST_FULL_INDEX_KEY = "last_full_index_at"
 
 # 2001-09-09. Cache timestamps are wall clock; anything below this was written
 # by an older build using time.monotonic() and must not be treated as a date.
@@ -102,30 +109,30 @@ def _init_cache_db():
         cursor = conn.cursor()
 
         # Create cache table if it doesn't exist
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS cache (
                 cache_key TEXT PRIMARY KEY,
                 cache_type TEXT NOT NULL,
                 data TEXT NOT NULL,
                 timestamp REAL NOT NULL
             )
-        ''')
+        """)
 
         # Create index for faster lookups
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_cache_type_timestamp
             ON cache (cache_type, timestamp)
-        ''')
+        """)
 
         # Service-level markers (e.g. when the last full index completed).
         # Kept separate from the per-path `cache` table because it records a
         # property of the service, not of any one indexed root.
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
                 value REAL NOT NULL
             )
-        ''')
+        """)
 
         conn.commit()
         conn.close()
@@ -139,7 +146,7 @@ def get_last_full_index_time() -> float | None:
     try:
         conn = sqlite3.connect(_CACHE_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT value FROM meta WHERE key = ?', (_LAST_FULL_INDEX_KEY,))
+        cursor.execute("SELECT value FROM meta WHERE key = ?", (_LAST_FULL_INDEX_KEY,))
         row = cursor.fetchone()
         conn.close()
     except Exception as e:
@@ -160,7 +167,7 @@ def set_last_full_index_time(timestamp: float | None = None) -> None:
         conn = sqlite3.connect(_CACHE_DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             (_LAST_FULL_INDEX_KEY, value),
         )
         conn.commit()
@@ -227,16 +234,13 @@ def _load_cache_from_db():
 
         # Load each cache type
         for cache_type, cache_dict in [
-            ('rinex', _rinex_cache),
-            ('tecsuite', _tecsuite_cache),
-            ('abstec', _abstec_cache),
-            ('parquet', _parquet_cache),
-            ('parquet_sat', _parquet_sat_cache)
+            ("rinex", _rinex_cache),
+            ("tecsuite", _tecsuite_cache),
+            ("abstec", _abstec_cache),
+            ("parquet", _parquet_cache),
+            ("parquet_sat", _parquet_sat_cache),
         ]:
-            cursor.execute(
-                'SELECT cache_key, data, timestamp FROM cache WHERE cache_type = ?',
-                (cache_type,)
-            )
+            cursor.execute("SELECT cache_key, data, timestamp FROM cache WHERE cache_type = ?", (cache_type,))
 
             for row in cursor.fetchall():
                 cache_key, data_json, timestamp = row
@@ -274,10 +278,13 @@ def _save_cache_to_db(cache_type: str, cache_key: str, data: tuple):
         data_json = json.dumps(result)
 
         # Insert or replace cache entry
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO cache (cache_key, cache_type, data, timestamp)
             VALUES (?, ?, ?, ?)
-        ''', (cache_key, cache_type, data_json, timestamp))
+        """,
+            (cache_key, cache_type, data_json, timestamp),
+        )
 
         conn.commit()
         conn.close()
@@ -290,18 +297,21 @@ def _save_cache_to_db(cache_type: str, cache_key: str, data: tuple):
 _init_cache_db()
 _load_cache_from_db()
 
+
 def _get_directory_hash(root: Path) -> str:
     """Generate a hash of all files in directory tree for change detection."""
     import hashlib
+
     file_paths = []
     try:
-        for path in root.rglob('*'):
+        for path in root.rglob("*"):
             if path.is_file():
                 file_paths.append(str(path.relative_to(root)))
         file_paths.sort()
-        return hashlib.md5('\n'.join(file_paths).encode()).hexdigest()
+        return hashlib.md5("\n".join(file_paths).encode()).hexdigest()
     except OSError:
         return ""
+
 
 # File watching observers (path → observer)
 if WATCHDOG_AVAILABLE:
@@ -352,6 +362,7 @@ class AbsTecYearInfo(TypedDict):
 
 
 if WATCHDOG_AVAILABLE:
+
     class _RootChangeHandler(FileSystemEventHandler):
         """Invalidate a watched root when filesystem events arrive."""
 
@@ -474,8 +485,8 @@ def _force_refresh_cache(
 
 def _day_sort_key(name: str) -> tuple[int, int, str]:
     """Sort days numerically. For MM/DD format, sort by month then day. For DOY, sort numerically."""
-    if '/' in name:
-        month, day = name.split('/')
+    if "/" in name:
+        month, day = name.split("/")
         return (int(month), int(day), name)
     else:
         return (int(name), len(name), name)
@@ -598,19 +609,13 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
         days: list[DayInfo] = []
 
         with os.scandir(year_entry.path) as it:
-            top_entries = sorted(
-                [e for e in it if e.is_dir() and DAY_DIR_RE.fullmatch(e.name)],
-                key=lambda e: e.name
-            )
+            top_entries = sorted([e for e in it if e.is_dir() and DAY_DIR_RE.fullmatch(e.name)], key=lambda e: e.name)
 
         for top_entry in top_entries:
             with os.scandir(top_entry.path) as it:
                 entries = list(it)
 
-            direct_zips = sum(
-                1 for e in entries
-                if e.is_file() and e.name.lower().endswith('.zip')
-            )
+            direct_zips = sum(1 for e in entries if e.is_file() and e.name.lower().endswith(".zip"))
             if direct_zips:
                 days.append({"day": top_entry.name, "stations": direct_zips})
                 continue
@@ -627,7 +632,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                 if not DAY_IN_MONTH_RE.fullmatch(day_entry.name):
                     continue
                 with os.scandir(day_entry.path) as it2:
-                    stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith('.zip'))
+                    stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith(".zip"))
                 days.append({"day": f"{top_entry.name}/{day_entry.name}", "stations": stations})
 
         if not days:
@@ -646,7 +651,9 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
 
 
 def list_tecsuite_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
-    return _cached_listing("tecsuite", host_root, _scan_tecsuite_parallel, _tecsuite_cache, refresh=refresh, scan_subdir="in")
+    return _cached_listing(
+        "tecsuite", host_root, _scan_tecsuite_parallel, _tecsuite_cache, refresh=refresh, scan_subdir="in"
+    )
 
 
 def list_abstec_output_structure(host_root: str, refresh: bool = False) -> list[AbsTecYearInfo]:
@@ -667,7 +674,10 @@ def list_parquet_output_structure(host_root: str, refresh: bool = False) -> list
 
 
 def list_parquet_satellite_structure(host_root: str, refresh: bool = False) -> list[dict[str, object]]:
-    return _cached_listing("parquet_sat", host_root, _scan_parquet_satellites_parallel, _parquet_sat_cache, refresh=refresh)
+    return _cached_listing(
+        "parquet_sat", host_root, _scan_parquet_satellites_parallel, _parquet_sat_cache, refresh=refresh
+    )
+
 
 def _scan_parquet(root: Path) -> list[dict[str, object]]:
     """Full filesystem scan for parquet output roots."""
@@ -782,7 +792,9 @@ def _scan_parquet_satellites(root: Path) -> list[dict[str, object]]:
                     flat_pq.append(entry)
 
             if stations:
-                logger.debug(f"[PARQUET-SAT] Found {len(stations)} stations: {sorted(stations)[:5]}{'...' if len(stations) > 5 else ''}")
+                logger.debug(
+                    f"[PARQUET-SAT] Found {len(stations)} stations: {sorted(stations)[:5]}{'...' if len(stations) > 5 else ''}"
+                )
                 # Sample the alphabetically first station dir for satellite IDs.
                 # Satellite sets are uniform across stations on the same day.
                 sample_dir = day_dir / min(stations)
@@ -912,10 +924,7 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
             for site_dir in day_dir.iterdir():
                 if not site_dir.is_dir():
                     continue
-                has_dat = any(
-                    e.is_file() and e.name.lower().endswith('.dat')
-                    for e in os.scandir(site_dir)
-                )
+                has_dat = any(e.is_file() and e.name.lower().endswith(".dat") for e in os.scandir(site_dir))
                 if has_dat:
                     logger.debug(f"[TEC-SUITE] Found site with .dat files: {site_dir.name}")
                     sites.append(site_dir.name)
@@ -923,9 +932,7 @@ def _scan_tecsuite(scan_root: Path) -> list[AbsTecYearInfo]:
             # Layout B: YYYY/DDD/SITE.dat  (flat – site name = file stem)
             if not sites:
                 sites = [
-                    entry.stem
-                    for entry in day_dir.iterdir()
-                    if entry.is_file() and entry.suffix.lower() == ".dat"
+                    entry.stem for entry in day_dir.iterdir() if entry.is_file() and entry.suffix.lower() == ".dat"
                 ]
                 if sites:
                     logger.debug(f"[TEC-SUITE] Found flat layout .dat files: {sites}")
@@ -970,10 +977,7 @@ def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
                 if not entry.is_dir():
                     continue
                 try:
-                    has_dat = any(
-                        e.is_file() and e.name.lower().endswith('.dat')
-                        for e in os.scandir(entry.path)
-                    )
+                    has_dat = any(e.is_file() and e.name.lower().endswith(".dat") for e in os.scandir(entry.path))
                 except OSError:
                     has_dat = False
                 if has_dat:
@@ -1021,10 +1025,7 @@ def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
             for site_dir in day_dir.iterdir():
                 if not site_dir.is_dir():
                     continue
-                has_dat = any(
-                    e.is_file() and e.name.lower().endswith('.dat')
-                    for e in os.scandir(site_dir)
-                )
+                has_dat = any(e.is_file() and e.name.lower().endswith(".dat") for e in os.scandir(site_dir))
                 if has_dat:
                     logger.debug(f"[TEC-SUITE] Found site with .dat files: {site_dir.name}")
                     sites.append(site_dir.name)
@@ -1032,9 +1033,7 @@ def _scan_tecsuite_parallel(scan_root: Path) -> list[AbsTecYearInfo]:
             # Layout B: YYYY/DDD/SITE.dat  (flat – site name = file stem)
             if not sites:
                 sites = [
-                    entry.stem
-                    for entry in day_dir.iterdir()
-                    if entry.is_file() and entry.suffix.lower() == ".dat"
+                    entry.stem for entry in day_dir.iterdir() if entry.is_file() and entry.suffix.lower() == ".dat"
                 ]
                 if sites:
                     logger.debug(f"[TEC-SUITE] Found flat layout .dat files: {sites}")

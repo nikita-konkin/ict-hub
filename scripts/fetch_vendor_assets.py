@@ -10,6 +10,7 @@ local-network tool and shouldn't depend on internet access at request time.
 Usage:
     python scripts/fetch_vendor_assets.py
 """
+
 from __future__ import annotations
 
 import re
@@ -21,10 +22,7 @@ VENDOR = ROOT / "app" / "static" / "vendor"
 
 # A real browser UA is required — fonts.googleapis.com serves .ttf to unknown
 # clients and only returns modern woff2 (much smaller) to recognised browsers.
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 FILES = {
     "htmx/htmx.min.js": "https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js",

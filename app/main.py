@@ -5,6 +5,7 @@ This is the entry point Uvicorn runs. It wires together all the middleware,
 routers, static files, and templates, then performs first-boot initialisation
 (creating database tables and a default admin user if none exist).
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Lifespan (replaces deprecated @app.on_event("startup"))
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,10 +76,7 @@ async def lifespan(app: FastAPI):
         # Performance/size guardrails for large job-event tables.
         # This helps pruning queries avoid full-table scans.
         conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id "
-                "ON job_events(job_id, event_type, id)"
-            )
+            text("CREATE INDEX IF NOT EXISTS idx_job_events_job_type_id ON job_events(job_id, event_type, id)")
         )
 
     # If no users exist at all, create a default admin so the system is usable
@@ -115,7 +114,8 @@ async def lifespan(app: FastAPI):
                     flagged = True
                     logger.warning(
                         "Admin %r still uses the default/weak password; flagged for a "
-                        "forced password change on next login.", admin_u.username
+                        "forced password change on next login.",
+                        admin_u.username,
                     )
             if flagged:
                 db.commit()
@@ -212,8 +212,10 @@ async def security_middleware(request: Request, call_next):
         _apply_security_headers(request, response)
     return response
 
+
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
 import os as _os
+
 _os.makedirs("app/static", exist_ok=True)
 
 # Serve CSS / any future static assets
@@ -243,6 +245,7 @@ from fastapi import HTTPException
 from fastapi.responses import RedirectResponse as _RR
 from fastapi.responses import Response as _Response
 
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 303:
@@ -255,4 +258,5 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         return _RR(url=location, status_code=303)
     # For all other HTTP errors, re-raise so FastAPI's default handler runs
     from fastapi.exception_handlers import http_exception_handler as _default
+
     return await _default(request, exc)

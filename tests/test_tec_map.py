@@ -203,7 +203,9 @@ def test_tec_map_gif_route_accepts_cache_only_basemap_mode(client, monkeypatch):
     monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
     monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_CACHE_ROOT", "/mnt/cache")
     monkeypatch.setattr(tec_map_module.cfg, "TEC_MAP_BASEMAP_TILE_SERVER_URL", "http://tiles.test/{z}/{x}/{y}.png")
-    monkeypatch.setattr(tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1], "station": ["aksu"]}))
+    monkeypatch.setattr(
+        tec_map_module, "load_tecs_parquet", lambda **kwargs: pd.DataFrame({"placeholder": [1], "station": ["aksu"]})
+    )
     monkeypatch.setattr(tec_map_module, "build_leveled_links", lambda raw_links, config: raw_links)
     monkeypatch.setattr(tec_map_module, "build_frame_summary", fake_build_frame_summary)
     monkeypatch.setattr(tec_map_module, "build_animation_gif_bytes", fake_build_animation_gif_bytes)
@@ -614,9 +616,7 @@ def test_build_animation_gif_bytes_renders_gdd_field():
     pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
     render = TecMapRenderConfig(field="gdd", signal_band="gps_l5", frame_dpi=50)
 
-    gif_bytes = build_animation_gif_bytes(
-        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
-    )
+    gif_bytes = build_animation_gif_bytes(frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render)
 
     assert gif_bytes[:6] == b"GIF89a"
     assert len(gif_bytes) > 1000
@@ -673,9 +673,7 @@ def test_build_animation_gif_bytes_high_quality_and_upsample():
     pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
     render = TecMapRenderConfig(frame_dpi=50, gif_high_quality=True, upsample_factor=2)
 
-    gif_bytes = build_animation_gif_bytes(
-        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
-    )
+    gif_bytes = build_animation_gif_bytes(frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render)
 
     assert gif_bytes[:6] == b"GIF89a"
     assert len(gif_bytes) > 1000
@@ -693,9 +691,7 @@ def test_build_animation_bytes_mp4_when_imageio_available():
     pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15)
     render = TecMapRenderConfig(frame_dpi=50, animation_format="mp4")
 
-    video_bytes = build_animation_gif_bytes(
-        frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render
-    )
+    video_bytes = build_animation_gif_bytes(frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render)
 
     # MP4 container: 'ftyp' box near the start of the file.
     assert b"ftyp" in video_bytes[:64]
@@ -818,15 +814,18 @@ def test_interpolate_frame_dispatches_to_kriging():
     rng = np.random.default_rng(1)
     rows = []
     for i in range(12):
-        rows.append({
-            "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
-            "station": f"st{i:02d}",
-            "site_lat": 55.0, "site_lon": 50.0,
-            "ipp_lat": float(rng.uniform(52.0, 58.0)),
-            "ipp_lon": float(rng.uniform(46.0, 54.0)),
-            "vtec_tecu": float(rng.uniform(8.0, 12.0)),
-            "samples": 4,
-        })
+        rows.append(
+            {
+                "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+                "station": f"st{i:02d}",
+                "site_lat": 55.0,
+                "site_lon": 50.0,
+                "ipp_lat": float(rng.uniform(52.0, 58.0)),
+                "ipp_lon": float(rng.uniform(46.0, 54.0)),
+                "vtec_tecu": float(rng.uniform(8.0, 12.0)),
+                "samples": 4,
+            }
+        )
     frame = pd.DataFrame(rows)
     grid_lon, grid_lat = np.meshgrid(np.linspace(45.0, 55.0, 11), np.linspace(51.0, 59.0, 9))
 
@@ -849,7 +848,9 @@ def test_interpolate_frame_dispatches_to_kriging():
 
 
 def test_build_animation_gif_bytes_renders_with_kriging():
-    pipeline = TecMapConfig(grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15, interpolation_method="kriging")
+    pipeline = TecMapConfig(
+        grid_resolution_deg=1.0, smoothing_sigma=0.0, frame_minutes=15, interpolation_method="kriging"
+    )
     render = TecMapRenderConfig(frame_dpi=50)
     gif_bytes = build_animation_gif_bytes(frame_summary=_simple_frame_summary(), pipeline=pipeline, render=render)
     assert gif_bytes[:6] == b"GIF89a"
@@ -863,14 +864,18 @@ def _loso_frame_summary(n_stations: int = 12, *, plane: bool = True, seed: int =
         lon = float(rng.uniform(46.0, 54.0))
         lat = float(rng.uniform(52.0, 58.0))
         vtec = 10.0 + 0.8 * (lon - 50.0) + 0.5 * (lat - 55.0) if plane else 7.5
-        rows.append({
-            "frame_time": pd.Timestamp("2026-01-02 09:00:00"),
-            "station": f"st{i:02d}",
-            "site_lat": lat, "site_lon": lon,
-            "ipp_lat": lat, "ipp_lon": lon,
-            "vtec_tecu": float(vtec),
-            "samples": 4,
-        })
+        rows.append(
+            {
+                "frame_time": pd.Timestamp("2026-01-02 09:00:00"),
+                "station": f"st{i:02d}",
+                "site_lat": lat,
+                "site_lon": lon,
+                "ipp_lat": lat,
+                "ipp_lon": lon,
+                "vtec_tecu": float(vtec),
+                "samples": 4,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -949,7 +954,9 @@ def test_predict_at_points_dispatch_and_small_frame_fallback():
 
     # 2 training points: nearest fallback, never raises.
     for method in ("kriging", "lpi"):
-        tiny = predict_at_points(lon[:2], lat[:2], values[:2], target_lon, target_lat, TecMapConfig(interpolation_method=method))
+        tiny = predict_at_points(
+            lon[:2], lat[:2], values[:2], target_lon, target_lat, TecMapConfig(interpolation_method=method)
+        )
         assert np.isfinite(tiny).all()
 
 
@@ -1033,21 +1040,36 @@ def test_lpi_interpolation_plane_constant_and_degenerate_geometry():
     assert np.isfinite(far).all()
 
     # interpolate_frame dispatch: lpi differs from linear, stays in range.
-    frame = pd.DataFrame({
-        "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
-        "station": [f"st{i:02d}" for i in range(30)],
-        "site_lat": pts_lat, "site_lon": pts_lon,
-        "ipp_lat": pts_lat, "ipp_lon": pts_lon,
-        "vtec_tecu": values, "samples": 4,
-    })
+    frame = pd.DataFrame(
+        {
+            "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+            "station": [f"st{i:02d}" for i in range(30)],
+            "site_lat": pts_lat,
+            "site_lon": pts_lon,
+            "ipp_lat": pts_lat,
+            "ipp_lon": pts_lon,
+            "vtec_tecu": values,
+            "samples": 4,
+        }
+    )
     full = np.ones(grid_lon.shape, dtype=bool)
-    lpi_grid = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0), coverage_mask=full)
-    linear_grid = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0), coverage_mask=full)
+    lpi_grid = interpolate_frame(
+        frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0), coverage_mask=full
+    )
+    linear_grid = interpolate_frame(
+        frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="linear", smoothing_sigma=0.0), coverage_mask=full
+    )
     assert not np.allclose(lpi_grid, linear_grid)
     assert np.isfinite(lpi_grid).all()
 
     # Tiny frame falls back to the linear path without raising.
-    tiny_grid = interpolate_frame(frame.head(3), grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0), coverage_mask=full)
+    tiny_grid = interpolate_frame(
+        frame.head(3),
+        grid_lon,
+        grid_lat,
+        TecMapConfig(interpolation_method="lpi", smoothing_sigma=0.0),
+        coverage_mask=full,
+    )
     assert np.isfinite(tiny_grid).all()
 
 
@@ -1083,16 +1105,33 @@ def test_lpi_degree2_quadric_and_fallback_ladder():
     assert np.allclose(d1, d2)
 
     # Dispatch: TecMapConfig.lpi_degree reaches the interpolator.
-    frame = pd.DataFrame({
-        "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
-        "station": [f"st{i:02d}" for i in range(60)],
-        "site_lat": pts_lat, "site_lon": pts_lon,
-        "ipp_lat": pts_lat, "ipp_lon": pts_lon,
-        "vtec_tecu": values, "samples": 4,
-    })
+    frame = pd.DataFrame(
+        {
+            "frame_time": pd.Timestamp("2026-01-02 00:00:00"),
+            "station": [f"st{i:02d}" for i in range(60)],
+            "site_lat": pts_lat,
+            "site_lon": pts_lon,
+            "ipp_lat": pts_lat,
+            "ipp_lon": pts_lon,
+            "vtec_tecu": values,
+            "samples": 4,
+        }
+    )
     full = np.ones(grid_lon.shape, dtype=bool)
-    g1 = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", lpi_degree=1, smoothing_sigma=0.0), coverage_mask=full)
-    g2 = interpolate_frame(frame, grid_lon, grid_lat, TecMapConfig(interpolation_method="lpi", lpi_degree=2, smoothing_sigma=0.0), coverage_mask=full)
+    g1 = interpolate_frame(
+        frame,
+        grid_lon,
+        grid_lat,
+        TecMapConfig(interpolation_method="lpi", lpi_degree=1, smoothing_sigma=0.0),
+        coverage_mask=full,
+    )
+    g2 = interpolate_frame(
+        frame,
+        grid_lon,
+        grid_lat,
+        TecMapConfig(interpolation_method="lpi", lpi_degree=2, smoothing_sigma=0.0),
+        coverage_mask=full,
+    )
     assert not np.allclose(g1, g2)
     assert float(np.abs(g2 - truth).mean()) < float(np.abs(g1 - truth).mean())
 
@@ -1111,9 +1150,17 @@ def test_show_params_caption_appears_under_map():
 
     label = pipeline_params_label(pipeline, render)
     assert label.startswith("Model: ")
-    for token in ("grid 0.5°", "σg 2 cell", "ΔT 15 min", "h_ion 350 km",
-                  "θ_min 20°", "R_cov 300 km", "interp kriging",
-                  "normalize always", "upsample 2×"):
+    for token in (
+        "grid 0.5°",
+        "σg 2 cell",
+        "ΔT 15 min",
+        "h_ion 350 km",
+        "θ_min 20°",
+        "R_cov 300 km",
+        "interp kriging",
+        "normalize always",
+        "upsample 2×",
+    ):
         assert token in label, f"missing {token!r} in {label!r}"
 
     svg = build_frame_image_bytes(
@@ -1222,15 +1269,11 @@ def test_validate_stations_still_flags_typos_when_the_day_exists(tmp_path):
     (day_dir / "nure1800").mkdir(parents=True)
 
     day = pd.Timestamp("2025-06-29")
-    found = _validate_stations_for_range(
-        root=tmp_path, start_day=day, end_day=day, stations=["nikl", "NURE"]
-    )
+    found = _validate_stations_for_range(root=tmp_path, start_day=day, end_day=day, stations=["nikl", "NURE"])
     assert found == ["nikl", "nure"]
 
     with pytest.raises(ValueError) as excinfo:
-        _validate_stations_for_range(
-            root=tmp_path, start_day=day, end_day=day, stations=["nikl", "shny"]
-        )
+        _validate_stations_for_range(root=tmp_path, start_day=day, end_day=day, stations=["nikl", "shny"])
     assert "Unknown stations" in str(excinfo.value)
     assert "shny" in str(excinfo.value)
 

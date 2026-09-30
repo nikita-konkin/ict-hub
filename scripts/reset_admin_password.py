@@ -17,6 +17,7 @@ Or supply the new password via env (avoids it showing in shell history):
 It sets the new password, clears the forced-change flag, and re-activates the
 account if it was disabled. Exit codes: 0 ok, 1 user not found, 2 bad args.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,8 +38,7 @@ def main() -> int:
     new_password = sys.argv[2] if len(sys.argv) > 2 else os.getenv("NEW_ADMIN_PASSWORD", "")
 
     if not new_password:
-        print("ERROR: provide the new password as the 2nd argument or via "
-              "NEW_ADMIN_PASSWORD env.", file=sys.stderr)
+        print("ERROR: provide the new password as the 2nd argument or via NEW_ADMIN_PASSWORD env.", file=sys.stderr)
         return 2
     if len(new_password) < MIN_LEN:
         print(f"ERROR: password must be at least {MIN_LEN} characters.", file=sys.stderr)

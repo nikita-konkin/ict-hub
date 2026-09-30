@@ -6,6 +6,7 @@ data island rendered with t_dict() right before the <script src> tag. A key a
 script looks up with T("...") but its island does not list shows up on the
 page as the raw key; these tests catch that without a browser.
 """
+
 import re
 from pathlib import Path
 

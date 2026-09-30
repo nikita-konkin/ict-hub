@@ -9,6 +9,7 @@ Routes:
   POST /jobs/{id}/stop           — stop a running container
   GET  /history                  — audit log (admins see all, operators see own)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,6 +65,7 @@ def _error_fragment(message: object, status_code: int) -> HTMLResponse:
         f'<div class="alert alert-danger">{escape(message)}</div>',
         status_code=status_code,
     )
+
 
 _HISTORY_MAX_PER_PAGE = 100
 
@@ -199,12 +201,7 @@ def _discover_running_converter_containers(
         if not container_id:
             continue
 
-        existing = (
-            db.query(JobRun.id)
-            .filter(JobRun.container_id == container_id)
-            .order_by(JobRun.id.desc())
-            .first()
-        )
+        existing = db.query(JobRun.id).filter(JobRun.container_id == container_id).order_by(JobRun.id.desc()).first()
         if existing is not None:
             continue
 
@@ -366,6 +363,7 @@ async def _stream_job_logs_direct(
 # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -378,11 +376,7 @@ async def dashboard(
     """
     await run_in_threadpool(_reconcile_running_jobs, db, current_user)
     recent_jobs = (
-        db.query(JobRun)
-        .filter(JobRun.user_id == current_user.id)
-        .order_by(JobRun.started_at.desc())
-        .limit(5)
-        .all()
+        db.query(JobRun).filter(JobRun.user_id == current_user.id).order_by(JobRun.started_at.desc()).limit(5).all()
     )
     response = templates.TemplateResponse(
         request,
@@ -400,6 +394,7 @@ async def dashboard(
 # ─────────────────────────────────────────────────────────────────────────────
 # Converter run page
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/run/{converter_name}", response_class=HTMLResponse)
 async def run_page(
@@ -430,11 +425,7 @@ async def run_page(
     active_job = None
     active_stream_tail: str | int = int(cfg.LOG_PAGELOAD_TAIL_LINES)
     if job_id is not None:
-        candidate = (
-            db.query(JobRun)
-            .filter(JobRun.id == job_id, JobRun.converter == converter_name)
-            .first()
-        )
+        candidate = db.query(JobRun).filter(JobRun.id == job_id, JobRun.converter == converter_name).first()
         if (
             candidate
             and (current_user.is_admin or candidate.user_id == current_user.id)
@@ -478,6 +469,7 @@ async def run_page(
 # Start a job
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.post("/jobs/start", response_class=HTMLResponse)
 async def start_job(
     request: Request,
@@ -504,13 +496,15 @@ async def start_job(
     converter_name = str(form.get("converter_name", ""))
 
     conv = get_converter(converter_name)
-    logger.info("User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form))
+    logger.info(
+        "User %r starting job with converter %r and form data %s", current_user.username, converter_name, dict(form)
+    )
     if not conv:
-        return _error_fragment(f'Unknown converter: {converter_name}', 400)
+        return _error_fragment(f"Unknown converter: {converter_name}", 400)
 
     if not current_user.can_access_converter(converter_name):
         if is_htmx_request:
-            return _error_fragment('Access denied for this converter.', 403)
+            return _error_fragment("Access denied for this converter.", 403)
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Convert form data to a regular dict for processing
@@ -539,7 +533,7 @@ async def start_job(
         command, volumes = build_command(converter_name, form_dict)
     except Exception as exc:
         logger.error("Command build error: %s", exc)
-        return _error_fragment(f'Failed to build command: {exc}', 400)
+        return _error_fragment(f"Failed to build command: {exc}", 400)
 
     # Create the job record before starting the container so we always have
     # an audit trail, even if the container fails to start
@@ -570,8 +564,9 @@ async def start_job(
         )
         job.container_id = container_id
         db.commit()
-        audit.record(db, "job.submit", request=request, actor=current_user,
-                     target=converter_name, detail=f"job_id={job.id}")
+        audit.record(
+            db, "job.submit", request=request, actor=current_user, target=converter_name, detail=f"job_id={job.id}"
+        )
         try:
             await ensure_job_producer(job.id)
         except Exception:
@@ -582,7 +577,7 @@ async def start_job(
         job.finished_at = datetime.now(timezone.utc)
         job.exit_code = -1
         db.commit()
-        return _error_fragment(f'Docker error: {exc}', 500)
+        return _error_fragment(f"Docker error: {exc}", 500)
 
     # HTMX requests get a fragment swap; plain form posts should redirect back
     # to the converter page so the browser URL remains /run/{converter}.
@@ -601,6 +596,7 @@ async def start_job(
 # ─────────────────────────────────────────────────────────────────────────────
 # SSE log stream
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/jobs/{job_id}/stream")
 async def stream_job_logs(
@@ -653,11 +649,7 @@ async def stream_job_logs(
             return after_event_id
 
         max_existing_id = (
-            gen_db.query(JobEvent.id)
-            .filter(JobEvent.job_id == job_id)
-            .order_by(JobEvent.id.desc())
-            .limit(1)
-            .scalar()
+            gen_db.query(JobEvent.id).filter(JobEvent.job_id == job_id).order_by(JobEvent.id.desc()).limit(1).scalar()
         )
         if max_existing_id is None:
             return 0
@@ -679,6 +671,7 @@ async def stream_job_logs(
             if recent_ids:
                 return max(0, min(recent_ids) - 1)
         return 0
+
     async def generate():
         """
         Replay durable events from the database and then poll for newly
@@ -718,11 +711,7 @@ async def stream_job_logs(
 
                 if db_job.status == "running":
                     await ensure_job_producer(job_id)
-                    if (
-                        not saw_durable_event
-                        and last_sent_id == 0
-                        and time.monotonic() >= first_event_deadline
-                    ):
+                    if not saw_durable_event and last_sent_id == 0 and time.monotonic() >= first_event_deadline:
                         logger.warning(
                             "Falling back to direct log streaming for job %s after %.2fs without durable events",
                             job_id,
@@ -765,6 +754,7 @@ async def stream_job_logs(
 # ─────────────────────────────────────────────────────────────────────────────
 # Stop a job
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/jobs/{job_id}/open")
 async def open_job(
@@ -817,6 +807,7 @@ async def stop_job(
 # Job history
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/history", response_class=HTMLResponse)
 async def history(
     request: Request,
@@ -840,12 +831,7 @@ async def history(
     total = query.count()
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(max(page, 1), total_pages)
-    jobs = (
-        query.order_by(JobRun.started_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
+    jobs = query.order_by(JobRun.started_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     response = templates.TemplateResponse(
         request,
         "history.html",

@@ -166,9 +166,7 @@ def _import_pyiri():
         import PyIRI
         import PyIRI.main_library as ml
     except ImportError as exc:  # pragma: no cover - dependency is in requirements
-        raise RuntimeError(
-            "PyIRI is not installed in this environment; the IRI model modes are unavailable."
-        ) from exc
+        raise RuntimeError("PyIRI is not installed in this environment; the IRI model modes are unavailable.") from exc
     return PyIRI, ml
 
 

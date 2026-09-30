@@ -22,6 +22,7 @@ Flag descriptor fields:
   help     — tooltip / description text
   min/max  — for "number" type
 """
+
 from __future__ import annotations
 import re
 import shlex
@@ -65,8 +66,8 @@ CONVERTERS: dict[str, dict] = {
         # Regex patterns used to extract a 0–100 progress value from log lines.
         # Patterns are tried in order; first match wins.
         "progress_patterns": [
-            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===", # === processing day folder: /data/rinex/001 ===
-            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)", # "Completed file 5/20"
+            r"===\s*processing\s+day\s+folder:\s*([^\s]+)\s*===",  # === processing day folder: /data/rinex/001 ===
+            r"Completed.*?(\d+)\s*/\s*(\d+):\s+([\w.]+)",  # "Completed file 5/20"
         ],
         "flags": [
             {
@@ -126,8 +127,7 @@ CONVERTERS: dict[str, dict] = {
         "image": cfg.DAT_PARQUET_IMAGE,
         "label": "DAT <-> Parquet",
         "description": (
-            "Converts tec-suite DAT files to Parquet format (or back), "
-            "preserving the source directory layout."
+            "Converts tec-suite DAT files to Parquet format (or back), preserving the source directory layout."
         ),
         "log_emit_interval_sec": 1.0,
         "progress_patterns": [
@@ -436,9 +436,7 @@ def get_converter(name: str) -> dict | None:
 
 # argparse prints this when handed a flag it does not define. It is the exact
 # symptom of the UI being newer than the converter image it drives.
-_UNRECOGNISED_ARGS_RE = re.compile(
-    r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE
-)
+_UNRECOGNISED_ARGS_RE = re.compile(r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE)
 
 
 def detect_runner_version_skew(log_text: str, converter_name: str | None = None) -> str | None:
@@ -454,9 +452,7 @@ def detect_runner_version_skew(log_text: str, converter_name: str | None = None)
     if not match:
         return None
 
-    flags = " ".join(
-        token for token in match.group("flags").split() if token.startswith("-")
-    )
+    flags = " ".join(token for token in match.group("flags").split() if token.startswith("-"))
     image = ""
     if converter_name:
         conv = CONVERTERS.get(converter_name) or {}

@@ -228,7 +228,7 @@ def test_analysis_page_exposes_cb_plot_contract_updates(client: TestClient):
         assert 'required: ["plot-year", "plot-doy-start", "plot-doy-end", "plot-station"]' in script
         assert 'endpointName === "plots/cb/raw/day-by-day"' in script
         assert 'endpointName === "plots/cb/per-station-averages")' in script
-        assert 'function formatBackendError(payload, fallbackStatus)' in script
+        assert "function formatBackendError(payload, fallbackStatus)" in script
         assert 'setPlotFetchStatus("success", "OK (Fetched)")' in script
     finally:
         app.dependency_overrides.pop(get_current_user, None)

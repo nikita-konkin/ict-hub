@@ -6,6 +6,7 @@ an audit failure must never break the request that triggered it, so all errors
 are swallowed and logged. We capture the direct socket peer as the IP and do NOT
 trust X-Forwarded-For (client-spoofable unless a trusted proxy rewrites it).
 """
+
 from __future__ import annotations
 
 import logging

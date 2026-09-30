@@ -35,7 +35,7 @@ def test_stations_map_page_renders_with_rinex_tree(admin_client: TestClient, mon
     html = response.text
     assert 'id="station-year"' in html
     assert 'id="station-day"' in html
-    assert 'Stations Map' in html
+    assert "Stations Map" in html
     assert '<script src="/static/js/stations-map.js"></script>' in html
     assert "/stations-map/data?" in admin_client.get("/static/js/stations-map.js").text
     assert "2026_original" in html

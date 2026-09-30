@@ -7,6 +7,7 @@ It provides:
   - Authenticated proxy endpoint so users can call analysis APIs from the
     same session without exposing backend internals directly in the UI
 """
+
 from __future__ import annotations
 
 from urllib.parse import urlencode
@@ -116,23 +117,27 @@ async def analysis_index_options(
     abs_scan = cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST.strip()
     abs_tree = await list_parquet_satellite_structure_async(abs_scan) if abs_scan else []
 
-    tec_scan = cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    tec_scan = (
+        cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER.strip() or cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST.strip()
+    )
     tec_tree = await list_parquet_satellite_structure_async(tec_scan) if tec_scan else []
 
     return JSONResponse(content={"absoltec": _build_source_payload(abs_tree), "tec": _build_source_payload(tec_tree)})
 
 
-_HOP_BY_HOP_HEADERS = frozenset({
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "transfer-encoding",
-    "upgrade",
-    "host",
-})
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "host",
+    }
+)
 # The hub session cookie must not reach the backend. Accept-Encoding is left to
 # httpx so the backend only uses encodings httpx can decode; httpx sets its own
 # Content-Length for the forwarded body.
@@ -143,19 +148,11 @@ _DROP_INCOMING_HEADERS = _HOP_BY_HOP_HEADERS | {"content-encoding", "content-len
 
 
 def _filter_outgoing_headers(request: Request) -> dict[str, str]:
-    return {
-        name: value
-        for name, value in request.headers.items()
-        if name.lower() not in _DROP_OUTGOING_HEADERS
-    }
+    return {name: value for name, value in request.headers.items() if name.lower() not in _DROP_OUTGOING_HEADERS}
 
 
 def _filter_incoming_headers(headers: dict[str, str]) -> dict[str, str]:
-    return {
-        name: value
-        for name, value in headers.items()
-        if name.lower() not in _DROP_INCOMING_HEADERS
-    }
+    return {name: value for name, value in headers.items() if name.lower() not in _DROP_INCOMING_HEADERS}
 
 
 @router.api_route("/analysis/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])

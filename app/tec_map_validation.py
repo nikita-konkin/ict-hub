@@ -81,7 +81,11 @@ def predict_at_points(
     if method == "lpi" and len(train_values) >= MIN_POINTS_FOR_LPI:
         return np.asarray(
             lpi_interpolate(
-                train_lon, train_lat, train_values, target_lon, target_lat,
+                train_lon,
+                train_lat,
+                train_values,
+                target_lon,
+                target_lat,
                 degree=int(getattr(pipeline, "lpi_degree", 1)),
             ),
             dtype=float,
@@ -134,8 +138,11 @@ def loso_frame(frame: pd.DataFrame, pipeline: TecMapConfig) -> pd.DataFrame:
         keep = np.arange(n) != i
         predicted = float(
             predict_at_points(
-                lon[keep], lat[keep], values[keep],
-                np.array([lon[i]]), np.array([lat[i]]),
+                lon[keep],
+                lat[keep],
+                values[keep],
+                np.array([lon[i]]),
+                np.array([lat[i]]),
                 pipeline,
                 variogram=variogram,
             )[0]

@@ -152,9 +152,7 @@ def _parse_basemap_mode(value: bool | str | None) -> str:
     if text in {"tile_server", "tileserver", "server", "http", "xyz"}:
         return "tile_server"
 
-    raise ValueError(
-        "Unsupported basemap mode. Use one of: off, cache_only, tile_server, openstreetmap."
-    )
+    raise ValueError("Unsupported basemap mode. Use one of: off, cache_only, tile_server, openstreetmap.")
 
 
 def _normalize_utc_timestamp(value: pd.Timestamp | str) -> pd.Timestamp:
@@ -185,10 +183,12 @@ def _resolve_gif_time_bounds(
     start_time: str,
     end_time: str,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
-    start_is_clock = ("T" not in start_time and " " not in start_time)
-    end_is_clock = ("T" not in end_time and " " not in end_time)
+    start_is_clock = "T" not in start_time and " " not in start_time
+    end_is_clock = "T" not in end_time and " " not in end_time
     if start_is_clock != end_is_clock:
-        raise ValueError("Use either HH:MM:SS values for both `start_time` and `end_time`, or full ISO timestamps for both.")
+        raise ValueError(
+            "Use either HH:MM:SS values for both `start_time` and `end_time`, or full ISO timestamps for both."
+        )
 
     if start_is_clock:
         start_dt = _normalize_utc_timestamp(f"{start_day.date()} {start_time}")
@@ -458,8 +458,12 @@ def tec_map_gif(
     ),
     color_min: float | None = Query(default=None, description="Explicit lower colour-scale limit (field units)."),
     color_max: float | None = Query(default=None, description="Explicit upper colour-scale limit (field units)."),
-    basemap_alpha: float = Query(default=0.28, ge=0.0, le=1.0, description="Basemap tile layer opacity (0 = invisible, 1 = opaque)."),
-    field_alpha: float | None = Query(default=None, ge=0.0, le=1.0, description="Field layer opacity; default 0.72 over a basemap, 0.95 without."),
+    basemap_alpha: float = Query(
+        default=0.28, ge=0.0, le=1.0, description="Basemap tile layer opacity (0 = invisible, 1 = opaque)."
+    ),
+    field_alpha: float | None = Query(
+        default=None, ge=0.0, le=1.0, description="Field layer opacity; default 0.72 over a basemap, 0.95 without."
+    ),
     show_accuracy: bool = Query(
         default=False,
         description="Annotate each frame with its leave-one-station-out accuracy (LOSO RMSE in TECU).",
@@ -480,12 +484,18 @@ def tec_map_gif(
     ),
 ):
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
@@ -737,12 +747,18 @@ def tec_map_snapshot(
         description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
     ),
 ):
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
@@ -877,8 +893,12 @@ def tec_map_frame(
     ),
     color_min: float | None = Query(default=None, description="Explicit lower colour-scale limit (field units)."),
     color_max: float | None = Query(default=None, description="Explicit upper colour-scale limit (field units)."),
-    basemap_alpha: float = Query(default=0.28, ge=0.0, le=1.0, description="Basemap tile layer opacity (0 = invisible, 1 = opaque)."),
-    field_alpha: float | None = Query(default=None, ge=0.0, le=1.0, description="Field layer opacity; default 0.72 over a basemap, 0.95 without."),
+    basemap_alpha: float = Query(
+        default=0.28, ge=0.0, le=1.0, description="Basemap tile layer opacity (0 = invisible, 1 = opaque)."
+    ),
+    field_alpha: float | None = Query(
+        default=None, ge=0.0, le=1.0, description="Field layer opacity; default 0.72 over a basemap, 0.95 without."
+    ),
     show_accuracy: bool = Query(
         default=False,
         description="Annotate the frame with its leave-one-station-out accuracy (LOSO RMSE in TECU).",
@@ -902,12 +922,18 @@ def tec_map_frame(
     Publication-quality static frame (PNG/SVG) — same visual pipeline as one
     animation frame, but at up to 600 dpi. Intended for article figures.
     """
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
@@ -1004,7 +1030,9 @@ def tec_map_validate(
     year: int | None = Query(default=None, ge=2000, le=2100),
     doy: int | None = Query(default=None, ge=1, le=366),
     date: str | None = Query(default=None, description="Optional YYYY-MM-DD; overrides year/doy."),
-    end_date: str | None = Query(default=None, description="Optional YYYY-MM-DD end day for multi-day validation ranges."),
+    end_date: str | None = Query(
+        default=None, description="Optional YYYY-MM-DD end day for multi-day validation ranges."
+    ),
     stations: list[str] = Query(..., min_length=1),
     start_time: str = Query(..., description="ISO timestamp or HH:MM:SS (UTC)."),
     end_time: str = Query(..., description="ISO timestamp or HH:MM:SS (UTC)."),
@@ -1044,12 +1072,18 @@ def tec_map_validate(
     overall, per station and per frame. Only points inside the coverage radius
     of the remaining stations contribute to the headline metrics.
     """
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     try:
         normalize_mode = _parse_normalize_stations(normalize_stations)
@@ -1229,12 +1263,18 @@ def tec_map_series(
     one row per (frame, station) — the same frame aggregation the map is built
     from (values at station IPPs, before any spatial interpolation).
     """
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     output_format = str(format or "csv").strip().lower()
     if output_format not in {"csv", "json"}:
@@ -1349,9 +1389,7 @@ def tec_map_series(
     f107_meta: dict[str, dict[str, float | str]] = {}
     if model_mode == "iri":
         try:
-            iri_vtec, f107_meta = iri_vtec_for_rows(
-                series["frame_time"], series["ipp_lon"], series["ipp_lat"], f107
-            )
+            iri_vtec, f107_meta = iri_vtec_for_rows(series["frame_time"], series["ipp_lon"], series["ipp_lat"], f107)
         except Exception as exc:
             logger.exception("tec-map series: IRI evaluation failed")
             raise HTTPException(status_code=500, detail=f"IRI model evaluation failed: {exc}") from exc
@@ -1360,8 +1398,16 @@ def tec_map_series(
         series["b_k_iri_mhz"] = compute_bk_grid(iri_vtec, frequency_hz)
 
     columns = [
-        "frame_time", "station", "site_lat", "site_lon", "ipp_lat", "ipp_lon", "samples",
-        "vtec_tecu", "gdd_ns_per_ghz", "b_k_mhz",
+        "frame_time",
+        "station",
+        "site_lat",
+        "site_lon",
+        "ipp_lat",
+        "ipp_lon",
+        "samples",
+        "vtec_tecu",
+        "gdd_ns_per_ghz",
+        "b_k_mhz",
     ]
     if model_mode == "iri":
         columns += ["vtec_iri_tecu", "gdd_iri_ns_per_ghz", "b_k_iri_mhz"]
@@ -1437,9 +1483,7 @@ def _group_stations_by_proximity(
     names = sorted(positions)
     lat = np.deg2rad(np.array([positions[n]["lat"] for n in names]))
     lon = np.deg2rad(np.array([positions[n]["lon"] for n in names]))
-    within = (
-        _haversine_km(lon[:, None], lat[:, None], lon[None, :], lat[None, :]) <= float(radius_km)
-    )
+    within = _haversine_km(lon[:, None], lat[:, None], lon[None, :], lat[None, :]) <= float(radius_km)
 
     unassigned = set(range(len(names)))
     groups: list[dict] = []
@@ -1481,12 +1525,18 @@ def tec_map_station_positions(
     day (read from tec-suite parquet header metadata; no data scan), plus a
     proximity grouping so nearby stations can be picked together in the UI.
     """
-    if not (getattr(current_user, "is_admin", False) or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))):
+    if not (
+        getattr(current_user, "is_admin", False)
+        or (hasattr(current_user, "can_access_page") and current_user.can_access_page("analysis"))
+    ):
         raise HTTPException(status_code=403, detail="Forbidden: you do not have access to the Analysis page.")
 
     data_root = _scan_root(cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST)
     if not data_root:
-        raise HTTPException(status_code=503, detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).")
+        raise HTTPException(
+            status_code=503,
+            detail="TEC-suite parquet data root is not configured (PARQUET_OUTPUT_TECSUITE_DATA_PATH_*).",
+        )
 
     try:
         day = _resolve_request_day(year=year, doy=doy, date=date, label="start")
@@ -1521,5 +1571,3 @@ def tec_map_station_positions(
             "groups": groups,
         }
     )
-
-

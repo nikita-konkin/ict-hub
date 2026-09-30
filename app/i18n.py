@@ -1,4 +1,5 @@
 """Simple i18n helpers for EN/RU UI localization."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -362,8 +363,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "flag_label_min_data_rows": "Minimum Data Rows Per Station",
         "flag_help_min_data_rows": (
-            "Skip stations whose .dat files hold fewer than this many usable rows in "
-            "total. 0 disables the check."
+            "Skip stations whose .dat files hold fewer than this many usable rows in total. 0 disables the check."
         ),
         "feedback_button": "Feedback",
         "feedback_title": "Send feedback",

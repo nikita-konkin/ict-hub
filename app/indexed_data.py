@@ -125,7 +125,9 @@ async def indexed_data_page(
         "parquet_tecsuite": _scan_root(
             cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST
         ),
-        "parquet_abstec": _scan_root(cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST),
+        "parquet_abstec": _scan_root(
+            cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST
+        ),
     }
 
     rinex_tree = (

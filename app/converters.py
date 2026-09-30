@@ -12,6 +12,7 @@ holds the per-converter logic around that data:
 Supporting a new converter means a registry entry plus, if it needs either
 behaviour, one function per hook registered in _PAGE_CONTEXT / _PREPARE_FORM.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,9 +57,9 @@ class FormError(Exception):
 class PreparedRun:
     """What prepare_form worked out besides the form fields themselves."""
 
-    input_note: str = ""   # stored as JobRun.rinex_path; empty → the form's "root"
+    input_note: str = ""  # stored as JobRun.rinex_path; empty → the form's "root"
     output_path: str = ""  # stored as JobRun.output_path; empty → the form's "out"
-    notice: str = ""       # shown above the job panel
+    notice: str = ""  # shown above the job panel
 
 
 def is_truthy_checkbox(value: object) -> bool:
@@ -125,6 +126,7 @@ async def _prepare_tec_suite(form: FormData, db: Session) -> PreparedRun:
 # AbsTEC Suite
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 async def _abstec_page() -> dict[str, object]:
     scan_path = _scan_path(cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER, cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)
     return {"abstec_dat_tree": await list_tecsuite_output_structure_async(scan_path) if scan_path else []}
@@ -156,11 +158,7 @@ async def _prepare_dockur_runner(db: Session) -> str:
     # parallel dockur runs gain nothing, blow through timeouts while queued,
     # and can cross-rename same-prefix station outputs from the shared out
     # folder. Allow only one dockur job at a time.
-    running_abstec = (
-        db.query(JobRun)
-        .filter(JobRun.converter == "abstec-suite", JobRun.status == "running")
-        .all()
-    )
+    running_abstec = db.query(JobRun).filter(JobRun.converter == "abstec-suite", JobRun.status == "running").all()
     if any(j.flags.get("runner") == "dockur" for j in running_abstec):
         raise FormError(
             "Another AbsTEC dockur job is already "

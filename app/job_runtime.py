@@ -1,4 +1,5 @@
 """Durable job-event runtime for SSE replay and detached container reconciliation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,8 +24,8 @@ _producer_tasks: dict[int, asyncio.Task[None]] = {}
 _monitor_task: asyncio.Task[None] | None = None
 
 
-_ANSI_ESCAPE_RE = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
-_INVALID_XML_CHAR_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
+_ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_INVALID_XML_CHAR_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
 def _sanitize_xml_text(value: str) -> str:
@@ -300,10 +301,7 @@ async def _monitor_running_jobs() -> None:
         try:
             db = SessionLocal()
             try:
-                running_job_ids = [
-                    row[0]
-                    for row in db.query(JobRun.id).filter(JobRun.status == "running").all()
-                ]
+                running_job_ids = [row[0] for row in db.query(JobRun.id).filter(JobRun.status == "running").all()]
             finally:
                 db.close()
 

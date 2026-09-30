@@ -5,6 +5,7 @@ We mock the Docker runner entirely so these tests don't need a live Docker
 daemon. The mocks let us verify that the routes correctly call the runner
 with the right arguments and handle both success and failure paths.
 """
+
 import json
 from urllib.parse import parse_qs, urlparse
 import pytest
@@ -29,8 +30,11 @@ class TestRunPage:
         # The page should contain the converter label
         assert b"TEC-Suite" in response.content or b"tec-suite" in response.content.lower()
         assert b"Auto-remove container (--rm)" in response.content
-        assert b"Server Folder (host path) is configured from environment variable RINEX_DATA_PATH_HOST." in response.content
-        assert b"for=\"tec-server-root\"" not in response.content
+        assert (
+            b"Server Folder (host path) is configured from environment variable RINEX_DATA_PATH_HOST."
+            in response.content
+        )
+        assert b'for="tec-server-root"' not in response.content
 
     def test_run_page_404_for_unknown_converter(self, operator_client):
         response = operator_client.get("/run/does-not-exist", follow_redirects=True)
@@ -39,20 +43,23 @@ class TestRunPage:
     def test_abstec_run_page_renders_dependent_selectors(self, operator_client):
         response = operator_client.get("/run/abstec-suite", follow_redirects=True)
         assert response.status_code == 200
-        assert b"Input DAT Root (host path) is configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST." in response.content
-        assert b"for=\"abstec-year-select\"" in response.content
-        assert b"for=\"abstec-day-of-year-select\"" in response.content
-        assert b"for=\"abstec-days-select\"" in response.content
-        assert b"for=\"abstec-site-select\"" in response.content
+        assert (
+            b"Input DAT Root (host path) is configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST."
+            in response.content
+        )
+        assert b'for="abstec-year-select"' in response.content
+        assert b'for="abstec-day-of-year-select"' in response.content
+        assert b'for="abstec-days-select"' in response.content
+        assert b'for="abstec-site-select"' in response.content
 
     def test_dat_parquet_run_page_renders_env_backed_path_controls(self, operator_client):
         response = operator_client.get("/run/dat-parquet-handler", follow_redirects=True)
         assert response.status_code == 200
         assert b"Source Dataset" in response.content
-        assert b"for=\"dat-parquet-year-select\"" in response.content
-        assert b"for=\"dat-parquet-day-select\"" in response.content
-        assert b"id=\"dat-parquet-src-preview\"" in response.content
-        assert b"id=\"dat-parquet-dst-preview\"" in response.content
+        assert b'for="dat-parquet-year-select"' in response.content
+        assert b'for="dat-parquet-day-select"' in response.content
+        assert b'id="dat-parquet-src-preview"' in response.content
+        assert b'id="dat-parquet-dst-preview"' in response.content
         assert b"TEC-Suite DAT output" in response.content
         assert b"AbsTEC output" in response.content
 
@@ -128,7 +135,9 @@ class TestRunPage:
         expected_tail = int(jobs_module.cfg.LOG_PAGELOAD_TAIL_LINES)
         assert f'data-stream-url="/jobs/{job.id}/stream?tail={expected_tail}"'.encode() in response.content
 
-    def test_running_job_id_replays_backlog_even_with_resume_flag(self, operator_client, completed_job, db, monkeypatch):
+    def test_running_job_id_replays_backlog_even_with_resume_flag(
+        self, operator_client, completed_job, db, monkeypatch
+    ):
         import app.jobs as jobs_module
         import app.job_runtime as runtime_module
 
@@ -157,6 +166,7 @@ class TestRunPage:
     def test_tec_suite_run_page_calls_async_rinex_indexer(self, operator_client, monkeypatch):
         """GET /run/tec-suite must use list_rinex_server_structure_async (not the sync variant)."""
         import app.converters as converters_module
+
         calls: list[str] = []
 
         async def _fake_rinex_async(host_root: str):
@@ -173,6 +183,7 @@ class TestRunPage:
     def test_abstec_run_page_calls_async_tecsuite_indexer(self, operator_client, monkeypatch):
         """GET /run/abstec-suite must use list_tecsuite_output_structure_async."""
         import app.converters as converters_module
+
         calls: list[str] = []
 
         async def _fake_tecsuite_async(host_root: str):
@@ -189,6 +200,7 @@ class TestRunPage:
     def test_dat_parquet_run_page_calls_all_four_async_indexers(self, operator_client, monkeypatch):
         """GET /run/dat-parquet-handler must call all four async indexers (via asyncio.gather)."""
         import app.converters as converters_module
+
         tecsuite_calls: list[str] = []
         abstec_calls: list[str] = []
         parquet_calls: list[str] = []
@@ -333,10 +345,13 @@ class TestStartJob:
         )
         assert response.status_code == 200
         # The response should be the job_panel.html fragment
-        assert b"sse-connect" in response.content or b"job-output" in response.content or b"log-lines" in response.content
+        assert (
+            b"sse-connect" in response.content or b"job-output" in response.content or b"log-lines" in response.content
+        )
 
         # Verify the JobRun was written to the database
         from app.models import JobRun
+
         job = db.query(JobRun).filter(JobRun.converter == "tec-suite").first()
         assert job is not None
         assert job.container_id == "container123abc"
@@ -416,6 +431,7 @@ class TestStartJob:
             follow_redirects=False,
         )
         from app.models import JobRun
+
         job = db.query(JobRun).filter(JobRun.user_id == operator_user.id).first()
         assert job is not None
 
@@ -440,6 +456,7 @@ class TestStartJob:
             follow_redirects=False,
         )
         from app.models import JobRun
+
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         assert job is not None
         flags = json.loads(job.flags_json)
@@ -547,9 +564,7 @@ class TestStartJob:
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_missing")
     @patch("app.converters.ensure_container_running", return_value="not_found")
-    def test_dockur_job_rejected_when_vm_container_missing(
-        self, mock_ensure, mock_start, operator_client, dockur_env
-    ):
+    def test_dockur_job_rejected_when_vm_container_missing(self, mock_ensure, mock_start, operator_client, dockur_env):
         response = operator_client.post(
             "/jobs/start",
             data=self._start_abstec_dockur_job_data(),
@@ -562,9 +577,7 @@ class TestStartJob:
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_error")
     @patch("app.converters.ensure_container_running", side_effect=RuntimeError("daemon down"))
-    def test_dockur_job_returns_500_when_vm_start_fails(
-        self, mock_ensure, mock_start, operator_client, dockur_env
-    ):
+    def test_dockur_job_returns_500_when_vm_start_fails(self, mock_ensure, mock_start, operator_client, dockur_env):
         response = operator_client.post(
             "/jobs/start",
             data=self._start_abstec_dockur_job_data(),
@@ -577,9 +590,7 @@ class TestStartJob:
 
     @patch("app.jobs.start_container", return_value="container_abstec_wine")
     @patch("app.converters.ensure_container_running", return_value="running")
-    def test_non_dockur_abstec_job_skips_vm_check(
-        self, mock_ensure, mock_start, operator_client, dockur_env
-    ):
+    def test_non_dockur_abstec_job_skips_vm_check(self, mock_ensure, mock_start, operator_client, dockur_env):
         response = operator_client.post(
             "/jobs/start",
             data=self._start_abstec_job_data(),
@@ -718,6 +729,7 @@ class TestStartJob:
     def test_docker_error_returns_error_response(self, mock_start, operator_client, db):
         """If Docker fails to start the container, the route should return an error."""
         import docker.errors
+
         with patch("app.jobs.start_container", side_effect=docker.errors.DockerException("daemon down")):
             response = operator_client.post(
                 "/jobs/start",
@@ -819,7 +831,11 @@ class TestStartJob:
             follow_redirects=False,
         )
         assert response.status_code == 400
-        assert b"day-from" in response.content or b"day_from" in response.content or b"less than or equal" in response.content
+        assert (
+            b"day-from" in response.content
+            or b"day_from" in response.content
+            or b"less than or equal" in response.content
+        )
 
     def test_dat_parquet_day_range_non_numeric_returns_400(self, operator_client):
         """Non-numeric day values should be rejected with 400."""
@@ -831,7 +847,11 @@ class TestStartJob:
         )
         assert response.status_code == 400
         # Should have an error about the day_from value
-        assert b"day-from" in response.content or b"numeric" in response.content.lower() or b"digit" in response.content.lower()
+        assert (
+            b"day-from" in response.content
+            or b"numeric" in response.content.lower()
+            or b"digit" in response.content.lower()
+        )
 
     @patch("app.jobs.start_container", return_value="container_day_from_empty")
     def test_dat_parquet_day_from_empty_is_valid(self, mock_start, operator_client):
@@ -946,6 +966,7 @@ class TestStartJob:
         assert mock_start.called
 
         from app.models import JobRun
+
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         assert job is not None
         flags = json.loads(job.flags_json)
@@ -959,6 +980,7 @@ class TestJobHistory:
         """Operators should only see jobs they submitted themselves."""
         # Create a second job owned by admin — operator must not see it
         from app.models import JobRun
+
         admin_job = JobRun(
             user_id=admin_user.id,
             converter="tec-suite",
@@ -972,8 +994,10 @@ class TestJobHistory:
         assert response.status_code == 200
 
         # The response should contain the operator's job
-        assert b"#" + str(completed_job.id).encode() in response.content or \
-               str(completed_job.id).encode() in response.content
+        assert (
+            b"#" + str(completed_job.id).encode() in response.content
+            or str(completed_job.id).encode() in response.content
+        )
 
     def test_admin_sees_all_jobs(self, admin_client, completed_job, operator_user, db):
         """Admins should see every user's jobs in the history table."""
@@ -985,14 +1009,17 @@ class TestJobHistory:
     def test_history_paginates_correctly(self, operator_client, operator_user, db):
         """With more jobs than per_page, the pagination links should appear."""
         from app.models import JobRun
+
         # Create 30 jobs to trigger pagination (default per_page=25)
         for _ in range(30):
-            db.add(JobRun(
-                user_id=operator_user.id,
-                converter="tec-suite",
-                flags_json="{}",
-                status="success",
-            ))
+            db.add(
+                JobRun(
+                    user_id=operator_user.id,
+                    converter="tec-suite",
+                    flags_json="{}",
+                    status="success",
+                )
+            )
         db.commit()
 
         response = operator_client.get("/history?page=1", follow_redirects=True)
@@ -1069,6 +1096,7 @@ class TestStopJob:
         """An operator should get 403 when trying to stop a job they don't own."""
         # Make the job owned by someone else
         from app.models import User
+
         other = User(username="other", hashed_pw="x", role="operator")
         db.add(other)
         db.commit()
@@ -1224,9 +1252,7 @@ class TestDurableJobEvents:
         assert completed_job.exit_code == 0
 
         done_event = (
-            db.query(JobEvent)
-            .filter(JobEvent.job_id == completed_job.id, JobEvent.event_type == "done")
-            .first()
+            db.query(JobEvent).filter(JobEvent.job_id == completed_job.id, JobEvent.event_type == "done").first()
         )
         assert done_event is not None
         assert "<status>success</status>" in done_event.payload_xml
