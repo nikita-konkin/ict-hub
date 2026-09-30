@@ -7,11 +7,10 @@ import pytest
 
 from app import config
 
-
 PLACEHOLDER = "replace-me-with-a-random-32-char-string!!"
 
 
-@pytest.fixture()
+@pytest.fixture
 def key_file(tmp_path, monkeypatch):
     path = tmp_path / "data" / ".secret_key"
     monkeypatch.setenv("SECRET_KEY_FILE", str(path))

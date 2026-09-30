@@ -23,19 +23,21 @@ Configuration:
 - INDEXER_PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER: AbsTEC parquet path (default: /mnt/abstec-parquet-out)
 """
 
+import logging
 import os
 import threading
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
+
+import dicttoxml
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-import dicttoxml
-import logging
+
 from data_indexer import (
-    list_rinex_server_structure,
-    list_tecsuite_output_structure,
     list_parquet_output_structure,
     list_parquet_satellite_structure,
+    list_rinex_server_structure,
+    list_tecsuite_output_structure,
     stop_all_watchers,
     warm_up_caches,
 )
@@ -115,9 +117,9 @@ def health():
 def indexer_status():
     """Get data indexer status and cache information."""
     import time
-    from data_indexer import _CACHE_TTL_SEC, _rinex_cache, _tecsuite_cache, _parquet_cache, _parquet_sat_cache
 
-    now = time.monotonic()
+    from data_indexer import _CACHE_TTL_SEC, _parquet_cache, _parquet_sat_cache, _rinex_cache, _tecsuite_cache
+
     cache_info = {
         "rinex": {"entries": len(_rinex_cache), "ttl_seconds": _CACHE_TTL_SEC},
         "tecsuite": {"entries": len(_tecsuite_cache), "ttl_seconds": _CACHE_TTL_SEC},
@@ -132,9 +134,9 @@ def indexer_status():
 def rinex_index(root: str = Query(default=DEFAULT_PATHS["rinex"])):
     """Get RINEX server structure as XML."""
     _require_allowed_root(root)
-    logger.info(f"[APP] RINEX endpoint called with root: {root}")
+    logger.info("[APP] RINEX endpoint called with root: %s", root)
     data = list_rinex_server_structure(root)
-    logger.info(f"[APP] RINEX indexing completed, returning {len(data)} years")
+    logger.info("[APP] RINEX indexing completed, returning %s years", len(data))
     return dict_to_xml_response(data, "rinex_structure")
 
 
@@ -201,4 +203,4 @@ def parquet_abstec_satellite_index():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=5001)
+    uvicorn.run(app, host="0.0.0.0", port=5001)  # noqa: S104 - reached through the container port

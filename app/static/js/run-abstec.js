@@ -35,10 +35,6 @@
     });
   }
 
-  function setHiddenFromSelect(selectNode, hiddenNode) {
-    hiddenNode.value = selectedValues(selectNode).join(",");
-  }
-
   function renderChips(containerNode, values) {
     containerNode.innerHTML = "";
     if (!values || values.length === 0) {

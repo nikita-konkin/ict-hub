@@ -15,7 +15,8 @@ from __future__ import annotations
 import html
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import docker.errors
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -171,7 +172,7 @@ async def start_job(
         return _error_fragment(f"Unknown converter: {converter_name}", 400)
 
     # Convert form data to a regular dict for processing
-    form_dict = {k: v for k, v in form.items() if k != "converter_name"}
+    form_dict: dict[str, Any] = {k: v for k, v in form.items() if k != "converter_name"}
     try:
         input_note = prepare_form(converter_name, form_dict)
     except FormError as exc:
@@ -223,7 +224,7 @@ async def start_job(
     except docker.errors.DockerException as exc:
         logger.error("Docker error starting job %s: %s", job.id, exc)
         job.status = "error"
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         job.exit_code = -1
         db.commit()
         return _error_fragment(f"Docker error: {exc}", 500)
@@ -271,18 +272,19 @@ async def stream_job_logs(
     if not current_user.is_admin and job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if not job.container_id:
+    container_id = job.container_id
+    if not container_id:
         raise HTTPException(status_code=400, detail="No container associated with this job")
 
     tail_param = request.query_params.get("tail", "all")
     if tail_param == "all":
-        stream_tail: str | int = "all"
+        stream_tail: Literal["all"] | int = "all"
     else:
         try:
             parsed_tail = int(tail_param)
             stream_tail = max(0, parsed_tail)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid tail parameter")
+            raise HTTPException(status_code=400, detail="Invalid tail parameter") from None
 
     conv = get_converter(job.converter)
     progress_patterns = conv.get("progress_patterns", []) if conv else []
@@ -326,7 +328,7 @@ async def stream_job_logs(
 
         try:
             async for event_type, payload in stream_logs(
-                job.container_id,
+                container_id,
                 progress_patterns,
                 log_emit_interval_sec=float(log_emit_interval_sec),
                 auto_remove=auto_remove,
@@ -340,11 +342,11 @@ async def stream_job_logs(
                 elif event_type == "log":
                     yield sse_event("log", f'<span class="log-line">{payload}</span>')
 
-                elif event_type == "progress":
-                    yield sse_event("progress", int(payload))
+                elif event_type == "progress" and isinstance(payload, int):
+                    yield sse_event("progress", payload)
 
                 elif event_type == "error":
-                    yield sse_event("error", f'<span class="badge badge-danger">Error</span>')
+                    yield sse_event("error", '<span class="badge badge-danger">Error</span>')
                     yield sse_event("log", f'<span class="log-line log-line-error">{payload}</span>')
 
                 elif event_type == "done":
@@ -358,7 +360,7 @@ async def stream_job_logs(
                     # already did (a stop's -2 sentinel must survive).
                     db_job = gen_db.query(JobRun).filter(JobRun.id == job_id).first()
                     if db_job and db_job.status == "running":
-                        db_job.finished_at = datetime.now(timezone.utc)
+                        db_job.finished_at = datetime.now(UTC)
                         db_job.exit_code = exit_code
                         db_job.status = "success" if exit_code == 0 else "failed"
                         gen_db.commit()
@@ -413,7 +415,7 @@ async def stop_job(
         # docker stop waits up to 10 s for the container; don't block the event loop.
         await run_in_threadpool(stop_container, job.container_id)
         job.status = "failed"
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         job.exit_code = -2  # sentinel for "stopped by user"
         db.commit()
 

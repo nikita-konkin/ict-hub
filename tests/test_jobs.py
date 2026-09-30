@@ -7,9 +7,10 @@ with the right arguments and handle both success and failure paths.
 """
 
 import json
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture(autouse=True)
@@ -117,7 +118,6 @@ class TestRunPage:
         import app.converters as converters_module
 
         tecsuite_calls: list[str] = []
-        abstec_calls: list[str] = []
         parquet_calls: list[str] = []
 
         async def _fake_tecsuite_async(host_root: str):

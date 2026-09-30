@@ -33,12 +33,11 @@ Flag descriptor fields:
 """
 
 from __future__ import annotations
-import shlex
+
+import logging
 from typing import Any
 
 from app import config as cfg
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +182,9 @@ CONVERTERS: dict[str, dict] = {
                 "default": "",
                 "required": True,
                 "is_volume": "src",
-                "help": "Host path to the source root directory. Resolved from the selected env-backed dataset profile.",
+                "help": (
+                    "Host path to the source root directory. Resolved from the selected env-backed dataset profile."
+                ),
             },
             {
                 "name": "-d",
@@ -193,7 +194,10 @@ CONVERTERS: dict[str, dict] = {
                 "default": "",
                 "required": False,
                 "is_volume": "dst",
-                "help": "Host path for output. Uses the source path when overwrite is enabled, otherwise the configured parquet output root.",
+                "help": (
+                    "Host path for output. Uses the source path when overwrite is enabled, "
+                    "otherwise the configured parquet output root."
+                ),
             },
             {
                 "name": "--overwrite",
@@ -471,6 +475,6 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
             )
             volumes[output_host_path] = {"bind": output_container_path, "mode": "rw"}
 
-    logger.debug(f"Built command for converter '{converter_name}': {cmd} with volumes {volumes}")
+    logger.debug("Built command for converter '%s': %s with volumes %s", converter_name, cmd, volumes)
 
     return cmd, volumes

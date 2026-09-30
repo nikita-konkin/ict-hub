@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import docker.errors
 
@@ -42,7 +42,7 @@ def record_job_exit(job_id: int, exit_code: int | None) -> None:
         job = db.query(JobRun).filter(JobRun.id == job_id).first()
         if not job or job.status != "running":
             return
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         if exit_code is None:
             job.status = "error"
             job.exit_code = -1

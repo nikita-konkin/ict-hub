@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
-import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -191,8 +191,8 @@ async def _fetch_xml(endpoint: str, root_path: str) -> ET.Element | None:
                 response.text[:180],
             )
         response.raise_for_status()
-        return ET.fromstring(response.text)
-    except Exception as exc:  # noqa: BLE001 - external service errors should be non-fatal
+        return ET.fromstring(response.text)  # noqa: S314 - trusted internal service
+    except Exception as exc:
         logger.warning("data-indexer request failed for %s: %s", endpoint, exc)
         return None
 

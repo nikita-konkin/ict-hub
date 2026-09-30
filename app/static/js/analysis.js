@@ -663,7 +663,7 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
+      .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
 
@@ -937,7 +937,7 @@
     // 1. Flat: { ut/hour/time/x: [...], column1: [...], column2: [...] }
     // 2. Nested: { column1: { x: [...], y: [...] }, column2: { x: [...], y: [...] } }
 
-    let seriesList = [];
+    let seriesList;
     const colors = ["#C4A87A", "#7AB1D6", "#A97D5A", "#6B9BAA", "#D4A574"];
 
     // Detect data structure

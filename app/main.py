@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
                 "Password from ADMIN_PASSWORD env var (default: 'admin'). "
                 "Change it immediately via the Users page."
             )
-        for admin in db.query(User).filter(User.role == "admin", User.is_active == True).all():  # noqa: E712
+        for admin in db.query(User).filter(User.role == "admin", User.is_active.is_(True)).all():
             if verify_password("admin", admin.hashed_pw):
                 logger.warning(
                     "Admin user %r still has the default password 'admin'. Set a new one on the Users page.",

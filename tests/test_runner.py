@@ -6,9 +6,10 @@ They exercise the pure functions that do progress parsing, command building,
 and volume mapping — the logic most likely to break if the registry changes.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, call
+from typing import ClassVar
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Progress parsing
@@ -21,7 +22,7 @@ class TestParseProgress:
     from app.runner import parse_progress
 
     # These patterns come from the tecsuite registry entry
-    PATTERNS = [
+    PATTERNS: ClassVar[list[str]] = [
         r"Day\s+(\d+)\s*/\s*(\d+)",
         r"Processing.*?(\d+)\s*/\s*(\d+)",
         r"(\d+)\s*/\s*(\d+)\s+days",
@@ -232,7 +233,7 @@ class TestBuildCommand:
         """If the user leaves the path blank, no volume should be added for it."""
         from app.registry import build_command
 
-        cmd, volumes = build_command("tec-suite", self._form(root=""))
+        _cmd, volumes = build_command("tec-suite", self._form(root=""))
         assert "N:\\RINEX" not in volumes
 
     def test_dat_parquet_uses_input_output_container_paths(self):
@@ -315,6 +316,7 @@ class TestStartContainer:
     def test_propagates_docker_exception(self, mock_from_env):
         """If Docker raises, the exception should propagate to the caller."""
         import docker.errors
+
         from app.runner import start_container
 
         mock_client = MagicMock()
@@ -349,6 +351,7 @@ class TestStopContainer:
     def test_silently_ignores_missing_container(self, mock_from_env):
         """Stopping an already-removed container should not raise."""
         import docker.errors
+
         from app.runner import stop_container
 
         mock_client = MagicMock()

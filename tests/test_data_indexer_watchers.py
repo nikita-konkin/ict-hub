@@ -40,7 +40,7 @@ class FakeMissingPath(FakePath):
         return False
 
 
-@pytest.fixture()
+@pytest.fixture
 def indexer(monkeypatch):
     module = _load_data_indexer_module(monkeypatch)
     monkeypatch.setattr(module, "Path", FakePath)

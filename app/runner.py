@@ -22,8 +22,8 @@ import queue
 import re
 import threading
 import time
-from datetime import datetime
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Literal
 
 import docker
 import docker.errors
@@ -67,6 +67,8 @@ def start_container(
         remove=auto_remove,
     )
     logger.info("Container started: id=%s", container.short_id)
+    if container.id is None:  # the daemon assigns one to every created container
+        raise RuntimeError("Docker returned a container without an id")
     return container.id
 
 
@@ -75,8 +77,8 @@ async def stream_logs(
     progress_patterns: list[str],
     log_emit_interval_sec: float = 0.0,
     auto_remove: bool = False,
-    tail: str | int = "all",
-) -> AsyncGenerator[tuple[str, str | int], None]:
+    tail: Literal["all"] | int = "all",
+) -> AsyncGenerator[tuple[str, str | int | None], None]:
     """
     Async generator that yields (event_type, payload) tuples by reading a
     container's log stream in a background thread.
@@ -153,10 +155,8 @@ async def stream_logs(
         if event_type == "_eof":
             break
         elif event_type == "exit_code":
-            try:
-                stream_exit_code = int(payload)
-            except (TypeError, ValueError):
-                pass
+            if isinstance(payload, int):
+                stream_exit_code = payload
         elif event_type == "error":
             yield ("error", html.escape(str(payload)))
             break
@@ -169,12 +169,11 @@ async def stream_logs(
                     last_log_emit_at = now
 
             progress = parse_progress(line, progress_patterns)
-            if progress is not None:
-                # Keep progress monotonic for UI stability when multiple
-                # patterns match different scales in the same log stream.
-                if last_progress is None or progress > last_progress:
-                    yield ("progress", progress)
-                    last_progress = progress
+            # Keep progress monotonic for UI stability when multiple
+            # patterns match different scales in the same log stream.
+            if progress is not None and (last_progress is None or progress > last_progress):
+                yield ("progress", progress)
+                last_progress = progress
 
     # Log stream is over — resolve the final exit code. This is None when the
     # stream broke off while the container is still running.
@@ -213,7 +212,7 @@ def wait_for_exit(container_id: str, auto_remove: bool = False) -> int | None:
     client = docker.from_env()
     # An auto-removed container disappears right after it stops; waiting for
     # "removed" still reports its exit status, "not-running" could race the removal.
-    condition = "removed" if auto_remove else "not-running"
+    condition: Literal["removed", "not-running"] = "removed" if auto_remove else "not-running"
     try:
         result = client.api.wait(container_id, timeout=None, condition=condition)
     except docker.errors.NotFound:
@@ -263,10 +262,7 @@ def _line_matches_progress_patterns(line: str, patterns: list[str]) -> bool:
     """Return True if a log line matches at least one configured progress pattern."""
     if not patterns:
         return True
-    for pattern in patterns:
-        if re.search(pattern, line, re.IGNORECASE):
-            return True
-    return False
+    return any(re.search(pattern, line, re.IGNORECASE) for pattern in patterns)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

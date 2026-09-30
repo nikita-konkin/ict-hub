@@ -16,7 +16,7 @@ class _FakeResponse:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-@pytest.fixture()
+@pytest.fixture
 def indexer_serving(monkeypatch):
     """Make every indexer request return the given XML; returns the list of requested URLs."""
     requested: list[str] = []

@@ -49,7 +49,7 @@ def _join_host_path(base_path: str, suffix: str) -> str:
     clean_suffix = str(suffix or "").strip().replace("\\", "/").strip("/")
     if not clean_suffix:
         return base_path
-    return f"{base_path.rstrip('/\\')}/{clean_suffix}"
+    return base_path.rstrip("/\\") + "/" + clean_suffix
 
 
 def _scan_path(container_path: str, host_path: str) -> str:
@@ -69,7 +69,7 @@ _TECSUITE_ROOT_SUBPATH_RE = re.compile(r"^/\d{4}_original(?:/\d{2,3})?$")
 _TECSUITE_ENV_ROOT_NOTE = "Configured from environment variable RINEX_DATA_PATH_HOST"
 
 
-async def _tec_suite_page() -> dict[str, object]:
+async def _tec_suite_page() -> dict[str, Any]:
     host_path = cfg.RINEX_DATA_PATH_HOST
     scan_path = cfg.RINEX_DATA_PATH_CONTAINER or host_path
     return {
@@ -96,7 +96,7 @@ def _prepare_tec_suite(form: FormData) -> str:
 _ABSTEC_ENV_INPUT_NOTE = "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
 
 
-async def _abstec_page() -> dict[str, object]:
+async def _abstec_page() -> dict[str, Any]:
     scan_path = _scan_path(cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER, cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)
     return {"abstec_dat_tree": await list_tecsuite_output_structure_async(scan_path) if scan_path else []}
 
@@ -172,7 +172,7 @@ def _reduce_to_year_days(dat_tree: Tree) -> Tree:
     return reduced
 
 
-async def _dat_parquet_page() -> dict[str, object]:
+async def _dat_parquet_page() -> dict[str, Any]:
     dat_tecsuite = _scan_path(cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER, cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)
     dat_abstec = _scan_path(cfg.ABSTEC_OUTPUT_DATA_PATH_CONTAINER, cfg.ABSTEC_OUTPUT_DATA_PATH_HOST)
     parquet_tecsuite = _scan_path(
@@ -245,7 +245,7 @@ def _prepare_dat_parquet(form: FormData) -> str:
 # Hooks
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, object]]]] = {
+_PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {
     "tec-suite": _tec_suite_page,
     "abstec-suite": _abstec_page,
     "dat-parquet-handler": _dat_parquet_page,
@@ -258,7 +258,7 @@ _PREPARE_FORM: dict[str, Callable[[FormData], str]] = {
 }
 
 
-def _default_page_context() -> dict[str, object]:
+def _default_page_context() -> dict[str, Any]:
     """Variables run.html expects on every converter page."""
     return {
         "tec_rinex_host_path": "",
@@ -275,7 +275,7 @@ def _default_page_context() -> dict[str, object]:
     }
 
 
-async def page_context(converter_name: str) -> dict[str, object]:
+async def page_context(converter_name: str) -> dict[str, Any]:
     """Template variables for a converter's run page."""
     context = _default_page_context()
     hook = _PAGE_CONTEXT.get(converter_name)

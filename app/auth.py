@@ -18,12 +18,12 @@ Routes:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+import bcrypt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-import bcrypt
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -58,7 +58,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/login"},
         )
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
         request.session.clear()
         raise HTTPException(
@@ -152,7 +152,7 @@ async def login_submit(
 
     # Write user_id into the signed session cookie
     request.session["user_id"] = user.id
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(UTC)
     db.commit()
     logger.info("User %r logged in", username)
 

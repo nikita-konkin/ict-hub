@@ -2,7 +2,7 @@ import sys
 
 sys.path.insert(0, "/app")
 print("Testing updated RINEX indexing...")
-from data_indexer import list_rinex_server_structure
+from data_indexer import list_rinex_server_structure  # noqa: E402 - needs the sys.path entry above
 
 print("Function imported successfully")
 print("Starting indexing...")

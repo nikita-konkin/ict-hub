@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypeVar
 
 from fastapi import Request
 from fastapi.responses import Response
+
+ResponseT = TypeVar("ResponseT", bound=Response)
 
 DEFAULT_LANG = "en"
 SUPPORTED_LANGS = {"en", "ru"}
@@ -303,7 +305,7 @@ def template_context(request: Request, context: Mapping[str, Any] | None = None,
     return merged
 
 
-def apply_lang_cookie(request: Request, response: Response) -> Response:
+def apply_lang_cookie(request: Request, response: ResponseT) -> ResponseT:
     """Persist ?lang=xx from the current request into cookie storage."""
     query_lang = request.query_params.get("lang", "").strip().lower()
     if query_lang in SUPPORTED_LANGS:

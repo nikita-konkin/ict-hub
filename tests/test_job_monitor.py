@@ -28,13 +28,13 @@ class _NoCloseSession:
         pass
 
 
-@pytest.fixture()
+@pytest.fixture
 def monitor_db(db, monkeypatch):
     monkeypatch.setattr(job_monitor, "SessionLocal", lambda: _NoCloseSession(db))
     return db
 
 
-@pytest.fixture()
+@pytest.fixture
 def running_job(db, operator_user):
     job = JobRun(
         user_id=operator_user.id,
@@ -54,7 +54,7 @@ def running_job(db, operator_user):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("exit_code, status", [(0, "success"), (3, "failed")])
+@pytest.mark.parametrize(("exit_code", "status"), [(0, "success"), (3, "failed")])
 def test_record_job_exit_sets_outcome(monitor_db, running_job, exit_code, status):
     job_monitor.record_job_exit(running_job.id, exit_code)
 
