@@ -210,6 +210,8 @@ def test_security_headers_present(client):
     assert r.headers.get("X-Content-Type-Options") == "nosniff"
     assert "Content-Security-Policy" in r.headers
     assert "frame-ancestors 'none'" in r.headers["Content-Security-Policy"]
+    # Without it, video falls back to default-src 'self' and IonMaps animations can't play.
+    assert "media-src 'self' blob:" in r.headers["Content-Security-Policy"]
 
 
 # ── Audit trail ───────────────────────────────────────────────────────────────
