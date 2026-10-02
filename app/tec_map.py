@@ -3,26 +3,32 @@ from __future__ import annotations
 import logging
 import math
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app import config as cfg
+from app import tec_map_jobs
 from app.auth import get_current_user_or_401
 from app.models import User
 from app.tec_map_fields import compute_bk_grid, compute_gdd_grid, resolve_signal_band
 from app.tec_map_iri import iri_vtec_for_rows
+from app.tec_map_jobs import AnimationJob, RenderResult
 from app.tec_map_kriging import _haversine_km
+from app.tec_map_parallel import Progress, load_day_summaries
 from app.tec_map_pipeline import (
+    DaySummary,
     TecMapConfig,
     _iter_station_day_parquet_files,
     _parquet_header_metadata_from_schema,
     build_frame_summary,
     build_leveled_links,
+    day_frame_summary,
     load_tecs_parquet,
 )
 from app.tec_map_render import (
@@ -261,52 +267,71 @@ def _build_frame_summary_gif_range(
     end_dt: pd.Timestamp,
     stations: list[str],
     pipeline: TecMapConfig,
+    workers: int = 1,
+    progress: Progress | None = None,
 ) -> pd.DataFrame:
     """
-    Stream the range day by day: load → level → frame summary, keeping only the
-    small per-frame summaries. Peak memory stays bounded by one day regardless
-    of the range length. Arc leveling and MSTD estimation group by date anyway,
-    so the result is identical to processing the whole range at once.
+    Load the range day by day: load → level → frame summary, keeping only the
+    small per-frame summaries. Peak memory is bounded by the days in flight:
+    one, or `workers` when they load in parallel processes. Arc leveling and
+    MSTD estimation group by date anyway, so the result is identical to
+    processing the whole range at once.
     """
-    day_summaries: list[pd.DataFrame] = []
+    days: list[tuple[int, int, pd.Timestamp, pd.Timestamp]] = []
     current_day = start_day.normalize()
     final_day = end_day.normalize()
-
     while current_day <= final_day:
         segment_start = max(start_dt, current_day)
         segment_end = min(end_dt, current_day + timedelta(days=1) - timedelta(microseconds=1))
         if segment_end >= segment_start:
-            y = int(current_day.year)
-            d = int(current_day.timetuple().tm_yday)
-            day_started = time.monotonic()
-            raw_links = load_tecs_parquet(
+            days.append((int(current_day.year), int(current_day.timetuple().tm_yday), segment_start, segment_end))
+        current_day = current_day + timedelta(days=1)
+
+    loaded = 0
+
+    def on_day(day: DaySummary) -> None:
+        nonlocal loaded
+        loaded += 1
+        if day.summary is None:
+            logger.info("tec-map gif: %04d-%03d — no samples for requested stations, day skipped", day.year, day.doy)
+        else:
+            logger.info(
+                "tec-map gif: %04d-%03d — raw=%d leveled=%d frames=%d stations=%d (%.1fs)",
+                day.year,
+                day.doy,
+                day.raw_rows,
+                day.leveled_rows,
+                day.summary["frame_time"].nunique() if not day.summary.empty else 0,
+                day.stations,
+                day.seconds,
+            )
+        if progress:
+            progress("loading", loaded, len(days))
+
+    if workers > 1 and len(days) > 1:
+        results = load_day_summaries(
+            root=root, stations=stations, pipeline=pipeline, days=days, workers=workers, on_day=on_day
+        )
+    else:
+        results = []
+        for year, doy, segment_start, segment_end in days:
+            day = day_frame_summary(
                 root=root,
-                year=y,
-                doy=d,
+                year=year,
+                doy=doy,
                 stations=stations,
                 start_time=segment_start.isoformat(sep=" "),
                 end_time=segment_end.isoformat(sep=" "),
-                min_elevation_deg=pipeline.min_elevation_deg,
+                pipeline=pipeline,
+                # Looked up here so tests can replace them on this module.
+                load=load_tecs_parquet,
+                level=build_leveled_links,
+                summarize=build_frame_summary,
             )
-            if raw_links.empty:
-                logger.info("tec-map gif: %04d-%03d — no samples for requested stations, day skipped", y, d)
-            else:
-                leveled = build_leveled_links(raw_links, pipeline)
-                summary = build_frame_summary(leveled, pipeline)
-                logger.info(
-                    "tec-map gif: %04d-%03d — raw=%d leveled=%d frames=%d stations=%d (%.1fs)",
-                    y,
-                    d,
-                    len(raw_links),
-                    len(leveled),
-                    summary["frame_time"].nunique() if not summary.empty else 0,
-                    raw_links["station"].nunique(),
-                    time.monotonic() - day_started,
-                )
-                if not summary.empty:
-                    day_summaries.append(summary)
-        current_day = current_day + timedelta(days=1)
+            on_day(day)
+            results.append(day)
 
+    day_summaries = [day.summary for day in results if day.summary is not None and not day.summary.empty]
     if not day_summaries:
         return pd.DataFrame()
     return pd.concat(day_summaries, ignore_index=True)
@@ -380,12 +405,26 @@ def _load_single_frame_summary(
     return pd.Timestamp(frame_time), frame_summary
 
 
-@router.get(
-    "/tec-map/gif",
-    response_class=Response,
-    responses={200: {"content": {"image/gif": {}}}},
-)
-def tec_map_gif(
+@dataclass(frozen=True)
+class AnimationRequest:
+    """A validated /tec-map/gif request, ready to render."""
+
+    data_root: str
+    stations: list[str]
+    range_start_dt: pd.Timestamp
+    range_end_dt: pd.Timestamp
+    estimated_frames: int
+    pipeline: TecMapConfig
+    render: TecMapRenderConfig
+    animation_format: str
+    render_quality: str
+    chosen_dpi: int
+    upsample: int
+    basemap_mode: str
+    field_mode: str
+
+
+def _animation_request(
     current_user: User = Depends(get_current_user_or_401),
     year: int | None = Query(default=None, ge=2000, le=2100),
     doy: int | None = Query(default=None, ge=1, le=366),
@@ -479,7 +518,8 @@ def tec_map_gif(
         le=400.0,
         description="Explicit daily adjusted F10.7 for the IRI evaluation; default: automatic (spaceweather.gc.ca, cached).",
     ),
-):
+) -> AnimationRequest:
+    """Parse and check a /tec-map/gif query: 400, 403 or 413 before any data is loaded."""
     # API-style endpoint: keep errors JSON-friendly (no HTML redirects).
     if not (
         getattr(current_user, "is_admin", False)
@@ -618,66 +658,155 @@ def tec_map_gif(
             ),
         )
 
+    return AnimationRequest(
+        data_root=data_root,
+        stations=list(stations),
+        range_start_dt=range_start_dt,
+        range_end_dt=range_end_dt,
+        estimated_frames=estimated_frames,
+        pipeline=pipeline,
+        render=render,
+        animation_format=animation_format,
+        render_quality=render_quality,
+        chosen_dpi=chosen_dpi,
+        upsample=int(upsample),
+        basemap_mode=basemap_mode,
+        field_mode=field_mode,
+    )
+
+
+def render_animation(animation: AnimationRequest, progress: Progress | None = None) -> RenderResult:
+    """
+    Load the range and render the animation. Raises ValueError for a bad
+    request, FileNotFoundError when there is no data, and whatever else
+    rendering raises.
+    """
     request_started = time.monotonic()
     logger.info(
         "tec-map gif: %s..%s stations=%s field=%s format=%s quality=%s frames~%d grid=%.2fdeg dpi=%d upsample=%d basemap=%s",
-        range_start_dt,
-        range_end_dt,
-        ",".join(stations),
-        field_mode,
-        animation_format,
-        render_quality,
-        estimated_frames,
-        pipeline.grid_resolution_deg,
-        chosen_dpi,
-        int(upsample),
-        basemap_mode,
+        animation.range_start_dt,
+        animation.range_end_dt,
+        ",".join(animation.stations),
+        animation.field_mode,
+        animation.animation_format,
+        animation.render_quality,
+        animation.estimated_frames,
+        animation.pipeline.grid_resolution_deg,
+        animation.chosen_dpi,
+        animation.upsample,
+        animation.basemap_mode,
+    )
+    found_stations = _validate_stations_for_range(
+        root=Path(animation.data_root),
+        start_day=animation.range_start_dt.normalize(),
+        end_day=animation.range_end_dt.normalize(),
+        stations=animation.stations,
+    )
+    frame_summary = _build_frame_summary_gif_range(
+        root=Path(animation.data_root),
+        start_day=animation.range_start_dt.normalize(),
+        end_day=animation.range_end_dt.normalize(),
+        start_dt=animation.range_start_dt,
+        end_dt=animation.range_end_dt,
+        stations=found_stations,
+        pipeline=animation.pipeline,
+        workers=min(cfg.TEC_MAP_WORKERS, cfg.TEC_MAP_LOAD_WORKERS),
+        progress=progress,
+    )
+    if frame_summary.empty:
+        raise FileNotFoundError("No samples found for the requested stations/time range.")
+    logger.info(
+        "tec-map gif: rendering %d frames at %d dpi (%s)…",
+        frame_summary["frame_time"].nunique(),
+        animation.chosen_dpi,
+        animation.animation_format,
+    )
+    content = build_animation_gif_bytes(
+        frame_summary=frame_summary,
+        pipeline=animation.pipeline,
+        render=animation.render,
+        workers=cfg.TEC_MAP_WORKERS,
+        progress=progress,
+    )
+    logger.info(
+        "tec-map gif: done — %.1f MB (%s) in %.1fs",
+        len(content) / 1e6,
+        animation.animation_format,
+        time.monotonic() - request_started,
+    )
+    return RenderResult(
+        content=content,
+        media_type=ANIMATION_MEDIA_TYPES[animation.animation_format],
+        filename=f"tec_map.{animation.animation_format}",
     )
 
+
+@router.get(
+    "/tec-map/gif",
+    response_class=Response,
+    responses={200: {"content": {"image/gif": {}}}},
+)
+def tec_map_gif(animation: AnimationRequest = Depends(_animation_request)):
+    """
+    Render an animation within this request. A long range can outlast proxy
+    and browser timeouts; the IonMaps page uses the background jobs below.
+    """
     try:
-        found_stations = _validate_stations_for_range(
-            root=Path(data_root),
-            start_day=range_start_dt.normalize(),
-            end_day=range_end_dt.normalize(),
-            stations=stations,
-        )
-        frame_summary = _build_frame_summary_gif_range(
-            root=Path(data_root),
-            start_day=range_start_dt.normalize(),
-            end_day=range_end_dt.normalize(),
-            start_dt=range_start_dt,
-            end_dt=range_end_dt,
-            stations=found_stations,
-            pipeline=pipeline,
-        )
-        if frame_summary.empty:
-            raise FileNotFoundError("No samples found for the requested stations/time range.")
-        logger.info(
-            "tec-map gif: rendering %d frames at %d dpi (%s)…",
-            frame_summary["frame_time"].nunique(),
-            chosen_dpi,
-            animation_format,
-        )
-        animation_bytes = build_animation_gif_bytes(frame_summary=frame_summary, pipeline=pipeline, render=render)
+        with tec_map_jobs.render_slot:
+            result = render_animation(animation)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("tec-map gif: rendering failed")
-        raise HTTPException(status_code=500, detail=f"TEC map animation rendering failed: {exc}") from exc
-
-    logger.info(
-        "tec-map gif: done — %.1f MB (%s) in %.1fs",
-        len(animation_bytes) / 1e6,
-        animation_format,
-        time.monotonic() - request_started,
-    )
+        raise HTTPException(status_code=500, detail=tec_map_jobs.error_message(exc)) from exc
     return Response(
-        content=animation_bytes,
-        media_type=ANIMATION_MEDIA_TYPES[animation_format],
-        headers={"Content-Disposition": f'inline; filename="tec_map.{animation_format}"'},
+        content=result.content,
+        media_type=result.media_type,
+        headers={"Content-Disposition": f'inline; filename="{result.filename}"'},
     )
+
+
+@router.post("/tec-map/gif/jobs", status_code=202)
+def tec_map_gif_job_start(
+    request: Request,
+    animation: AnimationRequest = Depends(_animation_request),
+    current_user: User = Depends(get_current_user_or_401),
+) -> dict[str, Any]:
+    """
+    Start rendering an animation in the background; takes the same query as
+    GET /tec-map/gif. Poll `status_url`, then fetch `result_url`. The same
+    request again returns the existing job.
+    """
+    key = "&".join(f"{name}={value}" for name, value in sorted(request.query_params.multi_items()))
+    try:
+        job = tec_map_jobs.submit(current_user.id, key, lambda progress: render_animation(animation, progress))
+    except tec_map_jobs.JobLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    return tec_map_jobs.describe(job)
+
+
+def _visible_job(job_id: str, current_user: User) -> AnimationJob:
+    job = tec_map_jobs.get(job_id)
+    if job is None or (job.user_id != current_user.id and not getattr(current_user, "is_admin", False)):
+        raise HTTPException(
+            status_code=404, detail="Animation not found. Finished animations are kept for a few hours."
+        )
+    return job
+
+
+@router.get("/tec-map/gif/jobs/{job_id}")
+def tec_map_gif_job_status(job_id: str, current_user: User = Depends(get_current_user_or_401)) -> dict[str, Any]:
+    return tec_map_jobs.describe(_visible_job(job_id, current_user))
+
+
+@router.get("/tec-map/gif/jobs/{job_id}/result")
+def tec_map_gif_job_result(job_id: str, current_user: User = Depends(get_current_user_or_401)) -> FileResponse:
+    job = _visible_job(job_id, current_user)
+    if job.status != "done":
+        raise HTTPException(status_code=409, detail=f"The animation is not ready yet ({job.status}).")
+    return FileResponse(job.path, media_type=job.media_type, filename=job.filename, content_disposition_type="inline")
 
 
 @router.get("/tec-map/snapshot")

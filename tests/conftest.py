@@ -13,6 +13,7 @@ Key design decisions:
 """
 
 import os
+import tempfile
 
 import docker
 import docker.errors
@@ -24,6 +25,10 @@ from sqlalchemy.orm import sessionmaker
 # Set test database BEFORE importing app modules
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["JOB_RUNTIME_ENABLED"] = "0"
+# TEC map animations render in-process unless a test asks for worker
+# processes, and finished renders go to a throwaway directory.
+os.environ["TEC_MAP_WORKERS"] = "1"
+os.environ["TEC_MAP_RENDER_DIR"] = tempfile.mkdtemp(prefix="tec_map_renders_")
 
 from datetime import UTC
 

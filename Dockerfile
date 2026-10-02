@@ -64,6 +64,12 @@ ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 RUN date -u +%Y-%m-%dT%H:%M:%SZ > /app/BUILD_TIME
 
+# One BLAS/OpenMP thread per process. TEC map animations render in parallel
+# worker processes, and numpy's default of a thread per CPU in each of them
+# oversubscribed the CPUs: a week's animation took 7x longer. The matrices
+# here are small enough that one thread is fastest anyway.
+ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+
 # Expose the HTTP port Uvicorn listens on
 EXPOSE 8000
 

@@ -367,12 +367,41 @@
     lastUrlEl.href = url;
   }
 
+  // " (status): message" for a failed response: the server's JSON `detail`,
+  // or for an HTML page (a proxy's or gateway's error page) its title, never
+  // the whole page.
+  async function responseError(res) {
+    const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
+    const body = await res.text();
+    let message = "";
+    if (contentType.indexOf("json") >= 0) {
+      try {
+        const detail = JSON.parse(body).detail;
+        if (typeof detail === "string") {
+          message = detail;
+        } else if (Array.isArray(detail)) {
+          message = detail.map(function (item) { return item && item.msg ? item.msg : JSON.stringify(item); }).join("; ");
+        }
+      } catch (_) {
+        message = body;
+      }
+    } else if (contentType.indexOf("html") >= 0 || /^\s*</.test(body)) {
+      const title = new DOMParser().parseFromString(body, "text/html").title.trim();
+      message = [502, 503, 504].indexOf(res.status) >= 0
+        ? T("ionmaps_js_gateway_error") + (title ? " (" + title + ")" : "")
+        : title;
+    } else {
+      message = body.trim();
+    }
+    if (message.length > 400) message = message.slice(0, 400) + "…";
+    return " (" + res.status + "): " + (message || res.statusText);
+  }
+
   async function runSnapshot(url) {
     setStatus("info", T("ionmaps_js_fetching_snapshot"));
     const res = await fetch(url, { credentials: "same-origin" });
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(T("ionmaps_js_snapshot_failed") + " (" + res.status + "): " + text);
+      throw new Error(T("ionmaps_js_snapshot_failed") + (await responseError(res)));
     }
 
     const payload = await res.json();
@@ -393,20 +422,63 @@
     setStatus("success", T("ionmaps_js_snapshot_done"));
   }
 
+  function jobProgressText(job) {
+    if (job.status === "queued") {
+      return job.queue_position > 0
+        ? T("ionmaps_js_job_queued_behind").replace("{n}", job.queue_position)
+        : T("ionmaps_js_job_queued");
+    }
+    const label = {
+      loading: T("ionmaps_js_job_loading"),
+      gridding: T("ionmaps_js_job_gridding"),
+      drawing: T("ionmaps_js_job_drawing"),
+      encoding: T("ionmaps_js_job_encoding"),
+    }[job.stage];
+    if (!label || (!job.total && job.stage !== "encoding")) return T("ionmaps_js_rendering");
+    return label.replace("{done}", job.done).replace("{total}", job.total);
+  }
+
+  // The animation renders as a background job: start it, poll its progress,
+  // then download it. Each request is short, so no browser or proxy timeout
+  // can cut off a render that takes many minutes.
   async function runGif(url) {
     setStatus("info", T("ionmaps_js_rendering"));
-    const controller = new AbortController();
-    const timeoutMs = 900000; // 15 min; full-day + multiple stations can be heavy
-    const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
-    let res;
-    try {
-      res = await fetch(url, { credentials: "same-origin", signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
+    const started = await fetch(url.replace("/tec-map/gif?", "/tec-map/gif/jobs?"), {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    if (!started.ok) {
+      throw new Error(T("ionmaps_js_animation_failed") + (await responseError(started)));
     }
+    let job = await started.json();
+    let failedPolls = 0;
+    while (job.status !== "done") {
+      if (job.status === "failed") {
+        throw new Error(T("ionmaps_js_animation_failed") + ": " + (job.error || ""));
+      }
+      setStatus("info", jobProgressText(job));
+      await new Promise(function (resolve) { setTimeout(resolve, 1500); });
+      let res = null;
+      try {
+        res = await fetch(job.status_url, { credentials: "same-origin" });
+      } catch (_) {
+        // network blip; retried below
+      }
+      if (res && res.ok) {
+        job = await res.json();
+        failedPolls = 0;
+        continue;
+      }
+      // A blip (a restart, a proxy hiccup) shouldn't lose a long render.
+      const transient = !res || res.status >= 500;
+      if (transient && ++failedPolls < 10) continue;
+      if (!res) throw new Error(T("ionmaps_js_animation_failed") + ": " + T("ionmaps_js_gateway_error"));
+      throw new Error(T("ionmaps_js_animation_failed") + (await responseError(res)));
+    }
+
+    const res = await fetch(job.result_url, { credentials: "same-origin" });
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(T("ionmaps_js_animation_failed") + " (" + res.status + "): " + text);
+      throw new Error(T("ionmaps_js_animation_failed") + (await responseError(res)));
     }
 
     const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
@@ -566,7 +638,7 @@
       try {
         const res = await fetch(url, { credentials: "same-origin" });
         if (!res.ok) {
-          throw new Error(T("ionmaps_js_frame_failed") + " (" + res.status + "): " + (await res.text()));
+          throw new Error(T("ionmaps_js_frame_failed") + (await responseError(res)));
         }
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -653,7 +725,7 @@
       try {
         const res = await fetch(url, { credentials: "same-origin" });
         if (!res.ok) {
-          throw new Error(T("ionmaps_js_series_failed") + " (" + res.status + "): " + (await res.text()));
+          throw new Error(T("ionmaps_js_series_failed") + (await responseError(res)));
         }
         const disposition = res.headers.get("Content-Disposition") || "";
         const match = disposition.match(/filename="([^"]+)"/);
@@ -753,7 +825,7 @@
       try {
         const res = await fetch(url, { credentials: "same-origin" });
         if (!res.ok) {
-          throw new Error(T("ionmaps_js_validation_failed") + " (" + res.status + "): " + (await res.text()));
+          throw new Error(T("ionmaps_js_validation_failed") + (await responseError(res)));
         }
         const payload = await res.json();
         renderValidationTable(payload);
@@ -870,11 +942,7 @@
         await runSnapshot(url);
       }
     } catch (err) {
-      if (err && typeof err === "object" && err.name === "AbortError") {
-        setStatus("error", T("ionmaps_js_gif_timeout"));
-      } else {
-        setStatus("error", err instanceof Error ? err.message : String(err));
-      }
+      setStatus("error", err instanceof Error ? err.message : String(err));
     }
   });
 })();
