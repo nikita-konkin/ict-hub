@@ -215,6 +215,8 @@ def _apply_security_headers(request: Request, response) -> None:
         "Content-Security-Policy",
         "default-src 'self'; "
         "img-src 'self' data: blob: http: https:; "
+        # IonMaps plays a rendered MP4/WebM from a blob: URL.
+        "media-src 'self' blob:; "
         "style-src 'self' 'unsafe-inline'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
         "connect-src 'self'; font-src 'self' data:; "

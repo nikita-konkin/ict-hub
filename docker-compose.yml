@@ -108,6 +108,14 @@ services:
       # Leave empty in .env to disable the "XYZ tile server (HTTP)" option.
       TEC_MAP_BASEMAP_TILE_SERVER_URL: ${TEC_MAP_BASEMAP_TILE_SERVER_URL:-}
 
+      # ── TEC Map animation workers ────────────────────────────────────────
+      # Animations render one at a time, in up to TEC_MAP_WORKERS processes
+      # (keep it at or below the cpus limit below). TEC_MAP_LOAD_WORKERS days
+      # load at once, each holding ~1.3 GB for 19 stations, so it sets the
+      # memory a long range needs; 7 loads a week in one go.
+      TEC_MAP_WORKERS: ${TEC_MAP_WORKERS:-12}
+      TEC_MAP_LOAD_WORKERS: ${TEC_MAP_LOAD_WORKERS:-7}
+
       # ── Data Indexer Service ─────────────────────────────────────────────
       DATA_INDEXER_URL: ${DATA_INDEXER_URL:-http://data-indexer:5001}
       DATA_INDEXER_TIMEOUT_SEC: ${DATA_INDEXER_TIMEOUT_SEC:-120}
@@ -150,13 +158,14 @@ services:
       - "host.docker.internal:host-gateway"
 
     # ── Resource limits ───────────────────────────────────────────────────
-    # TEC-map rendering loads per-day GNSS dataframes (~0.5 GB peak for a
-    # 10-station day) and renders hundreds of matplotlib frames, so the old
-    # 1G limit caused OOM kills on multi-day GIF requests. Adjust freely.
+    # TEC-map animations load days in parallel (~1.3 GB each for 19 stations,
+    # TEC_MAP_LOAD_WORKERS at a time) and draw frames in TEC_MAP_WORKERS
+    # processes. The cpus limit keeps them to a share of a shared server.
     deploy:
       resources:
         limits:
-          memory: 4G
+          cpus: ${CONVERTER_HUB_CPUS:-12}
+          memory: ${CONVERTER_HUB_MEMORY:-16G}
 
     healthcheck:
       test: ["CMD", "python", "-c",

@@ -272,3 +272,14 @@ TEC_MAP_BASEMAP_FALLBACK_TO_PLAIN: bool = os.getenv("TEC_MAP_BASEMAP_FALLBACK_TO
     "false",
     "no",
 }
+
+# Worker processes for one TEC map animation (drawing frames, and the cap for
+# loading days). Animations render one at a time, so this is also the most
+# CPU cores they ever use together. 1 renders in the web process itself.
+TEC_MAP_WORKERS: int = max(1, int(os.getenv("TEC_MAP_WORKERS", str(min(4, os.cpu_count() or 1)))))
+# Days of a range loaded at once. Each one in flight holds that day's raw
+# samples, about 1.3 GB for 19 stations, so this bounds memory.
+TEC_MAP_LOAD_WORKERS: int = max(1, int(os.getenv("TEC_MAP_LOAD_WORKERS", "4")))
+# Finished animations wait here for download, and are deleted after the TTL.
+TEC_MAP_RENDER_DIR: str = os.getenv("TEC_MAP_RENDER_DIR", "/app/data/tec_map_renders")
+TEC_MAP_RENDER_TTL_SEC: int = int(os.getenv("TEC_MAP_RENDER_TTL_SEC", str(6 * 3600)))

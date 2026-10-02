@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as _date
@@ -819,6 +820,62 @@ def build_frame_summary(leveled_links: pd.DataFrame, config: TecMapConfig) -> pd
         raise RuntimeError("Frame summary is empty; widen the time window or relax the filters.")
 
     return frame_summary
+
+
+@dataclass(frozen=True)
+class DaySummary:
+    """One day of a multi-day map range, reduced to its per-frame summary."""
+
+    year: int
+    doy: int
+    raw_rows: int
+    leveled_rows: int
+    stations: int  # stations with samples that day
+    summary: pd.DataFrame | None  # None when the stations have no samples that day
+    seconds: float
+
+
+def day_frame_summary(
+    *,
+    root: Path,
+    year: int,
+    doy: int,
+    stations: list[str],
+    start_time: str,
+    end_time: str,
+    pipeline: TecMapConfig,
+    load: Any = None,
+    level: Any = None,
+    summarize: Any = None,
+) -> DaySummary:
+    """
+    Load, level and summarize one day. Arc leveling and MSTD estimation group
+    by date anyway, so days are independent and can run in parallel. `load`,
+    `level` and `summarize` default to this module's functions.
+    """
+    started = time.monotonic()
+    raw_links = (load or load_tecs_parquet)(
+        root=root,
+        year=year,
+        doy=doy,
+        stations=stations,
+        start_time=start_time,
+        end_time=end_time,
+        min_elevation_deg=pipeline.min_elevation_deg,
+    )
+    if raw_links.empty:
+        return DaySummary(year, doy, 0, 0, 0, None, time.monotonic() - started)
+    leveled = (level or build_leveled_links)(raw_links, pipeline)
+    summary = (summarize or build_frame_summary)(leveled, pipeline)
+    return DaySummary(
+        year,
+        doy,
+        len(raw_links),
+        len(leveled),
+        int(raw_links["station"].nunique()),
+        summary,
+        time.monotonic() - started,
+    )
 
 
 # ---------------------------------------------------------------------------

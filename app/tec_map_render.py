@@ -13,6 +13,7 @@ import logging
 import math
 import os
 import tempfile
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ from app.tec_map_fields import (
 from app.tec_map_iri import iri_vtec_grid_for_frames
 from app.tec_map_kriging import MIN_POINTS_FOR_KRIGING, kriging_interpolate
 from app.tec_map_lpi import MIN_POINTS_FOR_LPI, lpi_interpolate
+from app.tec_map_parallel import Progress, process_pool
 from app.tec_map_pipeline import TecMapConfig
 from app.tec_map_validation import frame_accuracy_label
 
@@ -1181,12 +1183,104 @@ def _bounds_for_frame_summary(frame_summary: pd.DataFrame) -> tuple[float, float
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class FrameRenderContext:
+    """What every frame of one animation shares; sent once to each worker."""
+
+    station_positions: pd.DataFrame
+    grid_lon: np.ndarray
+    grid_lat: np.ndarray
+    bounds: tuple[float, float, float, float]
+    color_limits: tuple[float, float]
+    basemap_layer: BasemapLayer | None
+    pipeline: TecMapConfig
+    render: TecMapRenderConfig
+    model_mode: str
+    params_label: str | None
+
+    def field_spec(self) -> dict[str, Any]:
+        # Rebuilt rather than stored: a spec holds lambdas, which can't be
+        # pickled for a worker process.
+        spec = _field_render_spec(self.render.field, self.render.signal_band)
+        return model_render_spec(spec, self.model_mode) if self.model_mode != "off" else spec
+
+
+def draw_animation_frame(
+    ctx: FrameRenderContext,
+    field_spec: dict[str, Any],
+    frame_time: pd.Timestamp,
+    frame: pd.DataFrame,
+    grid: np.ndarray,
+) -> bytes:
+    annotations: list[str] = []
+    if ctx.render.show_accuracy:
+        loso = frame_accuracy_label(frame, ctx.pipeline)
+        if loso:
+            annotations.append(loso)
+    if ctx.model_mode == "difference":
+        diff = model_difference_label(grid, field_spec.get("hover_unit", ""))
+        if diff:
+            annotations.append(diff)
+    return render_frame_png_bytes(
+        frame_time=frame_time,
+        frame=frame,
+        station_positions=ctx.station_positions,
+        grid_lon=ctx.grid_lon,
+        grid_lat=ctx.grid_lat,
+        grid=grid,
+        bounds=ctx.bounds,
+        color_limits=ctx.color_limits,
+        basemap_layer=ctx.basemap_layer,
+        pipeline=ctx.pipeline,
+        render=ctx.render,
+        field_spec=field_spec,
+        accuracy_label="\n".join(annotations) or None,
+        params_label=ctx.params_label,
+    )
+
+
+# A drawing worker's context and field spec, set once when the worker starts.
+_worker_frame_context: tuple[FrameRenderContext, dict[str, Any]] | None = None
+
+
+def _init_frame_worker(ctx: FrameRenderContext) -> None:
+    global _worker_frame_context
+    _worker_frame_context = (ctx, ctx.field_spec())
+
+
+def _draw_frame_in_worker(item: tuple[pd.Timestamp, pd.DataFrame, np.ndarray]) -> bytes:
+    if _worker_frame_context is None:
+        raise RuntimeError("Frame worker started without its render context.")
+    ctx, field_spec = _worker_frame_context
+    return draw_animation_frame(ctx, field_spec, *item)
+
+
+def _draw_frames(
+    ctx: FrameRenderContext,
+    field_spec: dict[str, Any],
+    frames: list[tuple[pd.Timestamp, pd.DataFrame, np.ndarray]],
+    workers: int,
+) -> Iterator[bytes]:
+    """PNG bytes of each frame, in order; drawn by `workers` processes when above 1."""
+    if workers <= 1 or len(frames) < 2:
+        for frame_time, frame, grid in frames:
+            yield draw_animation_frame(ctx, field_spec, frame_time, frame, grid)
+        return
+    pool = process_pool(min(workers, len(frames)), initializer=_init_frame_worker, initargs=(ctx,))
+    try:
+        yield from pool.map(_draw_frame_in_worker, frames, chunksize=4)
+    finally:
+        pool.shutdown(cancel_futures=True)
+
+
 def build_animation_gif_bytes(
     *,
     frame_summary: pd.DataFrame,
     pipeline: TecMapConfig,
     render: TecMapRenderConfig,
     max_frames: int = 800,
+    workers: int = 1,
+    progress: Progress | None = None,
 ) -> bytes:
     if frame_summary.empty:
         raise RuntimeError("frame_summary is empty.")
@@ -1226,7 +1320,9 @@ def build_animation_gif_bytes(
             [pd.Timestamp(ft) for ft, _ in frame_groups], plot_grid_lon, plot_grid_lat, field_spec, render
         )
 
-    for frame_time, frame in frame_groups:
+    for index, (frame_time, frame) in enumerate(frame_groups, start=1):
+        if progress:
+            progress("gridding", index, len(frame_groups))
         ts = pd.Timestamp(frame_time)
         if model_mode == "iri":
             grid = model_grids[ts]
@@ -1258,38 +1354,29 @@ def build_animation_gif_bytes(
     if params_label and f107_meta:
         params_label = f"{params_label} | IRI F10.7: {_f107_caption(f107_meta)}"
 
-    def _frame_annotation(frame: pd.DataFrame, grid: np.ndarray) -> str | None:
-        parts: list[str] = []
-        if render.show_accuracy:
-            loso = frame_accuracy_label(frame, pipeline)
-            if loso:
-                parts.append(loso)
-        if model_mode == "difference":
-            diff = model_difference_label(grid, field_spec.get("hover_unit", ""))
-            if diff:
-                parts.append(diff)
-        return "\n".join(parts) or None
+    ctx = FrameRenderContext(
+        station_positions=station_positions,
+        grid_lon=plot_grid_lon,
+        grid_lat=plot_grid_lat,
+        bounds=bounds,
+        color_limits=(float(vmin), float(vmax)),
+        basemap_layer=basemap_layer,
+        pipeline=pipeline,
+        render=render,
+        model_mode=model_mode,
+        params_label=params_label,
+    )
 
     def rendered_png_frames():
-        for idx, (frame_time, frame, grid) in enumerate(computed_frames):
-            if idx % 25 == 0:
-                logger.info("tec-map render: frame %d/%d (%s)", idx + 1, total_frames, frame_time)
-            yield render_frame_png_bytes(
-                frame_time=frame_time,
-                frame=frame,
-                station_positions=station_positions,
-                grid_lon=plot_grid_lon,
-                grid_lat=plot_grid_lat,
-                grid=grid,
-                bounds=bounds,
-                color_limits=(float(vmin), float(vmax)),
-                basemap_layer=basemap_layer,
-                pipeline=pipeline,
-                render=render,
-                field_spec=field_spec,
-                accuracy_label=_frame_annotation(frame, grid),
-                params_label=params_label,
-            )
+        frames = _draw_frames(ctx, field_spec, computed_frames, workers)
+        for index, png_bytes in enumerate(frames, start=1):
+            if index % 25 == 1:
+                logger.info("tec-map render: frame %d/%d (%s)", index, total_frames, computed_frames[index - 1][0])
+            if progress:
+                progress("drawing", index, total_frames)
+            yield png_bytes
+        if progress:
+            progress("encoding", total_frames, total_frames)
 
     duration_seconds = max(float(render.gif_frame_duration_seconds), 0.02)
     if animation_format == "gif":
