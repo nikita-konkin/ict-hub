@@ -37,6 +37,7 @@
   const loadButton = document.getElementById("stations-map-load");
   const refreshButton = document.getElementById("stations-map-refresh");
   const labelsCheckbox = document.getElementById("stations-map-labels");
+  const backgroundSelect = document.getElementById("stations-map-background");
   const summaryEl = document.getElementById("stations-map-summary");
   const statusEl = document.getElementById("stations-map-status");
   const plotEl = document.getElementById("stations-map-plot");
@@ -144,8 +145,64 @@
     return Number.isFinite(num) ? num : NaN;
   }
 
+  const BACKGROUND_STORAGE_KEY = "converterhub-stations-map-background";
+  const LABEL_FONT = "Open Sans Regular";
+
+  function useOsm() {
+    return !backgroundSelect || backgroundSelect.value !== "outline";
+  }
+
+  // OpenStreetMap raster tiles for Plotly's MapLibre map. Station labels are
+  // drawn from glyphs the hub serves (scripts/fetch_vendor_assets.py).
+  function osmStyle() {
+    const dark = document.documentElement.getAttribute("data-theme") !== "light";
+    return {
+      version: 8,
+      glyphs: `${window.location.origin}/static/vendor/maplibre/glyphs/{fontstack}/{range}.pbf`,
+      sources: {
+        osm: {
+          type: "raster",
+          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+          tileSize: 256,
+          maxzoom: 19,
+          attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+        },
+      },
+      layers: [{
+        id: "osm",
+        type: "raster",
+        source: "osm",
+        // Dark theme: invert the tiles' brightness, then turn the hues back
+        // so that water stays blue and parks green.
+        paint: dark
+          ? { "raster-brightness-min": 0.85, "raster-brightness-max": 0.08, "raster-hue-rotate": 180, "raster-saturation": -0.35 }
+          : {},
+      }],
+    };
+  }
+
+  // Center and zoom that fit every station into a Web Mercator map of the given size.
+  function fitView(points, width, height) {
+    const mercatorY = (lat) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
+    const lons = points.map((point) => point.lon);
+    const ys = points.map((point) => mercatorY(point.lat));
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const midY = (minY + maxY) / 2;
+    // MapLibre's world is 512 px wide at zoom 0.
+    const zoomX = Math.log2((width * 360) / (512 * Math.max(maxLon - minLon, 1e-6)));
+    const zoomY = Math.log2((height * 2 * Math.PI) / (512 * Math.max(maxY - minY, 1e-6)));
+    return {
+      center: { lon: (minLon + maxLon) / 2, lat: (Math.atan(Math.exp(midY)) * 360) / Math.PI - 90 },
+      // A margin for markers and labels at the edges; a lone station gets a town-scale view.
+      zoom: Math.max(0, Math.min(zoomX, zoomY, 10) - 0.3),
+    };
+  }
+
   async function renderPlot(payload) {
-    if (!plotEl) return;
+    if (!plotEl) return true;
     if (!window.Plotly) {
       throw new Error("Plotly is not available in the browser.");
     }
@@ -161,10 +218,18 @@
     if (!points.length) {
       window.Plotly.purge(plotEl);
       plotEl.innerHTML = `<div class="station-map-empty">${escapeHtml(T("stations_map_empty"))}</div>`;
-      return;
+      state.plotted = null;
+      return true;
     }
 
-    window.Plotly.purge(plotEl);
+    const osm = useOsm();
+    const background = osm ? "osm" : "outline";
+    // A different kind of map, or the empty message, needs a fresh plot;
+    // otherwise Plotly.react updates the plot in place.
+    if (state.plotted !== background) {
+      window.Plotly.purge(plotEl);
+      plotEl.innerHTML = "";
+    }
     const showLabels = labelsCheckbox && labelsCheckbox.checked;
 
     const categories = [
@@ -202,23 +267,28 @@
         stationLabel(point.item),
       ]));
 
+      const marker = {
+        size: subset.map((point) => Math.max(10, Math.min(22, 10 + Math.log2(Math.max(Number(point.item.archive_count || 0), 1)) * 3))),
+        color: category.color,
+        opacity: 0.94,
+      };
+      if (!osm) {
+        // MapLibre's circles take no outline.
+        marker.line = {
+          color: cssVar("--surface", "#0F0E0D"),
+          width: 1,
+        };
+      }
+
       traces.push({
-        type: "scattergeo",
+        type: osm ? "scattermap" : "scattergeo",
         mode: "markers",
         name: category.name,
         lon: subset.map((point) => point.lon),
         lat: subset.map((point) => point.lat),
         text: subset.map((point) => String(point.item.station_id || "")),
         customdata,
-        marker: {
-          size: subset.map((point) => Math.max(10, Math.min(22, 10 + Math.log2(Math.max(Number(point.item.archive_count || 0), 1)) * 3))),
-          color: category.color,
-          opacity: 0.94,
-          line: {
-            color: cssVar("--surface", "#0F0E0D"),
-            width: 1,
-          },
-        },
+        marker,
         hovertemplate: [
           "<b>%{text}</b>",
           "Locality label: %{customdata[8]}",
@@ -236,30 +306,62 @@
     }
 
     if (showLabels) {
-      traces.push({
-        type: "scattergeo",
+      const labels = {
+        type: osm ? "scattermap" : "scattergeo",
         mode: "text",
         name: "Labels",
         lon: points.map((point) => point.lon),
         lat: points.map((point) => point.lat),
         text: points.map((point) => stationLabel(point.item) || String(point.item.station_id || "")),
         textposition: "bottom center",
-        textfont: {
-          size: 10,
-          color: cssVar("--text-muted", "#655A4A"),
-        },
+        textfont: osm
+          ? { family: LABEL_FONT, size: 11, color: cssVar("--text", "#EAE4D8") }
+          : { size: 10, color: cssVar("--text-muted", "#655A4A") },
         hoverinfo: "skip",
         showlegend: false,
-      });
+      };
+      if (osm) {
+        // Plotly's MapLibre map offsets text by the marker size, which a
+        // text-only trace lacks (the offset becomes NaN and the map fails):
+        // invisible markers provide it.
+        labels.mode = "markers+text";
+        labels.marker = { size: 14, opacity: 0 };
+      }
+      traces.push(labels);
     }
 
     const layout = {
       autosize: true,
       height: Math.max(plotEl.clientHeight || 0, 700),
-      margin: { l: 20, r: 20, t: 48, b: 20 },
+      margin: { l: 0, r: 0, t: 8, b: 0 },
       paper_bgcolor: "rgba(0,0,0,0)",
       hovermode: "closest",
-      geo: {
+      // Keeps the user's zoom and pan while only labels or the theme change.
+      uirevision: `${payload.year}|${payload.day}|${background}`,
+      legend: {
+        // Above the map rather than over it: Plotly grows the top margin to fit.
+        orientation: "h",
+        x: 0,
+        y: 1,
+        xanchor: "left",
+        yanchor: "bottom",
+        bgcolor: "rgba(0,0,0,0)",
+        title: {
+          text: "Archive coverage",
+          font: { color: cssVar("--text-muted", "#7A7268"), size: 11 },
+        },
+        font: {
+          color: cssVar("--text", "#EAE4D8"),
+        },
+      },
+    };
+    if (osm) {
+      layout.map = {
+        style: osmStyle(),
+        ...fitView(points, plotEl.clientWidth || 900, layout.height - 40),
+      };
+    } else {
+      layout.geo = {
         scope: "world",
         projection: { type: "natural earth" },
         fitbounds: "locations",
@@ -276,51 +378,45 @@
         coastlinecolor: cssVar("--border-light", "#2E2C28"),
         lonaxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
         lataxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
-      },
-      legend: {
-        orientation: "h",
-        x: 0,
-        y: 0.99,
-        xanchor: "left",
-        yanchor: "top",
-        bgcolor: "rgba(0,0,0,0)",
-        title: {
-          text: "Archive coverage",
-          font: { color: cssVar("--text-muted", "#7A7268"), size: 11 },
-        },
-        font: {
-          color: cssVar("--text", "#EAE4D8"),
-        },
-      },
-      annotations: [
-        {
-          xref: "paper",
-          yref: "paper",
-          x: 0,
-          y: 0.88,
-          xanchor: "left",
-          yanchor: "top",
-          showarrow: false,
-          align: "left",
-          font: {
-            size: 11,
-            color: cssVar("--text-muted", "#655A4A"),
-          },
-          text: showLabels
-            ? "Marker colors show archive coverage. Text labels below markers use RINEX marker names as best-effort locality labels."
-            : "Marker colors show archive coverage. Enable labels to display best-effort locality names below markers.",
-        },
-      ],
-    };
+      };
+    }
 
-    await window.Plotly.newPlot(plotEl, traces, layout, {
-      responsive: true,
-      displayModeBar: false,
-      // Map outlines from the hub itself: by default Plotly fetches them from
-      // cdn.plot.ly, which the CSP blocks and an offline network can't reach.
-      topojsonURL: "/static/vendor/plotly/topojson/",
-    });
+    try {
+      await window.Plotly.react(plotEl, traces, layout, {
+        responsive: true,
+        displayModeBar: false,
+        // Map outlines from the hub itself: by default Plotly fetches them from
+        // cdn.plot.ly, which the CSP blocks and an offline network can't reach.
+        topojsonURL: "/static/vendor/plotly/topojson/",
+      });
+    } catch (error) {
+      if (!osm) throw error;
+      // Tiles that can't be fetched (no internet) fail the whole plot with
+      // a bare "Map error.", though the stations are drawn regardless.
+      state.plotted = background;
+      return false;
+    }
+    state.plotted = background;
     await window.Plotly.Plots.resize(plotEl);
+    return true;
+  }
+
+  // Status line for a finished render: renderPlot is false when the
+  // OpenStreetMap background failed to load.
+  function setPlotStatus(drawn) {
+    if (drawn) {
+      setStatus("info", T("stations_map_loaded"));
+    } else {
+      setStatus("error", T("stations_map_tiles_failed"));
+    }
+  }
+
+  function rerenderPlot() {
+    if (!state.payload) return;
+    renderPlot(state.payload).then(setPlotStatus, (error) => {
+      const message = error instanceof Error ? error.message : T("stations_map_error");
+      setStatus("error", message);
+    });
   }
 
   function renderTable(payload) {
@@ -400,9 +496,8 @@
       }
       state.payload = payload;
       renderSummary(payload);
-      await renderPlot(payload);
       renderTable(payload);
-      setStatus("info", T("stations_map_loaded"));
+      setPlotStatus(await renderPlot(payload));
     } catch (error) {
       if (state.loadSeq !== requestSeq) {
         return;
@@ -428,15 +523,23 @@
     loadButton.addEventListener("click", () => loadStationMap(false));
     refreshButton.addEventListener("click", () => loadStationMap(true));
     if (labelsCheckbox) {
-      labelsCheckbox.addEventListener("change", () => {
-        if (state.payload) {
-          renderPlot(state.payload).catch((error) => {
-            const message = error instanceof Error ? error.message : T("stations_map_error");
-            setStatus("error", message);
-          });
-        }
+      labelsCheckbox.addEventListener("change", rerenderPlot);
+    }
+    if (backgroundSelect) {
+      try {
+        const saved = window.localStorage.getItem(BACKGROUND_STORAGE_KEY);
+        if (saved === "osm" || saved === "outline") backgroundSelect.value = saved;
+      } catch (_) {}
+      backgroundSelect.addEventListener("change", () => {
+        try { window.localStorage.setItem(BACKGROUND_STORAGE_KEY, backgroundSelect.value); } catch (_) {}
+        rerenderPlot();
       });
     }
+    // Map colours come from the theme's CSS variables.
+    new MutationObserver(rerenderPlot).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     loadStationMap(false);
   }
 })();

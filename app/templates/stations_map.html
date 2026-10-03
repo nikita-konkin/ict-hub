@@ -51,6 +51,14 @@
               <select id="station-day"></select>
             </div>
 
+            <div class="station-map-field">
+              <label for="stations-map-background">{{ t('stations_map_background') }}</label>
+              <select id="stations-map-background">
+                <option value="osm">{{ t('stations_map_background_osm') }}</option>
+                <option value="outline">{{ t('stations_map_background_outline') }}</option>
+              </select>
+            </div>
+
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
               <button id="stations-map-load" type="button" class="btn btn-primary">{{ t('stations_map_load') }}</button>
               <button id="stations-map-refresh" type="button" class="btn btn-ghost">{{ t('stations_map_refresh_data') }}</button>
@@ -78,6 +86,7 @@
       <div class="card-body">
         <div id="stations-map-status" class="station-map-status">{{ t('stations_map_summary_idle') }}</div>
         <div id="stations-map-plot" class="station-map-plot"></div>
+        <p class="station-map-note">{{ t('stations_map_note') }}</p>
       </div>
     </div>
   </div>
@@ -100,7 +109,7 @@
     'stations_map_error', 'stations_map_latitude', 'stations_map_loaded',
     'stations_map_loading', 'stations_map_longitude', 'stations_map_marker_name',
     'stations_map_marker_number', 'stations_map_no_year', 'stations_map_station_count',
-    'stations_map_table_empty',
+    'stations_map_table_empty', 'stations_map_tiles_failed',
   ) | tojson }}</script>
   <script id="stations-map-rinex-tree" type="application/json">{{ rinex_tree | tojson }}</script>
   <script src="/static/js/stations-map.js"></script>

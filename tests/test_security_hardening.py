@@ -212,6 +212,9 @@ def test_security_headers_present(client):
     assert "frame-ancestors 'none'" in r.headers["Content-Security-Policy"]
     # Without it, video falls back to default-src 'self' and IonMaps animations can't play.
     assert "media-src 'self' blob:" in r.headers["Content-Security-Policy"]
+    # The stations map's OpenStreetMap background: MapLibre's worker and its tiles.
+    assert "worker-src 'self' blob:" in r.headers["Content-Security-Policy"]
+    assert "connect-src 'self' https://tile.openstreetmap.org;" in r.headers["Content-Security-Policy"]
 
 
 # ── Audit trail ───────────────────────────────────────────────────────────────

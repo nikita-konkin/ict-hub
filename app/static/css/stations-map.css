@@ -53,6 +53,13 @@
   width: 100%;
 }
 
+.station-map-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
 .station-map-empty {
   min-height: 560px;
   display: flex;

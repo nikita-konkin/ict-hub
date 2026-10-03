@@ -39,6 +39,11 @@ def test_stations_map_page_renders_with_rinex_tree(admin_client: TestClient, mon
     assert '<script src="/static/js/stations-map.js"></script>' in html
     assert "/stations-map/data?" in admin_client.get("/static/js/stations-map.js").text
     assert "2026_original" in html
+    # OpenStreetMap's tile servers block tile requests that carry no Referer.
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    dashboard = admin_client.get("/")
+    assert dashboard.status_code == 200
+    assert dashboard.headers["Referrer-Policy"] == "same-origin"
 
 
 def test_stations_map_data_returns_payload(admin_client: TestClient, monkeypatch):

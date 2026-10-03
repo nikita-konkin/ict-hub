@@ -207,6 +207,13 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "stations_map_loading": "Loading station metadata...",
         "stations_map_loaded": "Station map loaded.",
         "stations_map_error": "Failed to load station metadata.",
+        "stations_map_background": "Map background",
+        "stations_map_background_osm": "OpenStreetMap (needs internet)",
+        "stations_map_background_outline": "Outline map (works offline)",
+        "stations_map_tiles_failed": "OpenStreetMap tiles could not be loaded; they need internet access. "
+        "The stations are shown without a background: choose “Outline map” to work offline.",
+        "stations_map_note": "Marker colour shows how many archives a station has. Labels are RINEX marker names, "
+        "a best-effort guess at the locality. Scroll to zoom, drag to pan.",
         "nav_converters": "Converters",
         "nav_converters_none": "No converter access",
         "nav_admin": "Admin",
@@ -433,6 +440,13 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "stations_map_loading": "Загрузка метаданных станций...",
         "stations_map_loaded": "Карта станций загружена.",
         "stations_map_error": "Не удалось загрузить метаданные станций.",
+        "stations_map_background": "Подложка карты",
+        "stations_map_background_osm": "OpenStreetMap (нужен интернет)",
+        "stations_map_background_outline": "Контурная карта (работает без интернета)",
+        "stations_map_tiles_failed": "Не удалось загрузить тайлы OpenStreetMap: для них нужен доступ в интернет. "
+        "Станции показаны без подложки; для работы без интернета выберите «Контурная карта».",
+        "stations_map_note": "Цвет маркера показывает, сколько архивов у станции. Подписи — имена маркеров RINEX, "
+        "по которым населённый пункт определён приблизительно. Колесо мыши — масштаб, перетаскивание — сдвиг карты.",
         "app_name": "ИоноПоток",
         "app_subtitle": "Пакет обработки данных",
         "nav_overview": "Обзор",

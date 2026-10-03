@@ -219,7 +219,10 @@ def _apply_security_headers(request: Request, response) -> None:
         "media-src 'self' blob:; "
         "style-src 'self' 'unsafe-inline'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-        "connect-src 'self'; font-src 'self' data:; "
+        # The stations map's OpenStreetMap background: MapLibre runs in a
+        # blob: worker and fetches the tiles.
+        "worker-src 'self' blob:; "
+        "connect-src 'self' https://tile.openstreetmap.org; font-src 'self' data:; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
     )
     if request.url.scheme == "https":
