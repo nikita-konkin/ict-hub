@@ -7,6 +7,7 @@ script looks up with T("...") but its island does not list shows up on the
 page as the raw key; these tests catch that without a browser.
 """
 
+import importlib.util
 import re
 from pathlib import Path
 
@@ -65,3 +66,18 @@ def test_templates_have_no_inline_page_scripts():
         inline = re.findall(r"<script(?![^>]*\b(?:src=|type=\"application/json\"))[^>]*>", html)
         assert inline == [], f"{template.name} has inline <script>; move it to app/static/js"
         assert "<style" not in html, f"{template.name} has inline <style>; move it to app/static/css"
+
+
+def test_geo_maps_use_the_vendored_map_outlines():
+    """Plotly fetches map outlines from cdn.plot.ly by default, which the CSP (connect-src 'self') blocks."""
+    spec = importlib.util.spec_from_file_location("fetch_vendor_assets", ROOT / "scripts" / "fetch_vendor_assets.py")
+    assert spec is not None
+    assert spec.loader is not None
+    fetch_vendor_assets = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch_vendor_assets)
+
+    for script in STATIC_JS.glob("*.js"):
+        source = script.read_text(encoding="utf-8")
+        if "scattergeo" in source:
+            assert 'topojsonURL: "/static/vendor/plotly/topojson/"' in source, script.name
+    assert "plotly/topojson/world_110m.json" in fetch_vendor_assets.FILES

@@ -43,6 +43,14 @@ FILES = {
         "https://cdn.plot.ly/plotly-2.35.2.min.js",
         "6d21266ce1bd7d9e5ab4e115989c70c20de0382fd973a8f26ab58619eba4d603",
     ),
+    # Country and coastline outlines for Plotly geo maps (the stations map).
+    # Plotly would fetch it from cdn.plot.ly in the browser, which the CSP
+    # (connect-src 'self') forbids; stations-map.js points topojsonURL here.
+    # Same bytes as dist/topojson/world_110m.json in the plotly.js 2.35.2 package.
+    "plotly/topojson/world_110m.json": (
+        "https://cdn.plot.ly/world_110m.json",
+        "d75915eaa31c870df6b972c9e5bb86910197825f33dcfef740f3b2f68cffe843",
+    ),
 }
 
 GOOGLE_FONTS_CSS_URL = (
