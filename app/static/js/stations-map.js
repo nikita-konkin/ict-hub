@@ -316,6 +316,9 @@
     await window.Plotly.newPlot(plotEl, traces, layout, {
       responsive: true,
       displayModeBar: false,
+      // Map outlines from the hub itself: by default Plotly fetches them from
+      // cdn.plot.ly, which the CSP blocks and an offline network can't reach.
+      topojsonURL: "/static/vendor/plotly/topojson/",
     });
     await window.Plotly.Plots.resize(plotEl);
   }
