@@ -51,6 +51,18 @@ FILES = {
         "https://cdn.plot.ly/world_110m.json",
         "d75915eaa31c870df6b972c9e5bb86910197825f33dcfef740f3b2f68cffe843",
     ),
+    # Glyphs MapLibre draws station labels with on the OpenStreetMap
+    # background: Latin (0-255) and Cyrillic (1024-1279). Plotly's own map
+    # styles load them from fonts.openmaptiles.org; stations-map.js points its
+    # style's glyphs here. Same bytes as the openmaptiles/fonts gh-pages branch.
+    "maplibre/glyphs/Open Sans Regular/0-255.pbf": (
+        "https://fonts.openmaptiles.org/Open%20Sans%20Regular/0-255.pbf",
+        "0c8bdb284f2ad6f69bbb434a0208393f3a517bc8bf7ed1eccc4ac4791ebbcbfe",
+    ),
+    "maplibre/glyphs/Open Sans Regular/1024-1279.pbf": (
+        "https://fonts.openmaptiles.org/Open%20Sans%20Regular/1024-1279.pbf",
+        "36d60967995aa49522f4c6466550ef75c0c7255fa5ee414b928db238a4d97e86",
+    ),
 }
 
 GOOGLE_FONTS_CSS_URL = (

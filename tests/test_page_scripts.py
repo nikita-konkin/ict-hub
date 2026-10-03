@@ -68,19 +68,37 @@ def test_templates_have_no_inline_page_scripts():
         assert "<style" not in html, f"{template.name} has inline <style>; move it to app/static/css"
 
 
-def test_geo_maps_use_the_vendored_map_outlines():
-    """Plotly fetches map outlines from cdn.plot.ly by default, which the CSP (connect-src 'self') blocks."""
+def _vendor_files() -> dict[str, tuple[str, str]]:
+    """FILES from scripts/fetch_vendor_assets.py: path under vendor/ -> (url, sha256)."""
     spec = importlib.util.spec_from_file_location("fetch_vendor_assets", ROOT / "scripts" / "fetch_vendor_assets.py")
     assert spec is not None
     assert spec.loader is not None
     fetch_vendor_assets = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fetch_vendor_assets)
+    return fetch_vendor_assets.FILES
 
+
+def test_geo_maps_use_the_vendored_map_outlines():
+    """Plotly fetches map outlines from cdn.plot.ly by default, which the CSP (connect-src 'self') blocks."""
     for script in STATIC_JS.glob("*.js"):
         source = script.read_text(encoding="utf-8")
         if "scattergeo" in source:
             assert 'topojsonURL: "/static/vendor/plotly/topojson/"' in source, script.name
-    assert "plotly/topojson/world_110m.json" in fetch_vendor_assets.FILES
+    assert "plotly/topojson/world_110m.json" in _vendor_files()
+
+
+def test_osm_maps_draw_labels_from_vendored_glyphs():
+    """Plotly's map styles load label glyphs from fonts.openmaptiles.org, which the CSP blocks."""
+    files = _vendor_files()
+    scripts = [script for script in STATIC_JS.glob("*.js") if "scattermap" in script.read_text(encoding="utf-8")]
+    assert scripts, "no script draws a scattermap"
+    for script in scripts:
+        source = script.read_text(encoding="utf-8")
+        assert "/static/vendor/maplibre/glyphs/{fontstack}/{range}.pbf" in source, script.name
+        font = re.search(r'const LABEL_FONT = "([^"]+)";', source)
+        assert font, f"{script.name} names no LABEL_FONT"
+        for glyph_range in ("0-255", "1024-1279"):  # Latin, Cyrillic
+            assert f"maplibre/glyphs/{font.group(1)}/{glyph_range}.pbf" in files, script.name
 
 
 def test_page_scripts_are_revalidated_after_a_deploy(client):

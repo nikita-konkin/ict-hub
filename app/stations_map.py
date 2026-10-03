@@ -51,6 +51,9 @@ async def stations_map_page(
             refresh=refresh,
         ),
     )
+    # OpenStreetMap's tile servers refuse tile requests without a Referer, and
+    # the site-wide same-origin policy sends none to other hosts.
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return apply_lang_cookie(request, response)
 
 
