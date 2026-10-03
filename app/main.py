@@ -236,11 +236,32 @@ async def security_middleware(request: Request, call_next):
     return response
 
 
+class _RevalidatedStaticFiles(StaticFiles):
+    """
+    StaticFiles that makes browsers and proxies check back before reusing a
+    file. Without Cache-Control they guess how long a file stays fresh from
+    its Last-Modified date, so after a deploy they kept running the previous
+    release's page scripts (the stations map still fetched its map outlines
+    from cdn.plot.ly). An unchanged file revalidates as a 304 via its ETag.
+    """
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> _Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Ensure the static directory exists — Starlette will raise RuntimeError if it doesn't
 os.makedirs("app/static", exist_ok=True)
 
 # Serve CSS / any future static assets
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static", _RevalidatedStaticFiles(directory="app/static"), name="static")
 
 # Register routers
 app.include_router(auth.router)
