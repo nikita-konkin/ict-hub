@@ -81,3 +81,14 @@ def test_geo_maps_use_the_vendored_map_outlines():
         if "scattergeo" in source:
             assert 'topojsonURL: "/static/vendor/plotly/topojson/"' in source, script.name
     assert "plotly/topojson/world_110m.json" in fetch_vendor_assets.FILES
+
+
+def test_page_scripts_are_revalidated_after_a_deploy(client):
+    """Without Cache-Control, browsers kept running the previous release's scripts."""
+    r = client.get("/static/js/stations-map.js")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "no-cache"
+
+    unchanged = client.get("/static/js/stations-map.js", headers={"If-None-Match": r.headers["ETag"]})
+    assert unchanged.status_code == 304
+    assert unchanged.headers["Cache-Control"] == "no-cache"
