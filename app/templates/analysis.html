@@ -147,7 +147,7 @@
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-alpha">{{ t('analysis_label_alpha') }}</label>
-            <input id="data-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+            <input id="data-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-format">{{ t('analysis_label_format') }}</label>
@@ -310,7 +310,7 @@
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-alpha">{{ t('analysis_label_alpha') }}</label>
-            <input id="plot-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+            <input id="plot-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-show-ci">{{ t('analysis_label_show_ci') }}</label>
@@ -406,7 +406,12 @@
 
     <div id="data-preview-wrap" style="display:none;">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; flex-wrap:wrap;">
-        <div style="font-size:12px; color:var(--text-muted);">Rows: <span id="preview-row-count" style="color:var(--text);">0</span></div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--text-muted);">
+          <span>Rows: <span id="preview-row-count" style="color:var(--text);">0</span></span>
+          <span id="preview-page-label"></span>
+          <button type="button" id="preview-prev" class="btn btn-ghost" style="padding:6px 10px; font-size:10px;">Previous</button>
+          <button type="button" id="preview-next" class="btn btn-ghost" style="padding:6px 10px; font-size:10px;">Next</button>
+        </div>
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <select id="pivot-group" class="form-select" style="width:auto; min-width:120px;"></select>
           <select id="pivot-value" class="form-select" style="width:auto; min-width:120px;"></select>
@@ -416,6 +421,13 @@
             <option value="count">count</option>
           </select>
           <button type="button" id="pivot-run" class="btn btn-ghost" style="padding:6px 10px; font-size:10px;">Pivot</button>
+        </div>
+      </div>
+
+      <div id="data-coverage" style="display:none; margin-bottom:14px;">
+        <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Coverage by station</div>
+        <div class="table-wrap" style="max-height:220px; border:1px solid var(--border); border-radius:var(--radius); margin-top:8px;">
+          <table id="data-coverage-table"></table>
         </div>
       </div>
 

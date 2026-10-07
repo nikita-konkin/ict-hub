@@ -6,6 +6,7 @@
 
   const state = {
     rows: [],
+    previewPage: 0,
     lastDataUrl: "",
     lastPlotUrl: "",
     lastPlotObjectUrl: "",
@@ -306,7 +307,25 @@
         return loc ? (loc + ": " + msg) : msg;
       }).join(" | ");
     }
+    if (payload && typeof payload.detail === "string" && clean(payload.detail)) {
+      return clean(payload.detail);
+    }
     return "Request failed" + (fallbackStatus ? ": " + fallbackStatus : "");
+  }
+
+  // "Request failed (status): reason" from the backend's JSON detail, or the
+  // title/text of a plain or HTML error page (e.g. a proxy's 504 page).
+  async function responseErrorText(res) {
+    const text = await res.text().catch(() => "");
+    let detail;
+    try {
+      detail = formatBackendError(JSON.parse(text), "");
+    } catch (_) {
+      const doc = new DOMParser().parseFromString(text, "text/html");
+      detail = clean(doc.title || (doc.body && doc.body.textContent) || "");
+    }
+    if (detail === "Request failed") detail = "";
+    return "Request failed (" + res.status + ")" + (detail ? ": " + detail.slice(0, 400) : "");
   }
 
   function fillSelect(selectId, values, selectedValue) {
@@ -331,13 +350,11 @@
     select.innerHTML = options
       .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
       .join("");
+    // No default selection: range queries send these alongside the single
+    // station, so preselected stations silently joined every result.
     const selected = new Set(selectedValues || []);
     for (const option of Array.from(select.options)) {
       option.selected = selected.has(option.value);
-    }
-    if (!selected.size && select.options.length) {
-      select.options[0].selected = true;
-      if (select.options.length > 1) select.options[1].selected = true;
     }
   }
 
@@ -799,23 +816,104 @@
     try {
       const res = await fetch(url, { credentials: "same-origin" });
       if (!res.ok) {
-        msg.textContent = "Request failed: " + res.status;
+        msg.textContent = await responseErrorText(res);
         return;
       }
       const payload = await res.json();
       const rows = flattenAny(payload);
       state.rows = rows;
+      state.previewPage = 0;
 
       document.getElementById("data-preview-empty").style.display = "none";
       document.getElementById("data-preview-wrap").style.display = "block";
       document.getElementById("preview-row-count").textContent = String(rows.length);
-      renderTable(document.getElementById("data-preview-table"), rows, 200);
+      renderPreviewPage();
+      renderCoverage(rows, url);
       setupPivotSelectors(rows);
       runPivot();
       msg.textContent = "Loaded " + rows.length + " rows.";
     } catch (err) {
       msg.textContent = "Error: " + err;
     }
+  }
+
+  const PREVIEW_PAGE_SIZE = 200;
+
+  function renderPreviewPage() {
+    const rows = state.rows;
+    const pages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
+    state.previewPage = Math.min(Math.max(state.previewPage || 0, 0), pages - 1);
+    const start = state.previewPage * PREVIEW_PAGE_SIZE;
+    const end = Math.min(start + PREVIEW_PAGE_SIZE, rows.length);
+    renderTable(document.getElementById("data-preview-table"), rows.slice(start, end), PREVIEW_PAGE_SIZE);
+    document.getElementById("preview-page-label").textContent = rows.length
+      ? "showing " + (start + 1) + "–" + end
+      : "";
+    document.getElementById("preview-prev").disabled = state.previewPage === 0;
+    document.getElementById("preview-next").disabled = state.previewPage >= pages - 1;
+  }
+
+  // "100–103, 105" for a sorted list of day numbers.
+  function compactDays(days) {
+    const parts = [];
+    for (let i = 0; i < days.length; i += 1) {
+      let j = i;
+      while (j + 1 < days.length && days[j + 1] === days[j] + 1) j += 1;
+      parts.push(j > i ? days[i] + "–" + days[j] : String(days[i]));
+      i = j;
+    }
+    return parts.join(", ");
+  }
+
+  // Per-station coverage of a day-range result: which requested days have
+  // rows, which days are partial, and how many AbsolTEC/CB rows hold tec = 0
+  // (how missing points arrive). Without it, gaps hide in the row preview.
+  function coverageRows(rows, url) {
+    if (!rows.length || !("doy" in rows[0]) || !("station" in rows[0])) return [];
+    const params = new URLSearchParams(url.split("?")[1] || "");
+    const doyStart = Number(params.get("doy_start"));
+    const doyEnd = Number(params.get("doy_end"));
+    const halfHourly = "ut" in rows[0];
+    const stations = new Map();
+    for (const row of rows) {
+      const station = String(row.station);
+      const doy = Number(row.doy);
+      if (!stations.has(station)) stations.set(station, new Map());
+      const day = stations.get(station).get(doy) || { points: 0, zeros: 0 };
+      day.points += 1;
+      if (row.tec === 0) day.zeros += 1;
+      stations.get(station).set(doy, day);
+    }
+    const out = [];
+    for (const [station, days] of Array.from(stations.entries()).sort()) {
+      const present = Array.from(days.keys()).sort((a, b) => a - b);
+      const counts = present.map((doy) => days.get(doy).points);
+      const item = { station };
+      if (doyStart && doyEnd >= doyStart) {
+        const missing = [];
+        for (let doy = doyStart; doy <= doyEnd; doy += 1) if (!days.has(doy)) missing.push(doy);
+        item["days with data"] = present.length + " of " + (doyEnd - doyStart + 1);
+        item["missing days"] = compactDays(missing);
+      } else {
+        item["days with data"] = String(present.length);
+      }
+      item["points per day"] = Math.min(...counts) === Math.max(...counts)
+        ? String(counts[0])
+        : Math.min(...counts) + "–" + Math.max(...counts);
+      if (halfHourly) {
+        // AbsolTEC/CB days have 48 half-hourly points.
+        item["partial days (<48 points)"] = compactDays(present.filter((doy) => days.get(doy).points < 48));
+        item["rows with tec = 0"] = present.reduce((sum, doy) => sum + days.get(doy).zeros, 0);
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  function renderCoverage(rows, url) {
+    const summary = coverageRows(rows, url);
+    document.getElementById("data-coverage").style.display = summary.length ? "block" : "none";
+    renderTable(document.getElementById("data-coverage-table"), summary, summary.length);
   }
 
   let canvasState = { seriesList: [], globalYMin: 0, globalYMax: 0, w: 0, h: 0, pad: 50, hoveredPoints: [] };
@@ -1591,6 +1689,14 @@
   document.getElementById("analysis-data-form").addEventListener("submit", function (e) {
     e.preventDefault();
     runDataQuery();
+  });
+  document.getElementById("preview-prev").addEventListener("click", function () {
+    state.previewPage -= 1;
+    renderPreviewPage();
+  });
+  document.getElementById("preview-next").addEventListener("click", function () {
+    state.previewPage += 1;
+    renderPreviewPage();
   });
   document.getElementById("data-endpoint").addEventListener("change", function () {
     updateDataSelectors();

@@ -9,6 +9,7 @@ page as the raw key; these tests catch that without a browser.
 
 import importlib.util
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,30 @@ def test_templates_have_no_inline_page_scripts():
         inline = re.findall(r"<script(?![^>]*\b(?:src=|type=\"application/json\"))[^>]*>", html)
         assert inline == [], f"{template.name} has inline <script>; move it to app/static/js"
         assert "<style" not in html, f"{template.name} has inline <style>; move it to app/static/css"
+
+
+def test_number_inputs_accept_their_default_value():
+    """Browsers refuse to submit a form whose number input misses its step, so a bad default blocks the form."""
+    checked = 0
+    for template in TEMPLATES.glob("*.html"):
+        for tag in re.findall(r"<input\b[^>]*>", template.read_text(encoding="utf-8")):
+            attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', tag))
+            if attrs.get("type") != "number" or "{{" in tag:
+                continue
+            try:
+                value = Decimal(attrs["value"])
+                low = Decimal(attrs["min"])
+            except (KeyError, InvalidOperation):
+                continue  # no default, or no min: the step then counts from the default itself
+            assert value >= low, f"{template.name}: {tag}"
+            if "max" in attrs:
+                assert value <= Decimal(attrs["max"]), f"{template.name}: {tag}"
+            step = attrs.get("step", "1")
+            if step != "any":
+                steps = (value - low) / Decimal(step)
+                assert steps == steps.to_integral_value(), f"{template.name}: {tag}"
+            checked += 1
+    assert checked, "no number inputs with a default and a min found"
 
 
 def _vendor_files() -> dict[str, tuple[str, str]]:
