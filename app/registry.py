@@ -376,8 +376,23 @@ CONVERTERS: dict[str, dict] = {
                 "default": False,
                 "required": False,
                 "help": (
-                    "Skip stations whose output folder already exists, so an interrupted "
-                    "batch can be resumed without redoing completed stations."
+                    "Skip stations already processed (their output folder exists or the run "
+                    "manifest records them), so an interrupted batch can be resumed. Off: "
+                    "every selected station is processed again."
+                ),
+            },
+            {
+                "name": "--clean-input",
+                "long": "--clean-input",
+                "label": "Clean Input Before absolTEC",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": (
+                    "Run absolTEC on a copy of each station's .dat files without phase "
+                    "placeholder rows (tec.l1l2 = 0.000), which make its fit fail at some "
+                    "stations. If that result is incomplete the original input is run too and "
+                    "the better result is kept, so no station gets worse."
                 ),
             },
             {

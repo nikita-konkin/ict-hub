@@ -382,6 +382,22 @@ class TestCommandBuilding:
         assert any(p == r"Completed\s+(\d+)\s*/\s*(\d+)" for p in patterns)
         assert any(p == r"Progress:\s*(\d{1,3})\s*%" for p in patterns)
 
+    def test_abstec_clean_input_is_an_opt_in_translated_checkbox(self):
+        """--clean-input is off unless ticked, so an older runner image never sees it by default."""
+        conv = get_converter("abstec-suite")
+        flag = next(f for f in conv["flags"] if f["long"] == "--clean-input")
+        assert flag["type"] == "checkbox"
+        assert flag["default"] is False
+        for lang in ("en", "ru"):
+            assert "flag_label_clean_input" in TRANSLATIONS[lang]
+            assert "flag_help_clean_input" in TRANSLATIONS[lang]
+
+        form = {"dat_path": "/data/tecsuite", "output_dir": "/data/abstec", "year": "2026", "day_of_year": "100"}
+        ticked, _vols = build_command("abstec-suite", {**form, "clean_input": "on"})
+        unticked, _vols = build_command("abstec-suite", form)
+        assert "--clean-input" in ticked
+        assert "--clean-input" not in unticked
+
 
 class TestFlagTranslationRendering:
     """Tests for flags that use dynamic translation lookups."""

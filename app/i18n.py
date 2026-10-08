@@ -368,8 +368,16 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "flag_label_skip_existing": "Skip Already Processed Stations",
         "flag_help_skip_existing": (
-            "Skip stations whose output folder already exists, so an interrupted batch "
-            "can be resumed without redoing completed stations."
+            "Skip stations already processed (their output folder exists or the run "
+            "manifest records them), so an interrupted batch can be resumed. Off: every "
+            "selected station is processed again."
+        ),
+        "flag_label_clean_input": "Clean Input Before absolTEC",
+        "flag_help_clean_input": (
+            "Run absolTEC on a copy of each station's .dat files without phase placeholder "
+            "rows (tec.l1l2 = 0.000), which make its fit fail at some stations. If that "
+            "result is incomplete the original input is run too and the better result is "
+            "kept, so no station gets worse."
         ),
         "flag_label_max_consecutive_failures": "Abort After N Consecutive Failures",
         "flag_help_max_consecutive_failures": (
@@ -759,9 +767,16 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "flag_label_skip_existing": "Пропускать обработанные станции",
         "flag_help_skip_existing": (
-            "Пропускать станции, для которых папка с результатами уже существует: это "
-            "позволяет продолжить прерванный пакетный расчёт, не повторяя завершённые "
-            "станции."
+            "Пропускать уже обработанные станции (папка с результатами существует или "
+            "станция отмечена в журнале запусков): это позволяет продолжить прерванный "
+            "пакетный расчёт. Если выключено, все выбранные станции обрабатываются заново."
+        ),
+        "flag_label_clean_input": "Очищать входные данные перед absolTEC",
+        "flag_help_clean_input": (
+            "Запускать absolTEC на копии .dat-файлов станции без строк-заглушек фазы "
+            "(tec.l1l2 = 0.000), из-за которых на некоторых станциях расчёт не сходится. "
+            "Если результат неполный, запускаются и исходные данные, и сохраняется лучший "
+            "результат, так что ни одна станция не становится хуже."
         ),
         "flag_label_max_consecutive_failures": "Прервать после N ошибок подряд",
         "flag_help_max_consecutive_failures": (
