@@ -629,7 +629,9 @@ class TestStartJob:
         assert flags.get("dataset_profile") == "tecsuite"
 
     @patch("app.jobs.start_container", return_value="container_dat_parquet_overwrite")
-    def test_dat_parquet_overwrite_reuses_source_as_destination(self, mock_start, operator_client, db):
+    def test_dat_parquet_overwrite_replaces_files_in_the_destination(self, mock_start, operator_client, db):
+        # Overwrite is the converter's --overwrite. It once redirected the output into the
+        # source tree, so stale parquet files could never be refreshed by a rerun.
         response = operator_client.post(
             "/jobs/start",
             data=self._start_dat_parquet_job_data(dataset_profile="abstec", overwrite="on"),
@@ -641,16 +643,14 @@ class TestStartJob:
         from app.models import JobRun
 
         _, command, volumes = mock_start.call_args.args
-        # One host path, one mount: source and destination flags both use it.
-        assert list(volumes) == ["/data/abstec-out"]
-        mount = volumes["/data/abstec-out"]["bind"]
-        assert command[command.index("-s") + 1] == mount
-        assert command[command.index("-d") + 1] == mount
+        assert volumes["/data/abstec-out"]["bind"] == command[command.index("-s") + 1]
+        assert volumes["/data/abstec-parquet"]["bind"] == command[command.index("-d") + 1]
+        assert "--overwrite" in command
 
         job = db.query(JobRun).order_by(JobRun.id.desc()).first()
         flags = json.loads(job.flags_json)
         assert flags.get("src") == "/data/abstec-out"
-        assert flags.get("dst") == "/data/abstec-out"
+        assert flags.get("dst") == "/data/abstec-parquet"
 
     def test_dat_parquet_missing_profile_env_returns_400(self, operator_client, monkeypatch):
         monkeypatch.setattr("app.jobs.cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
