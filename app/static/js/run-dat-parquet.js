@@ -168,16 +168,15 @@
     repopulateYears();
     const overwrite = overwriteCheckbox.checked;
     const src = profile.src || "";
-    const dst = overwrite ? src : (profile.dst || "");
+    const dst = profile.dst || "";
     const rootSubpath = rootSubpathHidden.value || "";
     srcHidden.value = joinSubpath(src, rootSubpath);
     dstHidden.value = joinSubpath(dst, rootSubpath);
     srcPreview.textContent = srcHidden.value;
     dstPreview.textContent = dstHidden.value;
     srcHint.textContent = profile.src_env ? ("Configured from environment variable " + profile.src_env + ".") : "";
-    dstHint.textContent = overwrite
-      ? T("run_hint_overwrite_enabled")
-      : (profile.dst_env ? ("Configured from environment variable " + profile.dst_env + ".") : "");
+    const dstSource = profile.dst_env ? ("Configured from environment variable " + profile.dst_env + ".") : "";
+    dstHint.textContent = overwrite ? (dstSource + " " + T("run_hint_overwrite_enabled")).trim() : dstSource;
   }
 
   directionSelect.addEventListener("change", rebuildProfiles);

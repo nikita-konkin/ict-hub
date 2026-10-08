@@ -294,7 +294,6 @@ def _parse_day(raw: str, flag: str) -> int | None:
 async def _prepare_dat_parquet(form: FormData, db: Session) -> PreparedRun:
     direction = str(form.get("direction", _DEFAULT_DIRECTION)).strip() or _DEFAULT_DIRECTION
     profile_name = str(form.get("dataset_profile", "tecsuite")).strip() or "tecsuite"
-    overwrite = is_truthy_checkbox(form.get("overwrite", False))
     root_subpath = str(form.get("root_subpath", "")).strip()
 
     profile = dat_parquet_profiles(direction).get(profile_name)
@@ -302,8 +301,10 @@ async def _prepare_dat_parquet(form: FormData, db: Session) -> PreparedRun:
         raise FormError(f"Select a valid DAT <-> Parquet source profile for direction '{direction}'.")
     if not profile["src"]:
         raise FormError(f"{profile['src_env']} is not configured.")
-    # Overwrite converts in place: the source directory is also the destination.
-    dst_root = profile["src"] if overwrite else profile["dst"]
+    # Overwrite is the converter's --overwrite: replace files that already exist in
+    # the destination. It used to redirect the output into the source tree instead,
+    # so a rerun could never refresh stale parquet files.
+    dst_root = profile["dst"]
     if not dst_root:
         raise FormError(f"{profile['dst_env']} is not configured.")
 
