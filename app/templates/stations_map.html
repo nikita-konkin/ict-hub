@@ -85,7 +85,13 @@
       </div>
       <div class="card-body">
         <div id="stations-map-status" class="station-map-status">{{ t('stations_map_summary_idle') }}</div>
-        <div id="stations-map-plot" class="station-map-plot"></div>
+        <div class="station-map-plot-wrap">
+          <div class="station-map-zoom" role="group" aria-label="{{ t('stations_map_zoom') }}">
+            <button id="stations-map-zoom-in" type="button" class="station-map-zoom-btn" aria-label="{{ t('stations_map_zoom_in') }}">+</button>
+            <button id="stations-map-zoom-out" type="button" class="station-map-zoom-btn" aria-label="{{ t('stations_map_zoom_out') }}">&minus;</button>
+          </div>
+          <div id="stations-map-plot" class="station-map-plot"></div>
+        </div>
         <p class="station-map-note">{{ t('stations_map_note') }}</p>
       </div>
     </div>

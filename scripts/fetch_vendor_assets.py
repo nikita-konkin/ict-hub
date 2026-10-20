@@ -59,6 +59,13 @@ FILES = {
         "https://cdn.plot.ly/world_50m.json",
         "8aca84b4376b3ad809cd6284bfec947434e57e61c565c525570f0639964c96bf",
     ),
+    # Natural Earth 1:50m first-order subdivisions (public domain). The Stations
+    # Map draws these borders, e.g. Russia's federal subjects, which Plotly's
+    # basemap topojson does not include.
+    "geodata/ne_50m_admin_1_states_provinces.geojson": (
+        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_admin_1_states_provinces.geojson",
+        "69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9",
+    ),
     # Glyphs MapLibre draws station labels with on the OpenStreetMap
     # background: Latin (0-255) and Cyrillic (1024-1279). Plotly's own map
     # styles load them from fonts.openmaptiles.org; stations-map.js points its
