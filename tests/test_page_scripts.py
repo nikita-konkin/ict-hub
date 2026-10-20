@@ -90,6 +90,12 @@ def test_geo_maps_use_the_vendored_map_outlines():
     # offline, so the matching asset must be vendored too.
     assert "resolution: 50" in (STATIC_JS / "stations-map.js").read_text(encoding="utf-8")
     assert "plotly/topojson/world_50m.json" in files
+    # First-order subdivision borders (e.g. Russian federal subjects) come from
+    # a vendored Natural Earth admin-1 GeoJSON.
+    assert "geodata/ne_50m_admin_1_states_provinces.geojson" in files
+    assert "geodata/ne_50m_admin_1_states_provinces.geojson" in (STATIC_JS / "stations-map.js").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_osm_maps_draw_labels_from_vendored_glyphs():

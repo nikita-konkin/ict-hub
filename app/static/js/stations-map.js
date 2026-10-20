@@ -169,6 +169,7 @@
     { name: "Middle East", lon: 45, lat: 30 },
     { name: "Central Asia", lon: 67, lat: 43 },
     { name: "Kazakhstan", lon: 68, lat: 48 },
+    { name: "Russia", lon: 55, lat: 58 },
     { name: "Siberia", lon: 100, lat: 60 },
     { name: "East Asia", lon: 110, lat: 35 },
     { name: "South Asia", lon: 78, lat: 20 },
@@ -265,6 +266,88 @@
         region.lat >= bounds.minLat &&
         region.lat <= bounds.maxLat,
     );
+  }
+
+  // First-order subdivision borders (e.g. Russian federal subjects) are absent
+  // from Plotly's basemap topojson, so they are drawn from a vendored Natural
+  // Earth admin-1 GeoJSON. Loaded once per page.
+  let admin1Promise = null;
+
+  function geometryBounds(geometry) {
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    const visit = (coords) => {
+      if (typeof coords[0] === "number") {
+        const [lon, lat] = coords;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      } else {
+        for (const part of coords) visit(part);
+      }
+    };
+    if (geometry) visit(geometry.coordinates);
+    return Number.isFinite(minLon) ? { minLon, maxLon, minLat, maxLat } : null;
+  }
+
+  function loadAdmin1Features() {
+    if (!admin1Promise) {
+      admin1Promise = fetch("/static/vendor/geodata/ne_50m_admin_1_states_provinces.geojson")
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          const features = data && Array.isArray(data.features) ? data.features : [];
+          return features
+            .map((feature) => ({ feature, bounds: geometryBounds(feature.geometry) }))
+            .filter((item) => item.bounds);
+        })
+        .catch(() => []);
+    }
+    return admin1Promise;
+  }
+
+  function admin1BorderTrace(features, view) {
+    const lon = [];
+    const lat = [];
+    let drawn = 0;
+    const addRing = (ring) => {
+      for (const point of ring) {
+        lon.push(point[0]);
+        lat.push(point[1]);
+      }
+      lon.push(null);
+      lat.push(null);
+    };
+    for (const { feature, bounds } of features) {
+      if (
+        bounds.maxLon < view.minLon ||
+        bounds.minLon > view.maxLon ||
+        bounds.maxLat < view.minLat ||
+        bounds.minLat > view.maxLat
+      ) {
+        continue;
+      }
+      const geometry = feature.geometry;
+      if (geometry.type === "Polygon") {
+        geometry.coordinates.forEach(addRing);
+      } else if (geometry.type === "MultiPolygon") {
+        geometry.coordinates.forEach((polygon) => polygon.forEach(addRing));
+      }
+      drawn += 1;
+    }
+    if (!drawn) return null;
+    return {
+      type: "scattergeo",
+      mode: "lines",
+      name: "Subdivisions",
+      lon,
+      lat,
+      line: { color: cssVar("--text-dim", "#3D3A34"), width: 0.8 },
+      hoverinfo: "skip",
+      showlegend: false,
+    };
   }
 
   async function renderPlot(payload) {
@@ -372,6 +455,11 @@
     }
 
     if (!osm) {
+      const view = paddedStationBounds(points);
+      // First-order subdivisions (Russian federal subjects among them) are not
+      // in Plotly's basemap, so draw them from the vendored admin-1 GeoJSON.
+      const subdivisions = admin1BorderTrace(await loadAdmin1Features(), view);
+      if (subdivisions) traces.unshift(subdivisions);
       // Plotly's outline map draws borders but no place names; a text layer
       // keeps the geographic context when there is no tile background.
       const regionLabels = visibleRegionLabels(points);
@@ -384,7 +472,7 @@
           lon: regionLabels.map((region) => region.lon),
           lat: regionLabels.map((region) => region.lat),
           text: regionLabels.map((region) => region.name),
-          textfont: { size: 11, color: cssVar("--text-muted", "#7A7268") },
+          textfont: { size: 12, color: cssVar("--text-muted", "#7A7268") },
           hoverinfo: "skip",
           showlegend: false,
         });
@@ -458,13 +546,15 @@
         showland: true,
         landcolor: cssVar("--surface-3", "#1D1B18"),
         showocean: true,
-        oceancolor: cssVar("--surface-2", "#161512"),
+        oceancolor: cssVar("--bg", "#080807"),
         showlakes: true,
-        lakecolor: cssVar("--surface-2", "#161512"),
+        lakecolor: cssVar("--bg", "#080807"),
         showcountries: true,
-        countrycolor: cssVar("--border", "#242220"),
+        // The border tokens are nearly the same tone as the land, which hid
+        // country outlines and coastlines; brighter text tokens stay legible.
+        countrycolor: cssVar("--text-muted", "#7A7268"),
         showcoastlines: true,
-        coastlinecolor: cssVar("--border-light", "#2E2C28"),
+        coastlinecolor: cssVar("--text-muted", "#7A7268"),
         lonaxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
         lataxis: { showgrid: true, gridcolor: cssVar("--border", "#242220") },
       };
@@ -474,6 +564,7 @@
       await window.Plotly.react(plotEl, traces, layout, {
         responsive: true,
         displayModeBar: false,
+        scrollZoom: true,
         // Map outlines from the hub itself: by default Plotly fetches them from
         // cdn.plot.ly, which the CSP blocks and an offline network can't reach.
         topojsonURL: "/static/vendor/plotly/topojson/",
@@ -488,6 +579,26 @@
     state.plotted = background;
     await window.Plotly.Plots.resize(plotEl);
     return true;
+  }
+
+  // Trackpad pinch and the on-map buttons both zoom the active background.
+  // geo needs fitbounds turned off before an explicit projection scale sticks.
+  function zoomBy(factor) {
+    if (!plotEl || !plotEl._fullLayout || !Number.isFinite(factor) || factor === 1) return;
+    const fullLayout = plotEl._fullLayout;
+    try {
+      if (useOsm()) {
+        const map = fullLayout.map && fullLayout.map._subplot && fullLayout.map._subplot.map;
+        if (map) map.setZoom(map.getZoom() + Math.log2(factor));
+        return;
+      }
+      const subplot = fullLayout.geo && fullLayout.geo._subplot;
+      if (!subplot || !subplot.projection || !subplot.fitScale) return;
+      const scale = (subplot.projection.scale() / subplot.fitScale) * factor;
+      window.Plotly.relayout(plotEl, { "geo.fitbounds": false, "geo.projection.scale": scale });
+    } catch (_) {
+      // Zoom is a convenience; ignore unusual plot states.
+    }
   }
 
   // Status line for a finished render: renderPlot is false when the
@@ -629,6 +740,28 @@
       attributes: true,
       attributeFilter: ["data-theme"],
     });
+    const zoomInButton = document.getElementById("stations-map-zoom-in");
+    const zoomOutButton = document.getElementById("stations-map-zoom-out");
+    if (zoomInButton) zoomInButton.addEventListener("click", () => zoomBy(1.5));
+    if (zoomOutButton) zoomOutButton.addEventListener("click", () => zoomBy(1 / 1.5));
+    // WebKit reports a trackpad pinch as gesture events, not as the ctrl+wheel
+    // that Chrome and Firefox send, so Plotly never sees the pinch there.
+    if (plotEl) {
+      let pinchScale = 1;
+      plotEl.addEventListener("gesturestart", (event) => {
+        event.preventDefault();
+        pinchScale = 1;
+      });
+      plotEl.addEventListener("gesturechange", (event) => {
+        event.preventDefault();
+        zoomBy(event.scale / pinchScale);
+        pinchScale = event.scale;
+      });
+      plotEl.addEventListener("gestureend", (event) => {
+        event.preventDefault();
+        pinchScale = 1;
+      });
+    }
     loadStationMap(false);
   }
 })();

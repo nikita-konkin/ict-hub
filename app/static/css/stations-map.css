@@ -53,6 +53,41 @@
   width: 100%;
 }
 
+.station-map-plot-wrap {
+  position: relative;
+}
+
+.station-map-zoom {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.station-map-zoom-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.station-map-zoom-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
 .station-map-note {
   margin: 10px 0 0;
   font-size: 12px;
