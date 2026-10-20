@@ -51,6 +51,14 @@ FILES = {
         "https://cdn.plot.ly/world_110m.json",
         "d75915eaa31c870df6b972c9e5bb86910197825f33dcfef740f3b2f68cffe843",
     ),
+    # Higher-resolution outlines (Natural Earth 1:50m) for the offline "Outline
+    # map" on the Stations Map. Plotly derives the file name from geo.resolution,
+    # and stations-map.js requests resolution 50, so these more detailed
+    # coastlines and country borders are drawn instead of the 110m ones.
+    "plotly/topojson/world_50m.json": (
+        "https://cdn.plot.ly/world_50m.json",
+        "8aca84b4376b3ad809cd6284bfec947434e57e61c565c525570f0639964c96bf",
+    ),
     # Glyphs MapLibre draws station labels with on the OpenStreetMap
     # background: Latin (0-255) and Cyrillic (1024-1279). Plotly's own map
     # styles load them from fonts.openmaptiles.org; stations-map.js points its

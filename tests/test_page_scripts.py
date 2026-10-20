@@ -84,7 +84,12 @@ def test_geo_maps_use_the_vendored_map_outlines():
         source = script.read_text(encoding="utf-8")
         if "scattergeo" in source:
             assert 'topojsonURL: "/static/vendor/plotly/topojson/"' in source, script.name
-    assert "plotly/topojson/world_110m.json" in _vendor_files()
+    files = _vendor_files()
+    assert "plotly/topojson/world_110m.json" in files
+    # The Stations Map asks Plotly for the finer Natural Earth 1:50m outlines
+    # offline, so the matching asset must be vendored too.
+    assert "resolution: 50" in (STATIC_JS / "stations-map.js").read_text(encoding="utf-8")
+    assert "plotly/topojson/world_50m.json" in files
 
 
 def test_osm_maps_draw_labels_from_vendored_glyphs():

@@ -148,6 +148,37 @@
   const BACKGROUND_STORAGE_KEY = "converterhub-stations-map-background";
   const LABEL_FONT = "Open Sans Regular";
 
+  // Named region anchors for the offline (scattergeo) outline map, which draws
+  // borders but no place names. Filtered to the station area below, so only
+  // labels around the visible region are drawn.
+  const REGION_LABELS = [
+    { name: "North America", lon: -100, lat: 45 },
+    { name: "Central America", lon: -85, lat: 15 },
+    { name: "Caribbean", lon: -72, lat: 18 },
+    { name: "South America", lon: -60, lat: -15 },
+    { name: "Greenland", lon: -42, lat: 72 },
+    { name: "Western Europe", lon: 4, lat: 47 },
+    { name: "Northern Europe", lon: 18, lat: 62 },
+    { name: "Eastern Europe", lon: 35, lat: 52 },
+    { name: "Southern Europe", lon: 14, lat: 40 },
+    { name: "North Africa", lon: 12, lat: 26 },
+    { name: "West Africa", lon: -5, lat: 10 },
+    { name: "East Africa", lon: 40, lat: 6 },
+    { name: "Central Africa", lon: 20, lat: 0 },
+    { name: "Southern Africa", lon: 25, lat: -25 },
+    { name: "Middle East", lon: 45, lat: 30 },
+    { name: "Central Asia", lon: 67, lat: 43 },
+    { name: "Kazakhstan", lon: 68, lat: 48 },
+    { name: "Siberia", lon: 100, lat: 60 },
+    { name: "East Asia", lon: 110, lat: 35 },
+    { name: "South Asia", lon: 78, lat: 20 },
+    { name: "Southeast Asia", lon: 105, lat: 10 },
+    { name: "Oceania", lon: 135, lat: -25 },
+    { name: "Europe", lon: 15, lat: 52 },
+    { name: "Africa", lon: 20, lat: 5 },
+    { name: "Asia", lon: 90, lat: 42 },
+  ];
+
   function useOsm() {
     return !backgroundSelect || backgroundSelect.value !== "outline";
   }
@@ -199,6 +230,41 @@
       // A margin for markers and labels at the edges; a lone station gets a town-scale view.
       zoom: Math.max(0, Math.min(zoomX, zoomY, 10) - 0.3),
     };
+  }
+
+  // Bounds of the stations, padded so nearby region names have room to appear.
+  // Plotly's fitbounds also includes these label locations, so the padding
+  // effectively sets how far the offline view zooms out around the stations.
+  function paddedStationBounds(points) {
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const point of points) {
+      if (point.lon < minLon) minLon = point.lon;
+      if (point.lon > maxLon) maxLon = point.lon;
+      if (point.lat < minLat) minLat = point.lat;
+      if (point.lat > maxLat) maxLat = point.lat;
+    }
+    const padLon = Math.max((maxLon - minLon) * 0.5, 10);
+    const padLat = Math.max((maxLat - minLat) * 0.5, 10);
+    return {
+      minLon: Math.max(-180, minLon - padLon),
+      maxLon: Math.min(180, maxLon + padLon),
+      minLat: Math.max(-90, minLat - padLat),
+      maxLat: Math.min(90, maxLat + padLat),
+    };
+  }
+
+  function visibleRegionLabels(points) {
+    const bounds = paddedStationBounds(points);
+    return REGION_LABELS.filter(
+      (region) =>
+        region.lon >= bounds.minLon &&
+        region.lon <= bounds.maxLon &&
+        region.lat >= bounds.minLat &&
+        region.lat <= bounds.maxLat,
+    );
   }
 
   async function renderPlot(payload) {
@@ -305,6 +371,26 @@
       });
     }
 
+    if (!osm) {
+      // Plotly's outline map draws borders but no place names; a text layer
+      // keeps the geographic context when there is no tile background.
+      const regionLabels = visibleRegionLabels(points);
+      if (regionLabels.length) {
+        // Unshifted so station markers and labels stay on top.
+        traces.unshift({
+          type: "scattergeo",
+          mode: "text",
+          name: "Regions",
+          lon: regionLabels.map((region) => region.lon),
+          lat: regionLabels.map((region) => region.lat),
+          text: regionLabels.map((region) => region.name),
+          textfont: { size: 11, color: cssVar("--text-muted", "#7A7268") },
+          hoverinfo: "skip",
+          showlegend: false,
+        });
+      }
+    }
+
     if (showLabels) {
       const labels = {
         type: osm ? "scattermap" : "scattergeo",
@@ -363,6 +449,9 @@
     } else {
       layout.geo = {
         scope: "world",
+        // Natural Earth 1:50m outlines (vendored as world_50m.json): more
+        // detailed coastlines and country borders than the 110m default.
+        resolution: 50,
         projection: { type: "natural earth" },
         fitbounds: "locations",
         bgcolor: cssVar("--surface-2", "#161512"),
