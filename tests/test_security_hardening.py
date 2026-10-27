@@ -217,6 +217,17 @@ def test_security_headers_present(client):
     assert "connect-src 'self' https://tile.openstreetmap.org;" in r.headers["Content-Security-Policy"]
 
 
+def test_https_only_headers_are_not_sent_over_http(client):
+    """Browsers ignore COOP and HSTS on plain HTTP; COOP there logs a console error per page."""
+    plain = client.get("/login")
+    assert "Cross-Origin-Opener-Policy" not in plain.headers
+    assert "Strict-Transport-Security" not in plain.headers
+
+    secure = client.get("https://testserver/login")
+    assert secure.headers.get("Cross-Origin-Opener-Policy") == "same-origin"
+    assert "Strict-Transport-Security" in secure.headers
+
+
 # ── Audit trail ───────────────────────────────────────────────────────────────
 
 

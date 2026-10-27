@@ -191,6 +191,10 @@
     return {
       version: 8,
       glyphs: `${window.location.origin}/static/vendor/maplibre/glyphs/{fontstack}/{range}.pbf`,
+      // Plotly puts a text trace's labels in a symbol layer with icon "-15"
+      // when its markers are circles, and fetches a missing icon from unpkg
+      // (blocked by CORS). The sprite holds a transparent "-15" instead.
+      sprite: `${window.location.origin}/static/map-sprite/blank`,
       sources: {
         osm: {
           type: "raster",

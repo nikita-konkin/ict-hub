@@ -206,7 +206,6 @@ def _apply_security_headers(request: Request, response) -> None:
     h.setdefault("X-Frame-Options", "DENY")
     h.setdefault("X-Content-Type-Options", "nosniff")
     h.setdefault("Referrer-Policy", "same-origin")
-    h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     # The UI ships inline CSS/JS (no SPA bundle), so 'unsafe-inline'/'unsafe-eval'
     # are required for it to function; the real wins here are frame-ancestors
     # (clickjacking) and base-uri/object-src lockdown. Tighten once assets are
@@ -226,6 +225,8 @@ def _apply_security_headers(request: Request, response) -> None:
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
     )
     if request.url.scheme == "https":
+        # Browsers ignore COOP on plain HTTP and log an error on every page.
+        h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
 

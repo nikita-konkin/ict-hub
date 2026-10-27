@@ -38,6 +38,13 @@ def test_stations_map_page_renders_with_rinex_tree(admin_client: TestClient, mon
     assert "Stations Map" in html
     assert '<script src="/static/js/stations-map.js"></script>' in html
     assert "/stations-map/data?" in admin_client.get("/static/js/stations-map.js").text
+    # Plotly's text layers ask MapLibre for icon "-15"; the style's sprite provides a blank one.
+    for name in ("blank.json", "blank@2x.json"):
+        sprite = admin_client.get(f"/static/map-sprite/{name}")
+        assert sprite.status_code == 200
+        assert "-15" in sprite.json()
+    for name in ("blank.png", "blank@2x.png"):
+        assert admin_client.get(f"/static/map-sprite/{name}").content.startswith(b"\x89PNG")
     assert "2026_original" in html
     # OpenStreetMap's tile servers block tile requests that carry no Referer.
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
