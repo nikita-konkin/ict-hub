@@ -297,3 +297,44 @@ def test_analysis_proxy_filters_headers_both_ways(client: TestClient, monkeypatc
     assert response.headers["content-length"] == str(len(b"decoded body"))
     assert "set-cookie" not in response.headers
     assert response.headers["x-backend"] == "kept"
+
+
+def test_analysis_page_exposes_date_ranges(client: TestClient):
+    """Range endpoints offer calendar dates; the alpha default passes its own validation."""
+    import re
+
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        html = client.get("/analysis").text
+        script = client.get("/static/js/analysis.js").text
+
+        for endpoint in (
+            "propagation/absoltec/raw/range",
+            "propagation/tec/raw/range",
+            "tec/satellites/range",
+            "stations/available/range",
+            "stations/map/range",
+        ):
+            assert f'value="{endpoint}"' in html
+            assert f'"{endpoint}": {{' in script
+        assert 'id="data-range-mode"' in html
+        assert 'id="data-date-start" class="form-input" type="date"' in html
+        assert 'id="data-date-end" class="form-input" type="date"' in html
+        assert 'qpAppend(params, "date_start"' in script
+
+        # step="0.01" from min 0.001 made the 0.05 default invalid, so the
+        # browser refused to submit either form.
+        for alpha_id in ("data-alpha", "plot-alpha"):
+            tag = re.search(rf'<input id="{alpha_id}"[^>]*>', html).group(0)
+            assert 'step="any"' in tag
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

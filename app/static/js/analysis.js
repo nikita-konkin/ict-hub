@@ -18,7 +18,7 @@
 
   function getDataSourceType() {
     const endpoint = document.getElementById("data-endpoint")?.value || "";
-    if (endpoint === "propagation/tec/raw") return "tec";
+    if (endpoint.startsWith("propagation/tec/")) return "tec";
     if (endpoint.startsWith("propagation/")) return "absoltec";
     if (endpoint.startsWith("tec/") || endpoint.startsWith("stations/")) return "tec";
     return "absoltec";
@@ -93,15 +93,27 @@
     },
     "tec/raw/range": {
       required: ["data-year", "data-doy-start", "data-doy-end"],
-      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-format"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-satellite", "data-format"],
+    },
+    "tec/satellites/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-format"],
     },
     "stations/available": {
       required: ["data-year", "data-doy"],
       relevant: ["data-year", "data-doy", "data-source", "data-format"],
     },
+    "stations/available/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-source", "data-format"],
+    },
     "stations/map": {
       required: ["data-year", "data-doy"],
       relevant: ["data-year", "data-doy", "data-format"],
+    },
+    "stations/map/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-format"],
     },
     "propagation/calc": {
       required: ["data-tec"],
@@ -111,6 +123,10 @@
       required: ["data-year", "data-doy", "data-station"],
       relevant: ["data-year", "data-doy", "data-station", "data-signal-band", "data-f-hz", "data-format"],
     },
+    "propagation/absoltec/raw/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-signal-band", "data-f-hz", "data-format"],
+    },
     "propagation/absoltec/statistics": {
       required: ["data-year", "data-doy-start", "data-doy-end", "data-station"],
       relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-signal-band", "data-f-hz", "data-alpha", "data-format"],
@@ -119,7 +135,53 @@
       required: ["data-year", "data-doy", "data-station", "data-satellite"],
       relevant: ["data-year", "data-doy", "data-station", "data-satellite", "data-observable", "data-signal-band", "data-f-hz", "data-format"],
     },
+    "propagation/tec/raw/range": {
+      required: ["data-year", "data-doy-start", "data-doy-end"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-station", "data-stations", "data-satellite", "data-observable", "data-signal-band", "data-f-hz", "data-format"],
+    },
   };
+
+  // Range endpoints take year + doy_start/doy_end, or date_start/date_end
+  // (calendar dates, may cross New Year) when the range mode is "dates".
+  function isRangeEndpoint(endpoint) {
+    const rule = dataEndpointRules[endpoint];
+    return Boolean(rule && rule.required.includes("data-doy-start"));
+  }
+
+  function useDateRange(endpoint) {
+    return isRangeEndpoint(endpoint) && document.getElementById("data-range-mode").value === "dates";
+  }
+
+  function effectiveDataRule(endpoint) {
+    const rule = dataEndpointRules[endpoint] || { required: [], relevant: [] };
+    if (!isRangeEndpoint(endpoint)) return rule;
+    if (!useDateRange(endpoint)) {
+      return { required: rule.required, relevant: rule.relevant.concat(["data-range-mode"]) };
+    }
+    const doyFields = new Set(["data-year", "data-doy-start", "data-doy-end"]);
+    const dateFields = ["data-date-start", "data-date-end"];
+    return {
+      required: dateFields.concat(rule.required.filter((id) => !doyFields.has(id))),
+      // Year still picks which stations/satellites the selectors offer.
+      relevant: ["data-range-mode", "data-year"].concat(dateFields, rule.relevant.filter((id) => !doyFields.has(id))),
+    };
+  }
+
+  function doyToIsoDate(year, doy) {
+    const y = Number(year);
+    const d = Number(doy);
+    if (!y || !d) return "";
+    const date = new Date(Date.UTC(y, 0, d));
+    return date.getUTCFullYear() === y ? date.toISOString().slice(0, 10) : "";
+  }
+
+  function prefillDateRange() {
+    const year = document.getElementById("data-year").value;
+    const start = document.getElementById("data-date-start");
+    const end = document.getElementById("data-date-end");
+    if (!start.value) start.value = doyToIsoDate(year, document.getElementById("data-doy-start").value);
+    if (!end.value) end.value = doyToIsoDate(year, document.getElementById("data-doy-end").value);
+  }
 
   const plotEndpointRules = {
     "plots/absoltec/average": {
@@ -189,6 +251,9 @@
     "data-doy": "doy",
     "data-doy-start": "doy_start",
     "data-doy-end": "doy_end",
+    "data-range-mode": "range by",
+    "data-date-start": "date_start",
+    "data-date-end": "date_end",
     "data-station": "station",
     "data-stations": "stations",
     "data-satellite": "satellite",
@@ -445,7 +510,7 @@
 
   function updateDataFieldHighlights() {
     const endpoint = document.getElementById("data-endpoint").value;
-    const rule = dataEndpointRules[endpoint] || { required: [], relevant: [] };
+    const rule = effectiveDataRule(endpoint);
     const requiredSet = new Set(rule.required);
     const relevantSet = new Set(rule.relevant);
 
@@ -499,6 +564,19 @@
     const satellite = document.getElementById("data-satellite").value;
     const source = document.getElementById("data-source").value;
     const alpha = document.getElementById("data-alpha").value;
+    const stationsMulti = getMultiSelectedValues("data-stations");
+
+    // Range endpoints: year + doy_start/doy_end, or date_start/date_end.
+    function appendRange() {
+      if (useDateRange(endpoint)) {
+        qpAppend(params, "date_start", document.getElementById("data-date-start").value);
+        qpAppend(params, "date_end", document.getElementById("data-date-end").value);
+      } else {
+        qpAppend(params, "year", year);
+        qpAppend(params, "doy_start", doyStart);
+        qpAppend(params, "doy_end", doyEnd);
+      }
+    }
 
     // Propagation endpoints (proxied to tec-stat) — explicit per-endpoint param sets.
     if (endpoint.startsWith("propagation/")) {
@@ -508,16 +586,24 @@
         qpAppend(params, "year", year);
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
+      } else if (endpoint === "propagation/absoltec/raw/range") {
+        appendRange();
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", stationsMulti);
       } else if (endpoint === "propagation/absoltec/statistics") {
-        qpAppend(params, "year", year);
-        qpAppend(params, "doy_start", doyStart);
-        qpAppend(params, "doy_end", doyEnd);
+        appendRange();
         qpAppend(params, "station", station);
         qpAppend(params, "alpha", alpha);
       } else if (endpoint === "propagation/tec/raw") {
         qpAppend(params, "year", year);
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
+        qpAppend(params, "satellite", satellite);
+        qpAppend(params, "observable", document.getElementById("data-observable").value);
+      } else if (endpoint === "propagation/tec/raw/range") {
+        appendRange();
+        qpAppend(params, "station", station);
+        qpAppendCsvArray(params, "stations", stationsMulti);
         qpAppend(params, "satellite", satellite);
         qpAppend(params, "observable", document.getElementById("data-observable").value);
       }
@@ -527,7 +613,11 @@
       return "/analysis/api/" + endpoint + "?" + params.toString();
     }
 
-    qpAppend(params, "year", year);
+    if (isRangeEndpoint(endpoint)) {
+      appendRange();
+    } else {
+      qpAppend(params, "year", year);
+    }
 
     if (endpoint === "absoltec/stations" || endpoint === "cb/stations" || endpoint === "tec/stations" || endpoint === "stations/available" || endpoint === "stations/map" || endpoint === "absoltec/raw" || endpoint === "cb/raw" || endpoint === "tec/satellites" || endpoint === "tec/data") {
       qpAppend(params, "doy", doy);
@@ -536,23 +626,25 @@
       qpAppend(params, "station", station);
     }
     if (endpoint === "absoltec/raw/range" || endpoint === "cb/raw/range" || endpoint === "tec/raw/range") {
-      qpAppend(params, "doy_start", doyStart);
-      qpAppend(params, "doy_end", doyEnd);
       qpAppend(params, "station", station);
-      qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
+      qpAppendCsvArray(params, "stations", stationsMulti);
+    }
+    if (endpoint === "tec/raw/range") {
+      qpAppend(params, "satellite", satellite);
+    }
+    if (endpoint === "tec/satellites/range") {
+      qpAppend(params, "station", station);
     }
     if (endpoint === "absoltec/statistics" || endpoint === "cb/statistics" || endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
-      qpAppend(params, "doy_start", doyStart);
-      qpAppend(params, "doy_end", doyEnd);
       qpAppend(params, "alpha", alpha);
     }
     if (endpoint === "absoltec/statistics/per-station-day" || endpoint === "cb/statistics/per-station-day") {
-      qpAppendCsvArray(params, "stations", getMultiSelectedValues("data-stations"));
+      qpAppendCsvArray(params, "stations", stationsMulti);
     }
     if (endpoint === "tec/data") {
       qpAppend(params, "satellite", satellite);
     }
-    if (endpoint === "stations/available") {
+    if (endpoint === "stations/available" || endpoint === "stations/available/range") {
       qpAppend(params, "source", source);
     }
 
@@ -1598,6 +1690,10 @@
   });
   document.getElementById("data-year").addEventListener("change", updateDataSelectors);
   document.getElementById("data-doy").addEventListener("change", updateDataSelectors);
+  document.getElementById("data-range-mode").addEventListener("change", function () {
+    if (this.value === "dates") prefillDateRange();
+    updateDataFieldHighlights();
+  });
 
   document.getElementById("analysis-plot-form").addEventListener("submit", function (e) {
     e.preventDefault();

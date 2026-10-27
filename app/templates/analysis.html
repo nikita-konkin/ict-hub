@@ -68,18 +68,23 @@
             <optgroup label="Propagation (B_k / GDD)">
               <option value="propagation/calc">GET /propagation/calc — B_k / GDD Direct Calc</option>
               <option value="propagation/absoltec/raw">GET /propagation/absoltec/raw — AbsolTEC Raw + B_k/GDD</option>
+              <option value="propagation/absoltec/raw/range">GET /propagation/absoltec/raw/range — AbsolTEC Raw Range + B_k/GDD</option>
               <option value="propagation/absoltec/statistics">GET /propagation/absoltec/statistics — AbsolTEC Stats + B_k/GDD</option>
               <option value="propagation/tec/raw">GET /propagation/tec/raw — TEC-suite Raw + B_k/GDD</option>
+              <option value="propagation/tec/raw/range">GET /propagation/tec/raw/range — TEC-suite Raw Range + B_k/GDD</option>
             </optgroup>
             <optgroup label="TEC-suite">
               <option value="tec/stations">GET /tec/stations — Stations With Meta</option>
               <option value="tec/satellites">GET /tec/satellites — Satellites</option>
+              <option value="tec/satellites/range">GET /tec/satellites/range — Satellites Over Range</option>
               <option value="tec/data">GET /tec/data — Satellite Data</option>
               <option value="tec/raw/range">GET /tec/raw/range — Satellite Data Range</option>
             </optgroup>
             <optgroup label="Stations">
               <option value="stations/available">GET /stations/available — Available Stations</option>
+              <option value="stations/available/range">GET /stations/available/range — Available Stations Over Range</option>
               <option value="stations/map">GET /stations/map — Station Map</option>
+              <option value="stations/map/range">GET /stations/map/range — Station Map Over Range</option>
             </optgroup>
           </select>
         </div>
@@ -111,6 +116,26 @@
             <select id="data-doy-end" class="form-select">
               <option value="">Select year first</option>
             </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="data-range-mode">{{ t('analysis_label_range_mode') }}</label>
+          <select id="data-range-mode" class="form-select">
+            <option value="doy" selected>{{ t('analysis_range_mode_doy') }}</option>
+            <option value="dates">{{ t('analysis_range_mode_dates') }}</option>
+          </select>
+          <div class="param-hint">{{ t('analysis_range_mode_hint') }}</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-date-start">{{ t('analysis_label_date_start') }}</label>
+            <input id="data-date-start" class="form-input" type="date" min="2000-01-01" max="2100-12-31">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="data-date-end">{{ t('analysis_label_date_end') }}</label>
+            <input id="data-date-end" class="form-input" type="date" min="2000-01-01" max="2100-12-31">
           </div>
         </div>
 
@@ -147,7 +172,7 @@
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-alpha">{{ t('analysis_label_alpha') }}</label>
-            <input id="data-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+            <input id="data-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-format">{{ t('analysis_label_format') }}</label>
@@ -187,7 +212,7 @@
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-tec">TEC (TECU)</label>
-            <input id="data-tec" class="form-input" type="number" min="0" step="0.1" value="20" placeholder="for /propagation/calc">
+            <input id="data-tec" class="form-input" type="number" min="0" step="any" value="20" placeholder="for /propagation/calc">
             <div class="param-hint">Direct N_t source for <b>/propagation/calc</b> only (N_t = TEC · 10¹⁶).</div>
           </div>
           <div class="form-group" style="margin-bottom:0;">
@@ -196,7 +221,7 @@
               <option value="tec_l1l2" selected>tec_l1l2</option>
               <option value="tec_c1p2">tec_c1p2</option>
             </select>
-            <div class="param-hint">TEC-suite observable for <b>/propagation/tec/raw</b>.</div>
+            <div class="param-hint">TEC-suite observable for <b>/propagation/tec/raw</b> and <b>/propagation/tec/raw/range</b>.</div>
           </div>
         </div>
 
@@ -310,7 +335,7 @@
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-alpha">{{ t('analysis_label_alpha') }}</label>
-            <input id="plot-alpha" class="form-input" type="number" value="0.05" step="0.01" min="0.001" max="0.5">
+            <input id="plot-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-show-ci">{{ t('analysis_label_show_ci') }}</label>
