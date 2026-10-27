@@ -85,3 +85,23 @@ def test_stations_map_data_returns_payload(admin_client: TestClient, monkeypatch
     assert payload["station_count"] == 1
     assert payload["archive_count"] == 2
     assert payload["stations"][0]["station_id"] == "AKSU"
+
+
+def test_stations_map_data_reports_indexer_errors(admin_client: TestClient, monkeypatch):
+    """An indexer outage or a missing folder must not look like an empty map."""
+    import app.stations_map as stations_map_module
+    from app.data_indexer_client import DataIndexerError
+
+    monkeypatch.setattr(stations_map_module.cfg, "DATA_INDEXER_URL", "http://data-indexer:5001")
+    monkeypatch.setattr(stations_map_module.cfg, "RINEX_DATA_PATH_CONTAINER", "/mnt/rinex-server")
+    monkeypatch.setattr(stations_map_module.cfg, "RINEX_DATA_PATH_HOST", "")
+
+    for status, detail in ((404, "RINEX year folder does not exist: 2030_original"), (502, "unavailable")):
+
+        async def _failing(root: str, *, year: str, day: str = "", refresh: bool = False, _s=status, _d=detail):
+            raise DataIndexerError(_s, _d)
+
+        monkeypatch.setattr(stations_map_module, "get_rinex_station_map_async", _failing)
+        response = admin_client.get("/stations-map/data?year=2030_original")
+        assert response.status_code == status
+        assert response.json()["detail"] == detail

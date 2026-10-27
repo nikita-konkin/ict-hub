@@ -96,3 +96,38 @@ def test_admin_can_download_xml(admin_client, db, operator_user):
     assert "application/xml" in response.headers.get("content-type", "")
     assert "<feedback_report" in response.text
     assert "XML export test." in response.text
+
+
+def test_xml_export_stays_well_formed_with_control_characters(admin_client, db, operator_user):
+    """A pasted terminal log carries ESC colour codes, which XML 1.0 cannot hold."""
+    import xml.etree.ElementTree as ET
+
+    report = FeedbackReport(
+        user_id=operator_user.id,
+        category="bug",
+        message="\x1b[31mERROR\x1b[0m failed\x00 at step\x07 3\nnext line",
+        page_url="http://testserver/\x01",
+        user_agent="agent\x0b",
+        status="new",
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    response = admin_client.get(f"/feedback/{report.id}.xml")
+    assert response.status_code == 200
+    root = ET.fromstring(response.content)
+    assert root.findtext("message") == "[31mERROR[0m failed at step 3\nnext line"
+    assert root.findtext("page_url") == "http://testserver/"
+    assert root.findtext("user_agent") == "agent"
+
+
+def test_submit_caps_page_url_at_column_size(operator_client, db):
+    response = operator_client.post(
+        "/feedback",
+        data={"message": "Long URL.", "page_url": "http://testserver/" + "x" * 5000},
+        headers={"accept": "application/json"},
+    )
+    assert response.status_code == 200
+    report = db.query(FeedbackReport).one()
+    assert len(report.page_url) == 1024

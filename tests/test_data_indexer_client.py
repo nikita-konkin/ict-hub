@@ -551,7 +551,7 @@ class TestAsyncFunctions:
 
         fetch_calls: list[tuple[str, str, str]] = []
 
-        async def _fake_fetch_json(endpoint: str, root_path: str, *, refresh: bool = False, extra_query=None):
+        async def _fake_fetch_json(endpoint: str, root_path: str, *, refresh: bool = False, extra_query=None, **_kw):
             fetch_calls.append((endpoint, root_path, str((extra_query or {}).get("day", ""))))
             return {
                 "year": "2026_original",
@@ -619,3 +619,67 @@ class TestAsyncFunctions:
             await list_rinex_server_structure_async("/mnt/rinex")
 
         assert len(fetch_calls) == 2  # fetched twice — cache was cleared between calls
+
+
+class TestRinexStationMapErrors:
+    """A failed station-map request is an error, not an empty map."""
+
+    @pytest.fixture(autouse=True)
+    def configured(self, monkeypatch):
+        import app.data_indexer_client as m
+
+        m.clear_cache()
+        monkeypatch.setattr(m, "DATA_INDEXER_URL", "http://data-indexer:5001")
+        yield
+        m.clear_cache()
+
+    @staticmethod
+    def _serve(monkeypatch, handler):
+        import httpx
+
+        real_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs)
+        )
+
+    async def test_upstream_404_detail_is_passed_on(self, monkeypatch):
+        import httpx
+
+        import app.data_indexer_client as m
+
+        self._serve(
+            monkeypatch,
+            lambda request: httpx.Response(404, json={"detail": "RINEX day folder does not exist: 999"}),
+        )
+        with pytest.raises(m.DataIndexerError) as excinfo:
+            await m.get_rinex_station_map_async("/mnt/rinex", year="2026_original", day="999")
+        assert excinfo.value.status_code == 404
+        assert excinfo.value.detail == "RINEX day folder does not exist: 999"
+
+    async def test_unreachable_indexer_is_502_and_not_cached(self, monkeypatch):
+        import httpx
+
+        import app.data_indexer_client as m
+
+        calls = []
+
+        def refuse(request):
+            calls.append(request.url)
+            raise httpx.ConnectError("connection refused")
+
+        self._serve(monkeypatch, refuse)
+        for _ in range(2):
+            with pytest.raises(m.DataIndexerError) as excinfo:
+                await m.get_rinex_station_map_async("/mnt/rinex", year="2026_original", day="001")
+            assert excinfo.value.status_code == 502
+        assert len(calls) == 2
+
+    async def test_upstream_500_is_502(self, monkeypatch):
+        import httpx
+
+        import app.data_indexer_client as m
+
+        self._serve(monkeypatch, lambda request: httpx.Response(500, text="Internal Server Error"))
+        with pytest.raises(m.DataIndexerError) as excinfo:
+            await m.get_rinex_station_map_async("/mnt/rinex", year="2026_original")
+        assert excinfo.value.status_code == 502

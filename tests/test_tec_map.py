@@ -1313,3 +1313,103 @@ def test_validate_stations_accepts_partially_converted_range(tmp_path):
         stations=["nikl"],
     )
     assert found == ["nikl"]
+
+
+def test_validate_stations_rejects_path_like_names(tmp_path):
+    """Station names become directories under the parquet root; '..' must not escape it."""
+    import pytest
+
+    from app.tec_map import _validate_stations_for_range
+
+    (tmp_path / "root" / "2025" / "180" / "nikl").mkdir(parents=True)
+    (tmp_path / "elsewhere").mkdir()
+    day = pd.Timestamp("2025-06-29")
+
+    for name in ("../../../elsewhere", "nikl/../nikl", "/etc", ".."):
+        with pytest.raises(ValueError, match="Invalid station names"):
+            _validate_stations_for_range(root=tmp_path / "root", start_day=day, end_day=day, stations=[name])
+
+
+def test_day_of_year_rejects_day_366_of_a_common_year():
+    import pytest
+
+    from app.tec_map import _resolve_request_day
+
+    assert _resolve_request_day(year=2024, doy=366, date=None, label="start") == pd.Timestamp("2024-12-31")
+    with pytest.raises(ValueError, match="2025 has no day 366"):
+        _resolve_request_day(year=2025, doy=366, date=None, label="start")
+
+
+def test_clock_offset_accepts_hh_mm_and_rejects_out_of_range():
+    import pytest
+
+    from app.tec_map import _clock_offset
+
+    assert _clock_offset("12:30") == pd.Timedelta(hours=12, minutes=30)
+    assert _clock_offset("01:02:03") == pd.Timedelta(hours=1, minutes=2, seconds=3)
+    for bad in ("25:00:00", "12", "12:61", "ab:cd", "1:2:3:4"):
+        with pytest.raises(ValueError, match="Invalid time of day"):
+            _clock_offset(bad)
+
+
+def test_tec_map_routes_return_400_for_bad_station_day_and_time(client, tmp_path, monkeypatch):
+    import app.tec_map as tec_map_module
+
+    class _User:
+        is_admin = True
+        id = 1
+
+        def can_access_page(self, name: str) -> bool:
+            return True
+
+    (tmp_path / "2025" / "180" / "nikl").mkdir(parents=True)
+    monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER", str(tmp_path))
+    monkeypatch.setattr(tec_map_module.cfg, "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST", "")
+
+    def no_load(**_kwargs):
+        raise AssertionError("parquet must not be read for an invalid request")
+
+    monkeypatch.setattr(tec_map_module, "load_tecs_parquet", no_load)
+    app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
+    try:
+        cases = [
+            ("/tec-map/snapshot?year=2025&doy=180&stations=../../x&timestamp=12:00:00", "Invalid station names"),
+            ("/tec-map/frame?year=2025&doy=180&stations=../../x&timestamp=12:00:00", "Invalid station names"),
+            ("/tec-map/snapshot?year=2025&doy=366&stations=nikl&timestamp=12:00:00", "2025 has no day 366"),
+            ("/tec-map/snapshot?year=2025&doy=180&stations=nikl&timestamp=12:00:99", "Invalid time of day"),
+            (
+                "/tec-map/series?year=2025&doy=180&stations=..&start_time=00:00:00&end_time=01:00:00",
+                "Invalid station names",
+            ),
+            (
+                "/tec-map/validate?year=2025&doy=180&stations=..&start_time=00:00:00&end_time=01:00:00",
+                "Invalid station names",
+            ),
+            ("/tec-map/station-positions?year=2025&doy=366", "2025 has no day 366"),
+        ]
+        for url, message in cases:
+            response = client.get(url)
+            assert response.status_code == 400, (url, response.status_code, response.text[:200])
+            assert message in response.json()["detail"], url
+    finally:
+        app.dependency_overrides.pop(tec_map_module.get_current_user_or_401, None)
+
+
+def test_gif_job_result_is_404_when_the_file_is_gone(client, tmp_path, monkeypatch):
+    import app.tec_map as tec_map_module
+    from app import tec_map_jobs
+
+    class _User:
+        is_admin = False
+        id = 7
+
+    monkeypatch.setattr(tec_map_jobs.cfg, "TEC_MAP_RENDER_DIR", str(tmp_path))
+    job = tec_map_jobs.AnimationJob(id="deadbeef", user_id=7, key="k", work=None, status="done", media_type="image/gif")
+    monkeypatch.setitem(tec_map_jobs._jobs, job.id, job)
+    app.dependency_overrides[tec_map_module.get_current_user_or_401] = lambda: _User()
+    try:
+        response = client.get(f"/tec-map/gif/jobs/{job.id}/result")
+    finally:
+        app.dependency_overrides.pop(tec_map_module.get_current_user_or_401, None)
+    assert response.status_code == 404
+    assert "gone" in response.json()["detail"]

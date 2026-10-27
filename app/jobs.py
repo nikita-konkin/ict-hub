@@ -156,18 +156,15 @@ def _image_match_score(container_image: str, converter_image: str) -> int:
     if container_raw == converter_raw:
         return 3
 
-    def _base_no_tag(value: str) -> str:
-        cleaned = value.split("@", 1)[0].strip()
-        base = cleaned.rsplit("/", 1)[-1]
-        return base.split(":", 1)[0].strip()
-
-    if _base_no_tag(container_raw) == _base_no_tag(converter_raw):
-        return 1
-
+    # Same name and tag from another registry beats a different tag, so test
+    # it first: a matching tag implies matching base names.
     container_base = container_raw.split("@", 1)[0].strip().rsplit("/", 1)[-1]
     converter_base = converter_raw.split("@", 1)[0].strip().rsplit("/", 1)[-1]
     if container_base == converter_base:
         return 2
+
+    if container_base.split(":", 1)[0].strip() == converter_base.split(":", 1)[0].strip():
+        return 1
     return 0
 
 
@@ -729,8 +726,15 @@ async def stream_job_logs(
                         return
                 else:
                     if db_job.exit_code is not None:
-                        persist_job_finished(gen_db, db_job, int(db_job.exit_code))
-                        continue
+                        done_event = persist_job_finished(gen_db, db_job, int(db_job.exit_code))
+                        if done_event is not None and done_event.id > last_sent_id:
+                            continue
+                        if done_event is not None:
+                            # The cursor is already past `done` (a reconnect
+                            # after it, or tail=0): send it again so the client
+                            # closes, and end. Looping back would never await
+                            # and would block the event loop.
+                            yield sse_event(done_event.event_type, done_event.payload_xml, event_id=done_event.id)
                     return
 
                 if (time.monotonic() - heartbeat_at) >= float(cfg.SSE_HEARTBEAT_INTERVAL):
@@ -743,7 +747,7 @@ async def stream_job_logs(
             logger.exception("Unexpected error in SSE stream for job %s", job_id)
             yield sse_event(
                 "job_error",
-                f"<job_error><message>Unexpected stream error: {exc}</message></job_error>",
+                xml_payload("job_error", message=f"Unexpected stream error: {exc}"),
             )
         finally:
             gen_db.close()

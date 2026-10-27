@@ -6,6 +6,7 @@ import os
 import re
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from statistics import median
 from threading import Lock
@@ -30,6 +31,11 @@ _WGS84_F = 1.0 / 298.257223563
 _WGS84_B_M = _WGS84_A_M * (1.0 - _WGS84_F)
 _WGS84_E2 = _WGS84_F * (2.0 - _WGS84_F)
 _WGS84_EP2 = _WGS84_E2 / (1.0 - _WGS84_E2)
+
+# What a damaged or unsupported archive member raises while it is read: a
+# corrupt deflate stream (zlib.error), a truncated one (EOFError), an encrypted
+# member (RuntimeError) or an unknown compression method (NotImplementedError).
+_UNREADABLE_ARCHIVE_ERRORS = (OSError, EOFError, RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error)
 
 _cache_lock = Lock()
 _station_map_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -210,8 +216,9 @@ def _extract_station_header_record(
                     "longitude_deg": float(longitude_deg),
                     "altitude_m": float(altitude_m),
                 }
-    except (OSError, zipfile.BadZipFile):
-        logger.debug("[RINEX-STATIONS] Skipping unreadable archive: %s", archive_path)
+    except _UNREADABLE_ARCHIVE_ERRORS as exc:
+        # One damaged upload must not fail the map for the whole day or year.
+        logger.warning("[RINEX-STATIONS] Skipping unreadable archive %s: %s", archive_path, exc)
         return None
 
     return None
@@ -371,6 +378,6 @@ def _ecef_to_geodetic(x_m: float, y_m: float, z_m: float) -> tuple[float, float,
         p - _WGS84_E2 * _WGS84_A_M * cos_theta**3,
     )
     sin_lat = math.sin(lat)
-    radius = _WGS84_A_M / math.sqrt(1.0 - _WGS84_E2 * sin_lat**2)
-    alt = p / max(math.cos(lat), 1e-12) - radius
+    # Height without dividing by cos(lat), which is zero on the polar axis.
+    alt = p * math.cos(lat) + z_m * sin_lat - _WGS84_A_M * math.sqrt(1.0 - _WGS84_E2 * sin_lat**2)
     return math.degrees(lat), math.degrees(lon), alt

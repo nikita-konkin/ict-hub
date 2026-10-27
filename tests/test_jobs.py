@@ -1259,6 +1259,32 @@ class TestDurableJobEvents:
         assert f"id: {second_id}" in body
         assert "event: done" in body
 
+    @pytest.mark.parametrize("query", ["after_event_id={done_id}", "after_event_id={beyond}", "tail=0"])
+    def test_stream_ends_when_cursor_is_past_done(self, operator_client, completed_job, db, monkeypatch, query):
+        """A reconnect after `done` (or tail=0) once looped forever without
+        awaiting, freezing the event loop; it must end with a single `done`."""
+        import app.jobs as jobs_module
+        from app.job_runtime import persist_job_finished
+
+        done = persist_job_finished(db, completed_job, 0)
+        monkeypatch.setattr(jobs_module, "SessionLocal", lambda: db)
+        calls = []
+        real_persist = jobs_module.persist_job_finished
+
+        def counting_persist(*args, **kwargs):
+            calls.append(1)
+            assert len(calls) < 10, "stream generator is spinning on a finished job"
+            return real_persist(*args, **kwargs)
+
+        monkeypatch.setattr(jobs_module, "persist_job_finished", counting_persist)
+        url = f"/jobs/{completed_job.id}/stream?" + query.format(done_id=done.id, beyond=done.id + 50)
+
+        with operator_client.stream("GET", url) as response:
+            body = "".join(response.iter_text())
+        assert response.status_code == 200
+        assert body.count("event: done") == 1
+        assert f"id: {done.id}" in body
+
     def test_stream_falls_back_to_direct_container_logs(
         self,
         operator_client,
@@ -1323,3 +1349,13 @@ class TestDurableJobEvents:
         )
         assert done_event is not None
         assert "<status>success</status>" in done_event.payload_xml
+
+
+def test_image_match_score_prefers_matching_tag():
+    """A same-tag image from another registry outranks a different tag."""
+    from app.jobs import _image_match_score
+
+    assert _image_match_score("tec-suite:v2", "tec-suite:v2") == 3
+    assert _image_match_score("registry.local/tec-suite:v2", "tec-suite:v2") == 2
+    assert _image_match_score("tec-suite:v1", "tec-suite:v2") == 1
+    assert _image_match_score("abstec:v2", "tec-suite:v2") == 0

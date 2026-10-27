@@ -68,3 +68,57 @@ def test_list_rinex_station_map_supports_month_day_layout(tmp_path: Path):
     assert payload["station_count"] == 1
     assert payload["stations"][0]["station_id"] == "ARSK"
     assert payload["stations"][0]["days"] == ["01/02"]
+
+
+def test_list_rinex_station_map_skips_corrupt_archive(tmp_path: Path):
+    """A zip whose deflate stream is damaged raises zlib.error; it is skipped, not fatal."""
+    _station_map_cache.clear()
+    root = tmp_path / "rinex"
+    day_root = root / "2026_original" / "001"
+    _write_rinex_zip(
+        day_root / "aksu0010.zip", "aksu0010.26o", _rinex_header("AKSU", "", (1916390.0, 4329440.0, 4316000.0)) * 40
+    )
+
+    broken = day_root / "almx0010.zip"
+    _write_rinex_zip(broken, "almx0010.26o", _rinex_header("ALMX", "", (1916000.0, 4329000.0, 4316500.0)) * 40)
+    raw = bytearray(broken.read_bytes())
+    data_start = raw.index(b"almx0010.26o") + len("almx0010.26o")
+    for i in range(data_start + 5, data_start + 40):
+        raw[i] ^= 0xFF
+    broken.write_bytes(bytes(raw))
+
+    payload = list_rinex_station_map(str(root), year="2026_original", day="001")
+
+    assert [station["station_id"] for station in payload["stations"]] == ["AKSU"]
+    assert payload["archive_count"] == 1
+
+
+def test_ecef_to_geodetic_handles_the_polar_axis():
+    import math
+
+    from rinex_station_map import _WGS84_A_M, _WGS84_B_M, _WGS84_E2, _ecef_to_geodetic
+
+    lat, _lon, alt = _ecef_to_geodetic(0.0, 0.0, _WGS84_B_M + 100.0)
+    assert abs(lat - 90.0) < 1e-9
+    assert abs(alt - 100.0) < 1e-3
+
+    lat, _lon, alt = _ecef_to_geodetic(0.0, 0.0, -(_WGS84_B_M + 2835.0))
+    assert abs(lat + 90.0) < 1e-9
+    assert abs(alt - 2835.0) < 1e-3
+
+    # Away from the poles: a point on the equator at sea level, and a
+    # mid-latitude station (Almaty, ~43.2 N 76.9 E, ~800 m).
+    lat, lon, alt = _ecef_to_geodetic(6378137.0, 0.0, 0.0)
+    assert abs(lat) < 1e-9
+    assert abs(lon) < 1e-9
+    assert abs(alt) < 1e-6
+
+    phi, lam, height = math.radians(43.25), math.radians(76.92), 800.0
+    n = _WGS84_A_M / math.sqrt(1.0 - _WGS84_E2 * math.sin(phi) ** 2)
+    x = (n + height) * math.cos(phi) * math.cos(lam)
+    y = (n + height) * math.cos(phi) * math.sin(lam)
+    z = (n * (1.0 - _WGS84_E2) + height) * math.sin(phi)
+    lat, lon, alt = _ecef_to_geodetic(x, y, z)
+    assert abs(lat - 43.25) < 1e-6
+    assert abs(lon - 76.92) < 1e-9
+    assert abs(alt - 800.0) < 0.01

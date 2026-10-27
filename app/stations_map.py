@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
 from app.auth import require_page_access
-from app.data_indexer_client import get_rinex_station_map_async, list_rinex_server_structure_async
+from app.data_indexer_client import DataIndexerError, get_rinex_station_map_async, list_rinex_server_structure_async
 from app.i18n import apply_lang_cookie, template_context
 from app.models import User
 from app.registry import CONVERTERS
@@ -73,5 +73,8 @@ async def stations_map_data(
     if not rinex_root:
         raise HTTPException(status_code=503, detail="RINEX data root is not configured")
 
-    payload = await get_rinex_station_map_async(rinex_root, year=year, day=day, refresh=refresh)
+    try:
+        payload = await get_rinex_station_map_async(rinex_root, year=year, day=day, refresh=refresh)
+    except DataIndexerError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return JSONResponse(content=payload)

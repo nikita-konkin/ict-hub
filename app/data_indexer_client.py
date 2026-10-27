@@ -164,6 +164,27 @@ def _parse_parquet_sat_root(root: ET.Element) -> list[dict[str, object]]:
     return years
 
 
+class DataIndexerError(Exception):
+    """A failed indexer request, with the status the hub should answer with."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def _indexer_error(exc: Exception) -> DataIndexerError:
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (400, 404):
+        # The indexer explains a bad or missing year/day folder; pass that on.
+        try:
+            body = exc.response.json()
+        except ValueError:
+            body = None
+        detail = str(body.get("detail") or "") if isinstance(body, dict) else ""
+        return DataIndexerError(exc.response.status_code, detail or exc.response.text[:200])
+    return DataIndexerError(502, "The data indexer is unavailable or returned an invalid response.")
+
+
 # Keep path separators (and Windows drive colons) readable in indexer URLs.
 _ROOT_SAFE_CHARS = "/:\\"
 
@@ -199,8 +220,13 @@ async def _fetch_async(
     *,
     refresh: bool = False,
     extra_query: dict[str, str] | None = None,
+    raise_errors: bool = False,
 ) -> Any | None:
-    """GET an indexer endpoint and parse the response; None when unavailable."""
+    """
+    GET an indexer endpoint and parse the response; None when unavailable,
+    or DataIndexerError with raise_errors so callers can tell failure from
+    an empty result.
+    """
     url = _indexer_url(endpoint, root_path, refresh=refresh, extra_query=extra_query)
     if url is None:
         return None
@@ -222,6 +248,8 @@ async def _fetch_async(
         return parse(response)
     except Exception as exc:
         logger.warning("data-indexer request failed for %s: %s (%r)", endpoint, type(exc).__name__, exc)
+        if raise_errors:
+            raise _indexer_error(exc) from exc
         return None
 
 
@@ -246,8 +274,11 @@ async def _fetch_json_async(
     *,
     refresh: bool = False,
     extra_query: dict[str, str] | None = None,
+    raise_errors: bool = False,
 ) -> dict[str, Any] | None:
-    return await _fetch_async(endpoint, root_path, _json_object, refresh=refresh, extra_query=extra_query)
+    return await _fetch_async(
+        endpoint, root_path, _json_object, refresh=refresh, extra_query=extra_query, raise_errors=raise_errors
+    )
 
 
 async def _cached_listing(
@@ -309,6 +340,11 @@ async def get_rinex_station_map_async(
     day: str = "",
     refresh: bool = False,
 ) -> dict[str, object]:
+    """
+    Station metadata for a RINEX year (and optionally day) folder. Raises
+    DataIndexerError when the indexer fails or rejects the folder, so the
+    page does not show "no stations" for an outage.
+    """
     cache_root = f"{host_root}|{year}|{day}"
     cache_key = ("rinex-stations", cache_root)
     cached = None if refresh else _get_cache(*cache_key)
@@ -320,8 +356,10 @@ async def get_rinex_station_map_async(
         host_root,
         refresh=refresh,
         extra_query={"year": year, "day": day},
+        raise_errors=True,
     )
     if payload is None:
+        # No indexer URL configured, or a body that is not a JSON object.
         return _empty_rinex_station_map_payload(year, day)
 
     return _set_cache("rinex-stations", cache_root, payload)

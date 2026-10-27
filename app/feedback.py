@@ -8,6 +8,7 @@ page to review all submissions.
 from __future__ import annotations
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -36,9 +37,22 @@ _ALLOWED_CATEGORIES = {
 }
 
 
+# Sizes of the FeedbackReport string columns.
+_PAGE_URL_MAX_LEN = 1024
+_USER_AGENT_MAX_LEN = 256
+
+# Characters XML 1.0 cannot carry. ElementTree writes them unescaped, so a
+# pasted terminal log (ESC colour codes) made the export unparseable.
+_XML_INVALID_CHARS = re.compile("[^\x09\x0a\x0d\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
 def _normalise_category(raw: str) -> str:
     value = str(raw or "").strip().lower()
     return _ALLOWED_CATEGORIES.get(value, "feedback")
+
+
+def _xml_text(value: object) -> str:
+    return _XML_INVALID_CHARS.sub("", str(value or ""))
 
 
 @router.post("/feedback", response_class=HTMLResponse)
@@ -96,8 +110,8 @@ async def submit_feedback(
         user_id=current_user.id,
         category=_normalise_category(category),
         message=text,
-        page_url=str(page_url or "").strip() or None,
-        user_agent=str(request.headers.get("user-agent", "")).strip()[:256] or None,
+        page_url=str(page_url or "").strip()[:_PAGE_URL_MAX_LEN] or None,
+        user_agent=str(request.headers.get("user-agent", "")).strip()[:_USER_AGENT_MAX_LEN] or None,
         status="new",
     )
 
@@ -226,19 +240,19 @@ async def download_feedback_xml(
         "user",
         attrib={
             "id": str(report.user_id),
-            "username": str(report.user.username) if report.user else "",
+            "username": _xml_text(report.user.username) if report.user else "",
             "role": str(report.user.role) if report.user else "",
         },
     )
 
     page_el = ET.SubElement(root, "page_url")
-    page_el.text = str(report.page_url or "")
+    page_el.text = _xml_text(report.page_url)
 
     ua_el = ET.SubElement(root, "user_agent")
-    ua_el.text = str(report.user_agent or "")
+    ua_el.text = _xml_text(report.user_agent)
 
     msg_el = ET.SubElement(root, "message")
-    msg_el.text = str(report.message or "")
+    msg_el.text = _xml_text(report.message)
 
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     headers = {

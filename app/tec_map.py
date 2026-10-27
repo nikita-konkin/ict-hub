@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -48,6 +49,10 @@ router = APIRouter(tags=["tec-map"])
 # 413 instead of being allowed to exhaust container memory / render for hours.
 TEC_MAP_MAX_STATIONS_PER_REQUEST = 40
 TEC_MAP_MAX_FRAMES_PER_REQUEST = 800
+
+# Station codes name directories under the parquet root, so anything that could
+# step out of it ("..", "/") is refused before it reaches the filesystem.
+_STATION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
 def _scan_root(*paths: str) -> str:
@@ -176,7 +181,15 @@ def _resolve_request_day(
         return pd.Timestamp(date).normalize()
     if year is None or doy is None:
         raise ValueError(f"Either `{label}_date` or (`{label}_year` and `{label}_doy`) must be provided.")
-    return pd.Timestamp(year=int(year), month=1, day=1) + pd.to_timedelta(int(doy) - 1, unit="D")
+    return _day_of_year(int(year), int(doy))
+
+
+def _day_of_year(year: int, doy: int) -> pd.Timestamp:
+    """Midnight of day `doy` of `year`; day 366 of a common year is an error, not 1 January."""
+    first = pd.Timestamp(year=year, month=1, day=1)
+    if not 1 <= doy <= (366 if first.is_leap_year else 365):
+        raise ValueError(f"{year} has no day {doy}.")
+    return first + pd.to_timedelta(doy - 1, unit="D")
 
 
 def _resolve_gif_time_bounds(
@@ -223,6 +236,11 @@ def _validate_stations_for_range(
     Raises ValueError naming stations that exist in none of the days (typos).
     """
     requested = [str(s).strip().lower() for s in stations if str(s).strip()]
+    invalid = [s for s in requested if not _STATION_NAME_RE.fullmatch(s)]
+    if invalid:
+        raise ValueError(
+            f"Invalid station names: {', '.join(sorted(invalid))}. Use station codes of letters, digits, '_' or '-'."
+        )
     days: list[tuple[int, int]] = []
     current_day = start_day.normalize()
     while current_day <= end_day.normalize():
@@ -364,15 +382,14 @@ def _load_single_frame_summary(
         y = int(year)
         d = int(doy)
 
-    base_date = pd.Timestamp(year=y, month=1, day=1) + pd.to_timedelta(d - 1, unit="D")
+    base_date = _day_of_year(y, d)
 
     if "T" in timestamp or " " in timestamp:
         ts = pd.Timestamp(timestamp)
         if ts.tzinfo is not None:
             ts = ts.tz_convert("UTC").tz_localize(None)
     else:
-        hh, mm, ss = (int(v) for v in timestamp.split(":"))
-        ts = base_date + pd.to_timedelta(hh * 3600 + mm * 60 + ss, unit="s")
+        ts = base_date + _clock_offset(timestamp)
 
     frame_time = ts.floor(f"{pipeline.frame_minutes}min")
     end_dt = frame_time + timedelta(minutes=pipeline.frame_minutes) - timedelta(microseconds=1)
@@ -403,6 +420,21 @@ def _load_single_frame_summary(
     leveled = build_leveled_links(raw_links, pipeline)
     frame_summary = build_frame_summary(leveled, pipeline)
     return pd.Timestamp(frame_time), frame_summary
+
+
+def _clock_offset(text: str) -> pd.Timedelta:
+    """Offset of an HH:MM or HH:MM:SS time of day from midnight."""
+    parts = text.strip().split(":")
+    try:
+        if len(parts) not in (2, 3):
+            raise ValueError
+        hh, mm = int(parts[0]), int(parts[1])
+        ss = float(parts[2]) if len(parts) == 3 else 0.0
+    except ValueError:
+        raise ValueError(f"Invalid time of day: {text!r}. Use HH:MM:SS (UTC) or a full ISO timestamp.") from None
+    if not (0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss < 60):
+        raise ValueError(f"Invalid time of day: {text!r}. Use HH:MM:SS (UTC) or a full ISO timestamp.")
+    return pd.to_timedelta(hh * 3600 + mm * 60 + ss, unit="s")
 
 
 @dataclass(frozen=True)
@@ -806,6 +838,8 @@ def tec_map_gif_job_result(job_id: str, current_user: User = Depends(get_current
     job = _visible_job(job_id, current_user)
     if job.status != "done":
         raise HTTPException(status_code=409, detail=f"The animation is not ready yet ({job.status}).")
+    if not job.path.is_file():
+        raise HTTPException(status_code=404, detail="The animation file is gone. Render it again.")
     return FileResponse(job.path, media_type=job.media_type, filename=job.filename, content_disposition_type="inline")
 
 
