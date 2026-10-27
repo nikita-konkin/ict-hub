@@ -122,3 +122,26 @@ def test_ecef_to_geodetic_handles_the_polar_axis():
     assert abs(lat - 43.25) < 1e-6
     assert abs(lon - 76.92) < 1e-9
     assert abs(alt - 800.0) < 0.01
+
+
+def test_rinex_day_listing_counts_stations_not_archives(tmp_path: Path):
+    """Hourly archives (ufa_001a … ufa_001x) are one station, not 24."""
+    from data_indexer import _scan_rinex
+
+    day = tmp_path / "2025_original" / "01" / "01"
+    day.mkdir(parents=True)
+    for hour in "abcdefghijklmnopqrstuvwx":
+        (day / f"ufa_001{hour}.zip").touch()
+    (day / "aksu0010.zip").touch()
+    (day / "AKSU00RUS_R_20250010000_01D_30S_MO.crx.zip").touch()
+    (day / "notes.txt").touch()
+
+    flat = tmp_path / "2025_original" / "002"
+    flat.mkdir(parents=True)
+    (flat / "mork0020.zip").touch()
+    (flat / "mork002a.zip").touch()
+
+    years = _scan_rinex(tmp_path)
+
+    days = {item["day"]: item["stations"] for item in years[0]["days"]}
+    assert days == {"01/01": 2, "002": 1}

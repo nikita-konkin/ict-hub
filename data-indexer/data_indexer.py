@@ -592,6 +592,16 @@ def _trigger_background_refresh(
     threading.Thread(target=_do_refresh, daemon=True).start()
 
 
+def _count_rinex_stations(entries) -> int:
+    """
+    Stations among a day folder's RINEX archives. A station delivered as hourly
+    or session files has many archives a day (ufa_001a.zip … ufa_001x.zip), so
+    counting archives overstated stations about tenfold. Short (aksu0010.zip)
+    and long RINEX 3 names both begin with the 4-character site code.
+    """
+    return len({e.name[:4].lower() for e in entries if e.is_file() and e.name.lower().endswith(".zip")})
+
+
 def _scan_rinex(root: Path) -> list[YearInfo]:
     # Step 1: collect year directories
     with os.scandir(root) as it:
@@ -612,9 +622,9 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
             with os.scandir(top_entry.path) as it:
                 entries = list(it)
 
-            direct_zips = sum(1 for e in entries if e.is_file() and e.name.lower().endswith(".zip"))
-            if direct_zips:
-                days.append({"day": top_entry.name, "stations": direct_zips})
+            direct_stations = _count_rinex_stations(entries)
+            if direct_stations:
+                days.append({"day": top_entry.name, "stations": direct_stations})
                 continue
 
             # Layout B: MM/DD
@@ -629,7 +639,7 @@ def _scan_rinex(root: Path) -> list[YearInfo]:
                 if not DAY_IN_MONTH_RE.fullmatch(day_entry.name):
                     continue
                 with os.scandir(day_entry.path) as it2:
-                    stations = sum(1 for e in it2 if e.is_file() and e.name.lower().endswith(".zip"))
+                    stations = _count_rinex_stations(it2)
                 days.append({"day": f"{top_entry.name}/{day_entry.name}", "stations": stations})
 
         if not days:
