@@ -26,6 +26,40 @@ Includes a dedicated **data-indexer microservice** that provides fast XML-indexe
 
 ---
 
+## Recent changes
+
+October 2026, branch `fix/station-counts-and-shards`:
+
+- **Analysis: calendar date ranges.** Range endpoints have a "Range by" switch:
+  year and day of year as before, or calendar dates (`date_start`/`date_end`,
+  which may cross New Year). New endpoint options:
+  `/propagation/absoltec/raw/range`, `/propagation/tec/raw/range`,
+  `/tec/satellites/range`, `/stations/available/range` and
+  `/stations/map/range`. The alpha and TEC inputs no longer block submission of
+  the 0.05 default.
+- **Correct station counts.** The RINEX day listing counted `.zip` archives as
+  stations, so stations delivered as hourly files were counted many times (1
+  January 2025 showed 2398 stations instead of 224). It now counts distinct
+  4-character site codes on the Stations map, Indexed data and TEC-Suite pages.
+- **Hardened APIs.**
+  - Job stream: reconnecting to a finished job no longer blocks the server.
+  - TEC map: station names must be plain codes (paths such as `../x` are
+    refused), day 366 of a common year is a 400, times accept `HH:MM` and are
+    range-checked, and a deleted animation file is a 404 instead of a 500.
+  - Feedback: XML export strips invalid characters, such as terminal colour
+    codes, that made the file unparseable.
+  - Stations map: indexer errors and outages are shown instead of an empty map.
+  - Data-indexer: corrupt archives are skipped instead of failing the whole
+    scan; geodetic height is correct near the poles.
+- **No browser console errors.** `Cross-Origin-Opener-Policy` is sent only over
+  HTTPS, and the Stations map no longer requests a missing icon from
+  unpkg.com.
+- **Sequence diagrams.** [docs/sequence_diagrams.md](docs/sequence_diagrams.md)
+  shows, step by step, how a converter job runs, how data browsing uses the
+  data-indexer, and how TEC maps and animations are rendered.
+
+---
+
 ## Quick start
 
 ### 1. Build and start
@@ -206,6 +240,9 @@ an automatic station QC tool.
 ---
 
 ## Architecture overview
+
+For how the parts talk to each other at run time, see the
+[sequence diagrams](docs/sequence_diagrams.md).
 
 ```
 converter-hub/
