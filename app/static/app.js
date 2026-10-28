@@ -268,6 +268,35 @@
     });
   }
 
+  // Narrow screens: the sidebar is off-canvas and the menu button opens it.
+  // A nav link, the backdrop or Escape closes it again.
+  function initializeNavToggle() {
+    const toggle = document.getElementById('nav-toggle');
+    const sidebar = document.getElementById('sidebar');
+    if (!toggle || !sidebar) return;
+
+    function setOpen(open) {
+      document.body.classList.toggle('nav-open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    toggle.addEventListener('click', function () {
+      setOpen(!document.body.classList.contains('nav-open'));
+    });
+    document.querySelectorAll('[data-nav-close]').forEach(function (el) {
+      el.addEventListener('click', function () { setOpen(false); });
+    });
+    sidebar.addEventListener('click', function (event) {
+      if (event.target.closest('a')) setOpen(false);
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && document.body.classList.contains('nav-open')) {
+        setOpen(false);
+        toggle.focus();
+      }
+    });
+  }
+
   function initializeLanguage() {
     const langSelect = document.getElementById('lang-toggle');
     if (!langSelect) return;
@@ -612,6 +641,7 @@
     initializeAllJobPanels(document);
     initializeRecentRunTrackers(document);
     initializeTheme();
+    initializeNavToggle();
     initializeLanguage();
 
   });

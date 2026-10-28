@@ -91,11 +91,19 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
 }
 
-.theme-toggle,
-.lang-toggle {
+.top-controls {
   position: fixed;
   top: 18px;
+  right: 18px;
   z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle,
+.lang-toggle,
+.nav-toggle {
   background: var(--surface);
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -110,10 +118,7 @@ body {
   backdrop-filter: blur(4px);
 }
 
-.theme-toggle { right: 18px; }
-
 .lang-toggle {
-  right: 130px;
   text-transform: none;
   letter-spacing: 0.03em;
   font-size: 12px;
@@ -121,14 +126,16 @@ body {
 }
 
 .theme-toggle:hover,
-.lang-toggle:hover {
+.lang-toggle:hover,
+.nav-toggle:hover {
   color: var(--text);
   border-color: var(--border-light);
   background: var(--surface-2);
 }
 
 .theme-toggle:focus-visible,
-.lang-toggle:focus-visible {
+.lang-toggle:focus-visible,
+.nav-toggle:focus-visible {
   outline: 2px solid var(--accent-dim);
   outline-offset: 2px;
 }
@@ -379,8 +386,95 @@ body {
 .main {
   margin-left: var(--sidebar-w);
   flex: 1;
-  padding: 48px 56px;
+  /* A flex item defaults to its content's min width, so one wide table
+     would push the page sideways instead of scrolling in its .table-wrap. */
+  min-width: 0;
+  /* The bottom clears the floating feedback button, so it never hides the last controls. */
+  padding: 48px 56px 88px;
   max-width: 1100px;
+}
+
+/* Form rows of equal columns. minmax(0, 1fr) lets a column shrink below its
+   content (a plain 1fr track would not), and wide rows drop to two columns
+   on phones. */
+.form-cols-2,
+.form-cols-3,
+.form-cols-4 {
+  display: grid;
+  gap: 10px;
+}
+
+.form-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* Two panels side by side (form + output, table + side form); they stack on phones. */
+.layout-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.layout-split-aside { grid-template-columns: minmax(0, 1fr) 360px; }
+
+@media (max-width: 700px) {
+  .layout-split,
+  .layout-split-aside { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .form-cols-3,
+  .form-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Menu button and backdrop exist only for the off-canvas sidebar below. */
+.nav-toggle {
+  display: none;
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 120;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  /* Hidden (not just moved) while closed, so its links leave the tab order;
+     visibility flips after the slide-out finishes. */
+  .sidebar {
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform var(--transition), visibility 0s linear 180ms;
+    z-index: 140;
+  }
+
+  body.nav-open .sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform var(--transition);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+  }
+
+  .nav-toggle { display: inline-flex; }
+
+  body.nav-open .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 135; /* above the feedback button (130), below the sidebar (140) */
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  /* Full width, with room at the top for the fixed menu/language/theme buttons. */
+  .main {
+    margin-left: 0;
+    max-width: 100%;
+    padding: 72px 16px 88px;
+  }
 }
 
 .page-header {
@@ -504,6 +598,7 @@ body {
   color: var(--text-muted);
   margin-top: 5px;
   line-height: 1.4;
+  overflow-wrap: anywhere; /* host paths in hints have no break points */
 }
 
 /* Custom checkbox */
@@ -984,15 +1079,20 @@ tbody td.td-mono    { font-family: var(--font-mono); font-size: 11px; }
 .page-btn.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
 
 @media (max-width: 700px) {
-  .lang-toggle {
+  .nav-toggle {
     top: 10px;
-    right: 95px;
-    max-width: 80px;
+    left: 10px;
   }
 
-  .theme-toggle {
+  .top-controls {
     top: 10px;
     right: 10px;
+    gap: 6px;
+  }
+
+  .main { padding-top: 60px; }
+
+  .theme-toggle {
     padding: 7px 10px;
     font-size: 10px;
   }

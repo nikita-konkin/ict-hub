@@ -13,6 +13,7 @@
   margin-top: 6px;
   font-size: 11px;
   color: var(--text-muted);
+  overflow-wrap: anywhere; /* endpoint paths in hints have no break points */
 }
 .param-hint b {
   color: var(--text);

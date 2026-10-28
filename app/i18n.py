@@ -18,6 +18,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "app_name": "IonFlow",
         "app_subtitle": "Data Processing Suite",
+        "nav_menu": "Menu",
         "nav_overview": "Overview",
         "nav_dashboard": "Dashboard",
         "nav_history": "History",
@@ -501,6 +502,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "по которым населённый пункт определён приблизительно. Колесо мыши — масштаб, перетаскивание — сдвиг карты.",
         "app_name": "ИоноПоток",
         "app_subtitle": "Пакет обработки данных",
+        "nav_menu": "Меню",
         "nav_overview": "Обзор",
         "nav_dashboard": "Панель",
         "nav_history": "История",

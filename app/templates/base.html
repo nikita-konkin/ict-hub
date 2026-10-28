@@ -30,15 +30,25 @@
   {% block head %}{% endblock %}
 </head>
 <body>
-  <select id="lang-toggle" class="lang-toggle" aria-label="{{ t('lang_label') }}">
-    <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t('lang_en') }}</option>
-    <option value="ru" {% if lang == 'ru' %}selected{% endif %}>{{ t('lang_ru') }}</option>
-  </select>
-  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme" data-label-dark="{{ t('theme_dark') }}" data-label-light="{{ t('theme_light') }}">{{ t('theme_light') }}</button>
+  <!-- One fixed row, so the two controls never collide whatever their label lengths. -->
+  <div class="top-controls">
+    <select id="lang-toggle" class="lang-toggle" aria-label="{{ t('lang_label') }}">
+      <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t('lang_en') }}</option>
+      <option value="ru" {% if lang == 'ru' %}selected{% endif %}>{{ t('lang_ru') }}</option>
+    </select>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme" data-label-dark="{{ t('theme_dark') }}" data-label-light="{{ t('theme_light') }}">{{ t('theme_light') }}</button>
+  </div>
 
   <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
   {% if current_user is defined and current_user %}
-  <nav class="sidebar">
+  <!-- Below 900px the sidebar slides in from this button (see app.js). -->
+  <button id="nav-toggle" class="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="{{ t('nav_menu') }}" title="{{ t('nav_menu') }}">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+      <path d="M2 4h12M2 8h12M2 12h12"/>
+    </svg>
+  </button>
+  <div class="sidebar-backdrop" data-nav-close></div>
+  <nav class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="sidebar-logo-mark">{{ t('app_name') }}</div>
       <div class="sidebar-logo-sub">{{ t('app_subtitle') }}</div>

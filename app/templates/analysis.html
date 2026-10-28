@@ -90,7 +90,7 @@
           </select>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-year">{{ t('label_year') }}</label>
             <select id="data-year" class="form-select">
@@ -105,7 +105,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-doy-start">{{ t('analysis_label_doy_start') }}</label>
             <select id="data-doy-start" class="form-select">
@@ -129,7 +129,7 @@
           <div class="param-hint">{{ t('analysis_range_mode_hint') }}</div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-date-start">{{ t('analysis_label_date_start') }}</label>
             <input id="data-date-start" class="form-input" type="date" min="2000-01-01" max="2100-12-31">
@@ -140,7 +140,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-station">{{ t('analysis_label_station') }}</label>
             <select id="data-station" class="form-select">
@@ -155,7 +155,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-stations">{{ t('analysis_label_stations_multi') }}</label>
             <select id="data-stations" class="form-select" multiple size="4"></select>
@@ -184,7 +184,7 @@
           <div id="data-area-list" class="analysis-area-list"></div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-alpha">{{ t('analysis_label_alpha') }}</label>
             <input id="data-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
@@ -201,7 +201,7 @@
 
         <div class="divider" style="margin:4px 0 0;"></div>
         <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Propagation options (B_k / GDD)</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="data-signal-band">Signal band</label>
             <select id="data-signal-band" class="form-select">
@@ -280,7 +280,7 @@
           </select>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-year">{{ t('label_year') }}</label>
             <select id="plot-year" class="form-select">
@@ -295,7 +295,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-doy-start">{{ t('analysis_label_doy_start') }}</label>
             <select id="plot-doy-start" class="form-select">
@@ -310,7 +310,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-station">{{ t('analysis_label_station') }}</label>
             <select id="plot-station" class="form-select">
@@ -347,7 +347,7 @@
         <div class="divider" style="margin:4px 0 0;"></div>
         <div style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">{{ t('analysis_plot_options') }}</div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-cols-3">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-alpha">{{ t('analysis_label_alpha') }}</label>
             <input id="plot-alpha" class="form-input" type="number" value="0.05" step="any" min="0.001" max="0.5">
@@ -368,7 +368,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-cols-3">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-width-px">{{ t('analysis_label_width_px') }}</label>
             <input id="plot-width-px" class="form-input" type="number" min="400" max="4000" value="1200">
@@ -383,7 +383,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-cols-3">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-smooth">{{ t('analysis_label_smooth') }}</label>
             <select id="plot-smooth" class="form-select">
@@ -401,7 +401,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-cols-3">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-column">{{ t('analysis_label_column') }}</label>
             <select id="plot-column" class="form-select">
