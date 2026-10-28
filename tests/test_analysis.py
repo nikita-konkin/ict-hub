@@ -338,3 +338,44 @@ def test_analysis_page_exposes_date_ranges(client: TestClient):
             assert 'step="any"' in tag
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_analysis_page_offers_area_selection(client: TestClient):
+    """Stations can be found by radius; the Stations map links here with near/radius_km."""
+    import json
+    import re
+
+    from app.auth import get_current_user
+    from app.main import app
+
+    class _User:
+        id = 1
+        username = "test_admin"
+        role = "admin"
+        is_admin = True
+
+    app.dependency_overrides[get_current_user] = lambda: _User()
+    try:
+        html = client.get("/analysis").text
+        script = client.get("/static/js/analysis.js").text
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    for element_id in ("data-area-centre", "data-area-radius", "data-area-find", "data-area-list"):
+        assert f'id="{element_id}"' in html
+    assert 'value="stations/nearby"' in html
+    strings = json.loads(re.search(r'<script id="analysis-i18n" type="application/json">(.*?)</script>', html, re.S)[1])
+    assert "{count}" in strings["analysis_area_found"]
+    # The search goes through the analysis proxy and reads the URL prefill.
+    assert '"/analysis/api/stations/nearby?"' in script
+    assert 'query.get("near")' in script
+    assert 'params.set("radius_km", radius)' in script
+
+
+def test_area_strings_exist_in_both_languages():
+    from app.i18n import _TRANSLATIONS
+
+    keys = [k for k in _TRANSLATIONS["en"] if k.startswith(("analysis_area_", "stations_map_radius_"))]
+    assert len(keys) >= 15
+    for key in keys:
+        assert _TRANSLATIONS["ru"].get(key), key

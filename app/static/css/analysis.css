@@ -25,3 +25,51 @@
   word-break: break-word;
   white-space: normal;
 }
+
+/* Stations in an area: centre, radius and the find button on one row; it
+   wraps to stacked fields on a narrow screen. */
+/* Wraps by the panel's own width: centre and radius share a line, the button drops below when tight. */
+.analysis-area-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.analysis-area-row #data-area-centre {
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+.analysis-area-row #data-area-radius {
+  flex: 0 1 6rem;
+  min-width: 4.5rem;
+}
+.analysis-area-row .btn {
+  flex: 1 0 auto;
+}
+.analysis-area-list:empty {
+  display: none;
+}
+.analysis-area-list {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.analysis-area-list table {
+  width: 100%;
+  font-size: 12px;
+}
+.analysis-area-list td,
+.analysis-area-list th {
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.analysis-area-list td.num,
+.analysis-area-list th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.analysis-area-list tr.no-data td {
+  color: var(--text-dim);
+}

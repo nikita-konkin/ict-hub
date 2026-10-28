@@ -46,6 +46,12 @@ def test_stations_map_page_renders_with_rinex_tree(admin_client: TestClient, mon
     for name in ("blank.png", "blank@2x.png"):
         assert admin_client.get(f"/static/map-sprite/{name}").content.startswith(b"\x89PNG")
     assert "2026_original" in html
+    # Radius around a station: controls, and the client-side circle drawing.
+    for element_id in ("stations-map-radius-centre", "stations-map-radius-km", "stations-map-radius-show"):
+        assert f'id="{element_id}"' in html
+    script = admin_client.get("/static/js/stations-map.js").text
+    assert "function circlePath(" in script
+    assert 'plotEl.on("plotly_click", onPlotClick)' in script
     # OpenStreetMap's tile servers block tile requests that carry no Referer.
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     dashboard = admin_client.get("/")

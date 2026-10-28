@@ -30,6 +30,8 @@
   const state = {
     tree: Array.isArray(rinexTree) ? rinexTree : [],
     payload: null,
+    // { station, km } while a radius circle is shown.
+    radius: null,
   };
 
   const yearSelect = document.getElementById("station-year");
@@ -42,6 +44,131 @@
   const statusEl = document.getElementById("stations-map-status");
   const plotEl = document.getElementById("stations-map-plot");
   const tableWrapEl = document.getElementById("stations-map-table-wrap");
+  const radiusCentreSelect = document.getElementById("stations-map-radius-centre");
+  const radiusKmInput = document.getElementById("stations-map-radius-km");
+  const radiusResultEl = document.getElementById("stations-map-radius-result");
+
+  // ── Radius around a station ────────────────────────────────────────────
+  const EARTH_RADIUS_KM = 6371.0088;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  // Points on the great-circle ring `km` from the centre, closed.
+  function circlePath(lat, lon, km, steps = 128) {
+    const angular = km / EARTH_RADIUS_KM;
+    const lat1 = toRad(lat);
+    const lon1 = toRad(lon);
+    const lats = [];
+    const lons = [];
+    for (let i = 0; i <= steps; i += 1) {
+      const bearing = (2 * Math.PI * i) / steps;
+      const lat2 = Math.asin(
+        Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing),
+      );
+      const lon2 = lon1 + Math.atan2(
+        Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+        Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+      );
+      lats.push(toDeg(lat2));
+      lons.push(((toDeg(lon2) + 540) % 360) - 180);
+    }
+    return { lats, lons };
+  }
+
+  // The radius state resolved against the loaded stations: the centre point
+  // and the stations inside, nearest first; null when nothing is shown.
+  function radiusSelection(points) {
+    if (!state.radius) return null;
+    const centre = points.find((point) => String(point.item.station_id || "") === state.radius.station);
+    if (!centre) return null;
+    const inside = points
+      .map((point) => ({ point, distance: haversineKm(centre.lat, centre.lon, point.lat, point.lon) }))
+      .filter((entry) => entry.distance <= state.radius.km)
+      .sort((a, b) => a.distance - b.distance);
+    return { centre, km: state.radius.km, inside };
+  }
+
+  function radiusTrace(selection, osm) {
+    const ring = circlePath(selection.centre.lat, selection.centre.lon, selection.km);
+    const accent = cssVar("--accent", "#C4A87A");
+    return {
+      type: osm ? "scattermap" : "scattergeo",
+      mode: "lines",
+      name: `${selection.km} km`,
+      lat: ring.lats,
+      lon: ring.lons,
+      fill: "toself",
+      fillcolor: "rgba(196,168,122,0.12)",
+      line: { color: accent, width: 2 },
+      hoverinfo: "skip",
+      showlegend: false,
+    };
+  }
+
+  function populateRadiusOptions(payload) {
+    if (!radiusCentreSelect) return;
+    const keep = radiusCentreSelect.value;
+    const ids = (Array.isArray(payload.stations) ? payload.stations : [])
+      .map((item) => String(item.station_id || ""))
+      .filter(Boolean)
+      .sort();
+    radiusCentreSelect.innerHTML = `<option value="">${escapeHtml(T("stations_map_radius_pick"))}</option>` +
+      ids.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join("");
+    radiusCentreSelect.value = ids.includes(keep) ? keep : "";
+    if (state.radius && !ids.includes(state.radius.station)) state.radius = null;
+  }
+
+  function renderRadiusResult(selection) {
+    if (!radiusResultEl) return;
+    if (!selection) {
+      radiusResultEl.innerHTML = "";
+      return;
+    }
+    const station = String(selection.centre.item.station_id || "");
+    const headline = T("stations_map_radius_inside")
+      .replace("{count}", String(selection.inside.length))
+      .replace("{km}", String(selection.km))
+      .replace("{station}", station);
+    const list = selection.inside
+      .map((entry) => `${escapeHtml(String(entry.point.item.station_id || ""))} (${entry.distance.toFixed(0)})`)
+      .join(", ");
+    const analysisUrl = `/analysis?${new URLSearchParams({ near: station.toLowerCase(), radius_km: String(selection.km) })}`;
+    radiusResultEl.innerHTML = `<div><strong>${escapeHtml(headline)}</strong></div>` +
+      `<div>${list}</div>` +
+      `<div><a href="${escapeHtml(analysisUrl)}">${escapeHtml(T("stations_map_radius_analysis"))} →</a></div>`;
+  }
+
+  function showRadius() {
+    const station = radiusCentreSelect ? radiusCentreSelect.value : "";
+    const km = Number(radiusKmInput ? radiusKmInput.value : 0);
+    state.radius = station && Number.isFinite(km) && km > 0 ? { station, km } : null;
+    if (state.payload) renderTable(state.payload);
+    rerenderPlot();
+  }
+
+  function clearRadius() {
+    state.radius = null;
+    if (radiusCentreSelect) radiusCentreSelect.value = "";
+    if (state.payload) renderTable(state.payload);
+    rerenderPlot();
+  }
+
+  // Clicking a station marker centres the radius on it.
+  function onPlotClick(event) {
+    const point = event && event.points && event.points[0];
+    const station = point && typeof point.text === "string" ? point.text : "";
+    if (!station || !radiusCentreSelect) return;
+    if (![...radiusCentreSelect.options].some((option) => option.value === station)) return;
+    radiusCentreSelect.value = station;
+    showRadius();
+  }
 
   function getYearItem(yearValue) {
     return state.tree.find((item) => String(item.year || "") === String(yearValue || ""));
@@ -370,6 +497,8 @@
 
     if (!points.length) {
       window.Plotly.purge(plotEl);
+      plotEl.radiusClickBound = false;
+      renderRadiusResult(null);
       plotEl.innerHTML = `<div class="station-map-empty">${escapeHtml(T("stations_map_empty"))}</div>`;
       state.plotted = null;
       return true;
@@ -382,6 +511,7 @@
     if (state.plotted !== background) {
       window.Plotly.purge(plotEl);
       plotEl.innerHTML = "";
+      plotEl.radiusClickBound = false;
     }
     const showLabels = labelsCheckbox && labelsCheckbox.checked;
 
@@ -508,6 +638,14 @@
       traces.push(labels);
     }
 
+    const selection = radiusSelection(points);
+    renderRadiusResult(selection);
+    const ring = selection ? radiusTrace(selection, osm) : null;
+    if (ring) traces.unshift(ring);
+    // A shown radius frames its circle; otherwise the view frames every station.
+    const framed = ring ? ring.lat.map((lat, index) => ({ lat, lon: ring.lon[index] })) : points;
+    const radiusKey = selection ? `${state.radius.station}@${selection.km}` : "";
+
     const layout = {
       autosize: true,
       height: Math.max(plotEl.clientHeight || 0, 700),
@@ -515,7 +653,8 @@
       paper_bgcolor: "rgba(0,0,0,0)",
       hovermode: "closest",
       // Keeps the user's zoom and pan while only labels or the theme change.
-      uirevision: `${payload.year}|${payload.day}|${background}`,
+      // A new radius resets it so the view moves to the circle.
+      uirevision: `${payload.year}|${payload.day}|${background}|${radiusKey}`,
       legend: {
         // Above the map rather than over it: Plotly grows the top margin to fit.
         orientation: "h",
@@ -536,7 +675,7 @@
     if (osm) {
       layout.map = {
         style: osmStyle(),
-        ...fitView(points, plotEl.clientWidth || 900, layout.height - 40),
+        ...fitView(framed, plotEl.clientWidth || 900, layout.height - 40),
       };
     } else {
       layout.geo = {
@@ -581,6 +720,10 @@
       return false;
     }
     state.plotted = background;
+    if (!plotEl.radiusClickBound && typeof plotEl.on === "function") {
+      plotEl.on("plotly_click", onPlotClick);
+      plotEl.radiusClickBound = true;
+    }
     await window.Plotly.Plots.resize(plotEl);
     return true;
   }
@@ -631,10 +774,21 @@
       return;
     }
 
-    const rows = stations.map((item) => {
+    const points = stations
+      .map((item) => ({ item, lat: toNumber(item.latitude_deg), lon: toNumber(item.longitude_deg) }))
+      .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+    const selection = radiusSelection(points);
+    const distances = new Map(selection ? selection.inside.map((entry) => [entry.point.item, entry.distance]) : []);
+    const ordered = selection
+      ? [...stations].sort((a, b) => (distances.get(a) ?? Infinity) - (distances.get(b) ?? Infinity))
+      : stations;
+
+    const rows = ordered.map((item) => {
       const days = Array.isArray(item.days) ? item.days.join(", ") : "";
+      const distance = distances.get(item);
+      const distanceCell = selection ? `<td class="td-mono">${distance === undefined ? "-" : distance.toFixed(1)}</td>` : "";
       return `
-        <tr>
+        <tr class="${distance === undefined ? "" : "in-radius"}">
           <td class="td-mono">${String(item.station_id || "")}</td>
           <td>${String(item.marker_name || "-")}</td>
           <td class="td-mono">${String(item.marker_number || "-")}</td>
@@ -643,6 +797,7 @@
           <td class="td-mono">${Number(item.altitude_m || 0).toFixed(1)}</td>
           <td class="td-mono">${Number(item.archive_count || 0)}</td>
           <td class="td-mono">${days || "-"}</td>
+          ${distanceCell}
         </tr>
       `;
     }).join("");
@@ -659,6 +814,7 @@
             <th>${escapeHtml(T("stations_map_altitude"))}</th>
             <th>${escapeHtml(T("stations_map_archive_count"))}</th>
             <th>${escapeHtml(T("stations_map_days"))}</th>
+            ${selection ? `<th>${escapeHtml(T("stations_map_distance"))}</th>` : ""}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -699,6 +855,7 @@
         return;
       }
       state.payload = payload;
+      populateRadiusOptions(payload);
       renderSummary(payload);
       renderTable(payload);
       setPlotStatus(await renderPlot(payload));
@@ -725,6 +882,15 @@
     });
     daySelect.addEventListener("change", () => loadStationMap(false));
     loadButton.addEventListener("click", () => loadStationMap(false));
+    const radiusShowButton = document.getElementById("stations-map-radius-show");
+    const radiusClearButton = document.getElementById("stations-map-radius-clear");
+    if (radiusShowButton) radiusShowButton.addEventListener("click", showRadius);
+    if (radiusClearButton) radiusClearButton.addEventListener("click", clearRadius);
+    if (radiusKmInput) {
+      radiusKmInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") showRadius();
+      });
+    }
     refreshButton.addEventListener("click", () => loadStationMap(true));
     if (labelsCheckbox) {
       labelsCheckbox.addEventListener("change", rerenderPlot);

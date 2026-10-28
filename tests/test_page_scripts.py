@@ -26,7 +26,8 @@ _ISLAND_THEN_SCRIPT = re.compile(
     r"\s*<script src=\"/static/js/(?P<script>[\w-]+\.js)\"></script>",
     re.S,
 )
-_T_CALL = re.compile(r"\bT\(\"([a-z0-9_]+)\"\)")
+# T("key") or T("key", {placeholders}).
+_T_CALL = re.compile(r"\bT\(\"([a-z0-9_]+)\"[,)]")
 
 
 def _islands() -> dict[str, set[str]]:

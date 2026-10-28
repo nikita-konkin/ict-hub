@@ -120,3 +120,43 @@
     margin-top: 20px;
   }
 }
+
+.station-map-field input {
+  width: 100%;
+}
+
+.station-map-radius {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.station-map-radius legend {
+  padding: 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.station-map-radius-hint,
+.station-map-radius-result {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.station-map-radius-result:empty {
+  display: none;
+}
+
+.station-map-radius-result a {
+  color: var(--accent, inherit);
+}
+
+.station-map-table-wrap tr.in-radius td {
+  background: color-mix(in srgb, var(--accent, #c8a25a) 14%, transparent);
+}

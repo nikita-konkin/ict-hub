@@ -68,6 +68,26 @@
               <input id="stations-map-labels" type="checkbox" checked />
               <span>{{ t('stations_map_show_ids') }}</span>
             </label>
+
+            <fieldset class="station-map-radius">
+              <legend>{{ t('stations_map_radius_title') }}</legend>
+              <div class="station-map-field">
+                <label for="stations-map-radius-centre">{{ t('stations_map_radius_centre') }}</label>
+                <select id="stations-map-radius-centre">
+                  <option value="">{{ t('stations_map_radius_pick') }}</option>
+                </select>
+              </div>
+              <div class="station-map-field">
+                <label for="stations-map-radius-km">{{ t('stations_map_radius_km') }}</label>
+                <input id="stations-map-radius-km" type="number" value="300" min="1" max="5000" step="any">
+              </div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button id="stations-map-radius-show" type="button" class="btn btn-primary">{{ t('stations_map_radius_show') }}</button>
+                <button id="stations-map-radius-clear" type="button" class="btn btn-ghost">{{ t('stations_map_radius_clear') }}</button>
+              </div>
+              <div class="station-map-radius-hint">{{ t('stations_map_radius_hint') }}</div>
+              <div id="stations-map-radius-result" class="station-map-radius-result" aria-live="polite"></div>
+            </fieldset>
           </div>
 
           <div id="stations-map-summary" class="station-map-meta">
@@ -116,6 +136,8 @@
     'stations_map_loading', 'stations_map_longitude', 'stations_map_marker_name',
     'stations_map_marker_number', 'stations_map_no_year', 'stations_map_station_count',
     'stations_map_table_empty', 'stations_map_tiles_failed',
+    'stations_map_radius_pick', 'stations_map_radius_inside', 'stations_map_radius_analysis',
+    'stations_map_distance',
   ) | tojson }}</script>
   <script id="stations-map-rinex-tree" type="application/json">{{ rinex_tree | tojson }}</script>
   <script src="/static/js/stations-map.js"></script>

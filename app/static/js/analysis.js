@@ -3,6 +3,11 @@
   if (!analysisEnabled) {
     return;
   }
+  const i18nEl = document.getElementById("analysis-i18n");
+  const I18N = i18nEl ? JSON.parse(i18nEl.textContent) : {};
+  // T(key, {count: 3}) fills {count} placeholders in the translated text.
+  const T = (key, values) =>
+    String(I18N[key] ?? key).replace(/\{(\w+)\}/g, (match, name) => (values && name in values ? values[name] : match));
 
   const state = {
     rows: [],
@@ -115,6 +120,10 @@
       required: ["data-year", "data-doy-start", "data-doy-end"],
       relevant: ["data-year", "data-doy-start", "data-doy-end", "data-format"],
     },
+    "stations/nearby": {
+      required: ["data-year", "data-doy-start", "data-doy-end", "data-area-centre"],
+      relevant: ["data-year", "data-doy-start", "data-doy-end", "data-area-centre", "data-source", "data-format"],
+    },
     "propagation/calc": {
       required: ["data-tec"],
       relevant: ["data-tec", "data-signal-band", "data-f-hz", "data-format"],
@@ -165,6 +174,18 @@
       // Year still picks which stations/satellites the selectors offer.
       relevant: ["data-range-mode", "data-year"].concat(dateFields, rule.relevant.filter((id) => !doyFields.has(id))),
     };
+  }
+
+  // Range endpoints: year + doy_start/doy_end, or date_start/date_end.
+  function appendRangeParams(params, endpoint) {
+    if (useDateRange(endpoint)) {
+      qpAppend(params, "date_start", document.getElementById("data-date-start").value);
+      qpAppend(params, "date_end", document.getElementById("data-date-end").value);
+    } else {
+      qpAppend(params, "year", document.getElementById("data-year").value);
+      qpAppend(params, "doy_start", document.getElementById("data-doy-start").value);
+      qpAppend(params, "doy_end", document.getElementById("data-doy-end").value);
+    }
   }
 
   function doyToIsoDate(year, doy) {
@@ -256,6 +277,7 @@
     "data-date-end": "date_end",
     "data-station": "station",
     "data-stations": "stations",
+    "data-area-centre": "area (near, radius_km)",
     "data-satellite": "satellite",
     "data-source": "source",
     "data-alpha": "alpha",
@@ -364,6 +386,9 @@
   }
 
   function formatBackendError(payload, fallbackStatus) {
+    if (payload && typeof payload.detail === "string" && payload.detail) {
+      return payload.detail;
+    }
     if (payload && Array.isArray(payload.detail) && payload.detail.length) {
       return payload.detail.map(function (item) {
         const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
@@ -524,9 +549,110 @@
       }
     }
 
+    // The area search fills the stations list, so it matters where that does.
+    const takesStations = requiredSet.has("data-stations") || relevantSet.has("data-stations");
+    if (!requiredSet.has("data-area-centre")) {
+      setFieldClasses("data-area-centre", takesStations ? "relevant" : "irrelevant");
+    }
+
     const msg = document.getElementById("data-requirements-msg");
     const requiredNames = rule.required.map((id) => dataFieldLabels[id]).join(", ");
     msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>";
+  }
+
+  // ── Stations in an area ──────────────────────────────────────────────
+  // /stations/nearby lists the stations within the radius that have data in
+  // the chosen range; those with data for the endpoint's data type fill the
+  // stations multi-select, nearest first, and can be unticked there.
+  function setAreaStatus(kind, text) {
+    const el = document.getElementById("data-area-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = kind === "error" ? "var(--error, #c0504d)" : "";
+  }
+
+  function renderAreaList(stations, sourceType) {
+    const listEl = document.getElementById("data-area-list");
+    if (!listEl) return;
+    if (!stations.length) {
+      listEl.innerHTML = "";
+      return;
+    }
+    const rows = stations.map((s) => {
+      const usable = sourceType === "tec" ? s.tec_days > 0 : s.absoltec_days > 0;
+      const distance = s.distance_km == null ? "–" : Number(s.distance_km).toFixed(1);
+      return `<tr class="${usable ? "" : "no-data"}"><td class="td-mono">${escapeHtml(s.station)}</td>` +
+        `<td class="num">${distance}</td><td class="num">${Number(s.absoltec_days)}</td>` +
+        `<td class="num">${Number(s.tec_days)}</td></tr>`;
+    }).join("");
+    listEl.innerHTML = `<table><thead><tr><th>${escapeHtml(T("analysis_label_station"))}</th>` +
+      `<th class="num">${escapeHtml(T("analysis_area_distance"))}</th>` +
+      `<th class="num">${escapeHtml(T("analysis_area_days_abs"))}</th>` +
+      `<th class="num">${escapeHtml(T("analysis_area_days_tec"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  async function findAreaStations() {
+    const centre = clean(document.getElementById("data-area-centre").value);
+    const radius = clean(document.getElementById("data-area-radius").value);
+    if (!centre || !radius) {
+      setAreaStatus("error", T("analysis_area_need_centre"));
+      return;
+    }
+    const endpoint = document.getElementById("data-endpoint").value;
+    const params = new URLSearchParams();
+    if (isRangeEndpoint(endpoint)) {
+      appendRangeParams(params, endpoint);
+    } else {
+      // Single-day endpoints: the area is searched on that day.
+      const doy = document.getElementById("data-doy").value;
+      qpAppend(params, "year", document.getElementById("data-year").value);
+      qpAppend(params, "doy_start", doy);
+      qpAppend(params, "doy_end", doy);
+    }
+    params.set("near", centre);
+    params.set("radius_km", radius);
+    params.set("source", "both");
+
+    const button = document.getElementById("data-area-find");
+    button.disabled = true;
+    setAreaStatus("info", T("analysis_area_searching"));
+    try {
+      const res = await fetch("/analysis/api/stations/nearby?" + params.toString(), { credentials: "same-origin" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAreaStatus("error", formatBackendError(payload, res.status));
+        renderAreaList([], "");
+        return;
+      }
+      const sourceType = getDataSourceType();
+      const stations = Array.isArray(payload.stations) ? payload.stations : [];
+      const usable = stations
+        .filter((s) => (sourceType === "tec" ? s.tec_days > 0 : s.absoltec_days > 0))
+        .map((s) => s.station);
+      renderAreaList(stations, sourceType);
+      const values = { count: stations.length, usable: usable.length, km: radius, centre };
+      if (!usable.length) {
+        setAreaStatus("error", T("analysis_area_none", values));
+        return;
+      }
+      fillMultiSelect("data-stations", usable, usable);
+      setAreaStatus("info", T("analysis_area_found", values));
+    } catch (error) {
+      setAreaStatus("error", String(error && error.message ? error.message : error));
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  // /analysis?near=kazn&radius_km=300 (from the Stations map) pre-fills the area.
+  function prefillAreaFromUrl() {
+    const query = new URLSearchParams(window.location.search);
+    const near = clean(query.get("near"));
+    if (!near) return false;
+    document.getElementById("data-area-centre").value = near;
+    const radius = clean(query.get("radius_km"));
+    if (radius) document.getElementById("data-area-radius").value = radius;
+    return true;
   }
 
   function updatePlotFieldHighlights() {
@@ -558,25 +684,13 @@
     const params = new URLSearchParams();
     const year = document.getElementById("data-year").value;
     const doy = document.getElementById("data-doy").value;
-    const doyStart = document.getElementById("data-doy-start").value;
-    const doyEnd = document.getElementById("data-doy-end").value;
     const station = document.getElementById("data-station").value;
     const satellite = document.getElementById("data-satellite").value;
     const source = document.getElementById("data-source").value;
     const alpha = document.getElementById("data-alpha").value;
     const stationsMulti = getMultiSelectedValues("data-stations");
 
-    // Range endpoints: year + doy_start/doy_end, or date_start/date_end.
-    function appendRange() {
-      if (useDateRange(endpoint)) {
-        qpAppend(params, "date_start", document.getElementById("data-date-start").value);
-        qpAppend(params, "date_end", document.getElementById("data-date-end").value);
-      } else {
-        qpAppend(params, "year", year);
-        qpAppend(params, "doy_start", doyStart);
-        qpAppend(params, "doy_end", doyEnd);
-      }
-    }
+    const appendRange = () => appendRangeParams(params, endpoint);
 
     // Propagation endpoints (proxied to tec-stat) — explicit per-endpoint param sets.
     if (endpoint.startsWith("propagation/")) {
@@ -644,8 +758,12 @@
     if (endpoint === "tec/data") {
       qpAppend(params, "satellite", satellite);
     }
-    if (endpoint === "stations/available" || endpoint === "stations/available/range") {
+    if (endpoint === "stations/available" || endpoint === "stations/available/range" || endpoint === "stations/nearby") {
       qpAppend(params, "source", source);
+    }
+    if (endpoint === "stations/nearby") {
+      qpAppend(params, "near", document.getElementById("data-area-centre").value);
+      qpAppend(params, "radius_km", document.getElementById("data-area-radius").value);
     }
 
     qpAppend(params, "format", document.getElementById("data-format").value);
@@ -1689,6 +1807,13 @@
     updateDataFieldHighlights();
   });
   document.getElementById("data-year").addEventListener("change", updateDataSelectors);
+  document.getElementById("data-area-find").addEventListener("click", findAreaStations);
+  document.getElementById("data-area-centre").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      findAreaStations();
+    }
+  });
   document.getElementById("data-doy").addEventListener("change", updateDataSelectors);
   document.getElementById("data-range-mode").addEventListener("change", function () {
     if (this.value === "dates") prefillDateRange();
@@ -1819,8 +1944,10 @@
     observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
   })();
 
+  const areaFromUrl = prefillAreaFromUrl();
   loadIndexOptions().finally(function () {
     updateDataFieldHighlights();
     updatePlotFieldHighlights();
+    if (areaFromUrl) findAreaStations();
   });
 })();

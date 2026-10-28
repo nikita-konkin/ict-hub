@@ -85,6 +85,7 @@
               <option value="stations/available/range">GET /stations/available/range — Available Stations Over Range</option>
               <option value="stations/map">GET /stations/map — Station Map</option>
               <option value="stations/map/range">GET /stations/map/range — Station Map Over Range</option>
+              <option value="stations/nearby">GET /stations/nearby — Stations Within a Radius</option>
             </optgroup>
           </select>
         </div>
@@ -167,6 +168,20 @@
               <option value="tec">tec</option>
             </select>
           </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="data-area-centre">{{ t('analysis_label_area') }}</label>
+          <div class="analysis-area-row">
+            <input id="data-area-centre" class="form-input" type="text" autocomplete="off"
+                   placeholder="{{ t('analysis_area_centre_placeholder') }}">
+            <input id="data-area-radius" class="form-input" type="number" value="300" min="1" max="5000" step="any"
+                   aria-label="{{ t('analysis_area_radius') }}" title="{{ t('analysis_area_radius') }}">
+            <button id="data-area-find" type="button" class="btn btn-ghost">{{ t('analysis_area_find') }}</button>
+          </div>
+          <div class="param-hint">{{ t('analysis_area_hint') }}</div>
+          <div id="data-area-status" class="param-hint" aria-live="polite"></div>
+          <div id="data-area-list" class="analysis-area-list"></div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
@@ -475,6 +490,10 @@
 
 <script src="/static/vendor/plotly/plotly.min.js"></script>
 
+<script id="analysis-i18n" type="application/json">{{ t_dict(
+  'analysis_area_searching', 'analysis_area_found', 'analysis_area_none', 'analysis_area_need_centre',
+  'analysis_area_distance', 'analysis_area_days_abs', 'analysis_area_days_tec', 'analysis_label_station',
+) | tojson }}</script>
 <script id="analysis-config" type="application/json">{{ {"analysisApiEnabled": true if analysis_api_enabled else false} | tojson }}</script>
 <script src="/static/js/analysis.js"></script>
 
