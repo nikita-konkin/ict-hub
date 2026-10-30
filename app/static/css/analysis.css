@@ -1,3 +1,76 @@
+.analysis-forms {
+  display: grid;
+  /* auto-fit fills the available space with the two panels; never reserve
+     an empty third track like the dashboard's auto-fill grid. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.analysis-forms > .card {
+  min-width: 0;
+  container-type: inline-size;
+  overflow: visible;
+}
+
+.analysis-forms form,
+.analysis-forms .form-group,
+.analysis-forms .form-cols-2,
+.analysis-forms .form-cols-3 {
+  min-width: 0;
+}
+
+/* Reflow based on panel width, not viewport width (the sidebar and card
+   padding also consume space). Date inputs need more room than numbers. */
+.analysis-forms .form-cols-2 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
+.analysis-forms .form-cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
+}
+
+.analysis-forms .form-input,
+.analysis-forms .form-select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 42px;
+}
+
+.analysis-forms .form-select:not([multiple]) {
+  appearance: auto;
+}
+
+.analysis-forms .form-label {
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.analysis-forms .card-body,
+.analysis-forms .card-title,
+.analysis-forms .form-label {
+  overflow-wrap: anywhere;
+}
+
+.analysis-forms .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.analysis-endpoint-description {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 360px) {
+  .analysis-forms .card-body,
+  .analysis-forms .card-header { padding: 16px; }
+}
+
 .param-required .form-label {
   color: var(--accent);
 }
@@ -50,6 +123,8 @@
   display: none;
 }
 .analysis-area-list {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 8px;
   max-height: 220px;
   overflow: auto;

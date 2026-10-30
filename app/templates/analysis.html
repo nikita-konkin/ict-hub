@@ -41,14 +41,14 @@
   </div>
 </div>
 
-<div class="grid-2" style="align-items:start;">
+<div class="analysis-forms">
   <div class="card" id="data-query-card">
     <div class="card-header"><div class="card-title">{{ t('analysis_data_query_builder') }}</div></div>
     <div class="card-body">
       <form id="analysis-data-form" style="display:grid; gap:12px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" for="data-endpoint">{{ t('analysis_label_endpoint') }}</label>
-          <select id="data-endpoint" class="form-select">
+          <select id="data-endpoint" class="form-select" aria-describedby="data-endpoint-description">
             <optgroup label="AbsolTEC">
               <option value="absoltec/stations">GET /absoltec/stations — List Stations</option>
               <option value="absoltec/days">GET /absoltec/days — List Days</option>
@@ -88,6 +88,7 @@
               <option value="stations/nearby">GET /stations/nearby — Stations Within a Radius</option>
             </optgroup>
           </select>
+          <div id="data-endpoint-description" class="analysis-endpoint-description"></div>
         </div>
 
         <div class="form-cols-2">
@@ -259,7 +260,7 @@
       <form id="analysis-plot-form" style="display:grid; gap:12px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" for="plot-endpoint">{{ t('analysis_label_plot_endpoint') }}</label>
-          <select id="plot-endpoint" class="form-select">
+          <select id="plot-endpoint" class="form-select" aria-describedby="plot-endpoint-description">
             <optgroup label="Plots">
               <option value="plots/absoltec/average">GET /plots/absoltec/average — Plot Absoltec Average</option>
               <option value="plots/absoltec/day">GET /plots/absoltec/day — Plot Absoltec Day</option>
@@ -278,6 +279,7 @@
               <option value="plots/cb/with-absoltec/day-by-day">GET /plots/cb/with-absoltec/day-by-day - Plot Tec + Cb Day By Day</option>
             </optgroup>
           </select>
+          <div id="plot-endpoint-description" class="analysis-endpoint-description"></div>
         </div>
 
         <div class="form-cols-2">
