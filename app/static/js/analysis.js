@@ -1,4 +1,16 @@
 (function () {
+  // Native selects cannot wrap their selected option. Keep the full name
+  // readable below the control, including on touch screens and with zoom.
+  for (const prefix of ["data", "plot"]) {
+    const select = document.getElementById(prefix + "-endpoint");
+    const description = document.getElementById(prefix + "-endpoint-description");
+    const updateDescription = () => {
+      description.textContent = select.selectedOptions[0]?.textContent || "";
+    };
+    select.addEventListener("change", updateDescription);
+    updateDescription();
+  }
+
   const analysisEnabled = JSON.parse(document.getElementById("analysis-config").textContent).analysisApiEnabled;
   if (!analysisEnabled) {
     return;
