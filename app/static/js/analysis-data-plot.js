@@ -37,7 +37,7 @@
   }
 
   function defaultAxes(rows, endpoint) {
-    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => rows.some((row) => row[key] != null && row[key] !== ""));
     const numeric = numericColumns(rows);
     if (endpoint.startsWith("stations/") || /\/(stations|days|satellites)(\/range)?$/.test(endpoint)) {
       return { x: ["stations", "satellites", "days", "station", "satellite", "day", "value"].find((key) => cols.includes(key)) || "", y: "__count__" };
