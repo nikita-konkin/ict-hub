@@ -33,8 +33,127 @@
     },
   };
 
-  function getDataSourceType() {
-    const endpoint = document.getElementById("data-endpoint")?.value || "";
+  function isDataPlot() {
+    return !document.getElementById("plot-endpoint").value.startsWith("plots/");
+  }
+
+  function setupDataPlotControls() {
+    const select = document.getElementById("plot-endpoint");
+    const groups = document.getElementById("data-endpoint").querySelectorAll("optgroup");
+    for (const group of groups) select.appendChild(group.cloneNode(true));
+
+    // Reuse the rendered query fields and their translations, with independent IDs.
+    const fields = document.createElement("div");
+    fields.style.cssText = "display:grid; gap:12px";
+    for (const child of document.getElementById("analysis-data-form").children) fields.appendChild(child.cloneNode(true));
+    for (const el of fields.querySelectorAll("[id], [for], [aria-describedby]")) {
+      for (const attr of ["id", "for", "aria-describedby"]) {
+        if (el.hasAttribute(attr)) el.setAttribute(attr, el.getAttribute(attr).replace(/data-/g, "plot-data-"));
+      }
+    }
+    fields.lastElementChild.remove(); // The Plot Viewer has its own submit actions.
+    fields.firstElementChild.hidden = true; // Endpoint is selected in the viewer menu.
+    document.getElementById("plot-data-fields").appendChild(fields);
+    document.getElementById("plot-data-format").value = "json";
+    document.getElementById("plot-data-format").closest(".form-group").hidden = true;
+    const prefix = "plot-data-";
+    for (const key of ["year", "doy"]) {
+      document.getElementById(prefix + key).addEventListener("change", () => updateDataSelectors(prefix));
+    }
+    document.getElementById(prefix + "range-mode").addEventListener("change", function () {
+      if (this.value === "dates") prefillDateRange(prefix);
+      updateDataFieldHighlights(prefix);
+    });
+    document.getElementById(prefix + "area-find").addEventListener("click", () => findAreaStations(prefix));
+    document.getElementById(prefix + "area-centre").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); findAreaStations(prefix); }
+    });
+    for (const key of ["plot-data-x", "plot-data-y"]) {
+      document.getElementById(key).addEventListener("change", renderDataPlot);
+    }
+    document.getElementById("data-visualize").addEventListener("click", () => {
+      select.value = document.getElementById("data-endpoint").value;
+      updatePlotMode();
+      for (const field of document.querySelectorAll("#analysis-data-form input, #analysis-data-form select")) {
+        const target = document.getElementById(dataId(field.id, prefix));
+        if (!target || field.id === "data-format") continue;
+        if (field.tagName === "SELECT") {
+          target.innerHTML = field.innerHTML;
+          const selected = new Set(Array.from(field.selectedOptions, (option) => option.value));
+          for (const option of target.options) option.selected = selected.has(option.value);
+        } else target.value = field.value;
+      }
+      updateDataFieldHighlights(prefix);
+      document.getElementById("plot-endpoint-description").textContent = select.selectedOptions[0]?.textContent || "";
+      runPlotQuery();
+      document.getElementById("plot-query-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    updatePlotMode();
+  }
+
+  function updatePlotMode() {
+    const dataMode = isDataPlot();
+    state.plotRows = [];
+    state.lastPlotUrl = "";
+    state.lastPlotPayload = {};
+    document.getElementById("plot-query-url").textContent = "";
+    setPlotFetchStatus("info", "");
+    document.getElementById("plot-viewer").style.display = "none";
+    document.getElementById("plot-empty").style.display = "block";
+    for (const key of ["plot-data-x", "plot-data-y"]) document.getElementById(key).disabled = true;
+    document.getElementById("plot-data-fields").hidden = !dataMode;
+    document.getElementById("plot-data-requirements-msg").hidden = !dataMode;
+    document.getElementById("plot-specialized-fields").hidden = dataMode;
+    document.getElementById("plot-data-axes").hidden = !dataMode;
+    document.getElementById("plot-requirements-msg").hidden = dataMode;
+    if (dataMode) {
+      document.getElementById("plot-data-endpoint").value = document.getElementById("plot-endpoint").value;
+      updateDataSelectors("plot-data-");
+    } else updatePlotSelectors();
+    updatePlotFieldHighlights();
+  }
+
+  function setupDataPlotAxes(rows) {
+    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const x = document.getElementById("plot-data-x");
+    const y = document.getElementById("plot-data-y");
+    x.disabled = false;
+    y.disabled = false;
+    const previousX = x.value;
+    const previousY = getMultiSelectedValues("plot-data-y");
+    const numeric = window.AnalysisDataPlot.numericColumns(rows);
+    fillSelect("plot-data-x", ["", ...cols], previousX);
+    x.options[0].textContent = T("analysis_plot_row");
+    const preferred = ["timestamp", "datetime", "date", "ut", "hour", "time", "doy", "day"];
+    if (!cols.includes(previousX)) x.value = preferred.find((key) => cols.includes(key)) || (!numeric.length ? cols[0] : "") || "";
+    const values = numeric.filter((key) => !["year", "doy", "day"].includes(key) && key !== x.value);
+    fillMultiSelect("plot-data-y", [...numeric, "__count__"], previousY.length ? previousY : values.slice(0, 1));
+    y.options[y.options.length - 1].textContent = T("analysis_plot_count");
+    if (!numeric.length) {
+      y.innerHTML = '<option value="__count__" selected>' + escapeHtml(T("analysis_plot_count")) + '</option>';
+    }
+  }
+
+  async function renderDataPlot() {
+    const rows = state.plotRows || [];
+    const figure = window.AnalysisDataPlot.buildFigure(rows, document.getElementById("plot-data-x").value,
+      getMultiSelectedValues("plot-data-y"), document.getElementById("plot-endpoint").value);
+    const chart = document.getElementById("plotly-chart");
+    if (window.Plotly) window.Plotly.purge(chart);
+    chart.style.display = "none";
+    state.lastPlotPayload = figure;
+    if (figure.data.length && await renderPlotlyChart(figure, chart)) {
+      chart.style.display = "block";
+      setPlotFetchStatus("success", T("analysis_plot_rows", { count: rows.length }));
+    } else setPlotFetchStatus("info", T("analysis_plot_no_values"));
+  }
+
+  function dataId(id, prefix) {
+    return id.replace(/^data-/, typeof prefix === "string" ? prefix : "data-");
+  }
+
+  function getDataSourceType(prefix) {
+    const endpoint = document.getElementById(dataId("data-endpoint", prefix))?.value || "";
     if (endpoint.startsWith("propagation/tec/")) return "tec";
     if (endpoint.startsWith("propagation/")) return "absoltec";
     if (endpoint.startsWith("tec/") || endpoint.startsWith("stations/")) return "tec";
@@ -169,14 +288,14 @@
     return Boolean(rule && rule.required.includes("data-doy-start"));
   }
 
-  function useDateRange(endpoint) {
-    return isRangeEndpoint(endpoint) && document.getElementById("data-range-mode").value === "dates";
+  function useDateRange(endpoint, prefix) {
+    return isRangeEndpoint(endpoint) && document.getElementById(dataId("data-range-mode", prefix)).value === "dates";
   }
 
-  function effectiveDataRule(endpoint) {
+  function effectiveDataRule(endpoint, prefix) {
     const rule = dataEndpointRules[endpoint] || { required: [], relevant: [] };
     if (!isRangeEndpoint(endpoint)) return rule;
-    if (!useDateRange(endpoint)) {
+    if (!useDateRange(endpoint, prefix)) {
       return { required: rule.required, relevant: rule.relevant.concat(["data-range-mode"]) };
     }
     const doyFields = new Set(["data-year", "data-doy-start", "data-doy-end"]);
@@ -189,14 +308,14 @@
   }
 
   // Range endpoints: year + doy_start/doy_end, or date_start/date_end.
-  function appendRangeParams(params, endpoint) {
-    if (useDateRange(endpoint)) {
-      qpAppend(params, "date_start", document.getElementById("data-date-start").value);
-      qpAppend(params, "date_end", document.getElementById("data-date-end").value);
+  function appendRangeParams(params, endpoint, prefix) {
+    if (useDateRange(endpoint, prefix)) {
+      qpAppend(params, "date_start", document.getElementById(dataId("data-date-start", prefix)).value);
+      qpAppend(params, "date_end", document.getElementById(dataId("data-date-end", prefix)).value);
     } else {
-      qpAppend(params, "year", document.getElementById("data-year").value);
-      qpAppend(params, "doy_start", document.getElementById("data-doy-start").value);
-      qpAppend(params, "doy_end", document.getElementById("data-doy-end").value);
+      qpAppend(params, "year", document.getElementById(dataId("data-year", prefix)).value);
+      qpAppend(params, "doy_start", document.getElementById(dataId("data-doy-start", prefix)).value);
+      qpAppend(params, "doy_end", document.getElementById(dataId("data-doy-end", prefix)).value);
     }
   }
 
@@ -208,12 +327,12 @@
     return date.getUTCFullYear() === y ? date.toISOString().slice(0, 10) : "";
   }
 
-  function prefillDateRange() {
-    const year = document.getElementById("data-year").value;
-    const start = document.getElementById("data-date-start");
-    const end = document.getElementById("data-date-end");
-    if (!start.value) start.value = doyToIsoDate(year, document.getElementById("data-doy-start").value);
-    if (!end.value) end.value = doyToIsoDate(year, document.getElementById("data-doy-end").value);
+  function prefillDateRange(prefix) {
+    const year = document.getElementById(dataId("data-year", prefix)).value;
+    const start = document.getElementById(dataId("data-date-start", prefix));
+    const end = document.getElementById(dataId("data-date-end", prefix));
+    if (!start.value) start.value = doyToIsoDate(year, document.getElementById(dataId("data-doy-start", prefix)).value);
+    if (!end.value) end.value = doyToIsoDate(year, document.getElementById(dataId("data-doy-end", prefix)).value);
   }
 
   const plotEndpointRules = {
@@ -449,25 +568,25 @@
     return Array.from(select.selectedOptions || []).map((o) => o.value).filter((v) => clean(v) !== "");
   }
 
-  function updateDataSelectors() {
-    const source = state.indexOptions[getDataSourceType()] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
+  function updateDataSelectors(prefix) {
+    const source = state.indexOptions[getDataSourceType(prefix)] || { years: [], doysByYear: {}, stationsByYearDoy: {}, satellitesByYearDoy: {} };
     const years = source.years || [];
-    fillSelect("data-year", years, document.getElementById("data-year")?.value || "");
-    const year = document.getElementById("data-year").value;
+    fillSelect(dataId("data-year", prefix), years, document.getElementById(dataId("data-year", prefix))?.value || "");
+    const year = document.getElementById(dataId("data-year", prefix)).value;
     const doys = sortedNumericStrings((source.doysByYear || {})[year] || []);
 
-    fillSelect("data-doy", doys, document.getElementById("data-doy")?.value || "");
-    fillSelect("data-doy-start", doys, document.getElementById("data-doy-start")?.value || (doys[0] || ""));
-    fillSelect("data-doy-end", doys, document.getElementById("data-doy-end")?.value || (doys[doys.length - 1] || ""));
+    fillSelect(dataId("data-doy", prefix), doys, document.getElementById(dataId("data-doy", prefix))?.value || "");
+    fillSelect(dataId("data-doy-start", prefix), doys, document.getElementById(dataId("data-doy-start", prefix))?.value || (doys[0] || ""));
+    fillSelect(dataId("data-doy-end", prefix), doys, document.getElementById(dataId("data-doy-end", prefix))?.value || (doys[doys.length - 1] || ""));
 
-    const doy = document.getElementById("data-doy").value;
+    const doy = document.getElementById(dataId("data-doy", prefix)).value;
     const stationsByYear = (source.stationsByYearDoy || {})[year] || {};
     const stations = sortedNumericStrings((stationsByYear[doy] || []).map((s) => String(s)));
     const satellitesByYear = (source.satellitesByYearDoy || {})[year] || {};
     const satellites = sortedNumericStrings((satellitesByYear[doy] || []).map((s) => String(s)));
-    fillSelect("data-station", stations, document.getElementById("data-station")?.value || "");
-    fillSelect("data-satellite", satellites, document.getElementById("data-satellite")?.value || "");
-    fillMultiSelect("data-stations", stations, getMultiSelectedValues("data-stations"));
+    fillSelect(dataId("data-station", prefix), stations, document.getElementById(dataId("data-station", prefix))?.value || "");
+    fillSelect(dataId("data-satellite", prefix), satellites, document.getElementById(dataId("data-satellite", prefix))?.value || "");
+    fillMultiSelect(dataId("data-stations", prefix), stations, getMultiSelectedValues(dataId("data-stations", prefix)));
   }
 
   function updatePlotSelectors() {
@@ -516,6 +635,7 @@
       };
       updateDataSelectors();
       updatePlotSelectors();
+      updateDataSelectors("plot-data-");
       const absYears = state.indexOptions.absoltec.years.length;
       const tecYears = state.indexOptions.tec.years.length;
       if (!absYears && !tecYears) {
@@ -545,29 +665,29 @@
     }
   }
 
-  function updateDataFieldHighlights() {
-    const endpoint = document.getElementById("data-endpoint").value;
-    const rule = effectiveDataRule(endpoint);
+  function updateDataFieldHighlights(prefix) {
+    const endpoint = document.getElementById(dataId("data-endpoint", prefix)).value;
+    const rule = effectiveDataRule(endpoint, prefix);
     const requiredSet = new Set(rule.required);
     const relevantSet = new Set(rule.relevant);
 
     for (const fieldId of Object.keys(dataFieldLabels)) {
       if (requiredSet.has(fieldId)) {
-        setFieldClasses(fieldId, "required");
+        setFieldClasses(dataId(fieldId, prefix), "required");
       } else if (relevantSet.has(fieldId)) {
-        setFieldClasses(fieldId, "relevant");
+        setFieldClasses(dataId(fieldId, prefix), "relevant");
       } else {
-        setFieldClasses(fieldId, "irrelevant");
+        setFieldClasses(dataId(fieldId, prefix), "irrelevant");
       }
     }
 
     // The area search fills the stations list, so it matters where that does.
     const takesStations = requiredSet.has("data-stations") || relevantSet.has("data-stations");
     if (!requiredSet.has("data-area-centre")) {
-      setFieldClasses("data-area-centre", takesStations ? "relevant" : "irrelevant");
+      setFieldClasses(dataId("data-area-centre", prefix), takesStations ? "relevant" : "irrelevant");
     }
 
-    const msg = document.getElementById("data-requirements-msg");
+    const msg = document.getElementById(dataId("data-requirements-msg", prefix));
     const requiredNames = rule.required.map((id) => dataFieldLabels[id]).join(", ");
     msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>";
   }
@@ -576,15 +696,15 @@
   // /stations/nearby lists the stations within the radius that have data in
   // the chosen range; those with data for the endpoint's data type fill the
   // stations multi-select, nearest first, and can be unticked there.
-  function setAreaStatus(kind, text) {
-    const el = document.getElementById("data-area-status");
+  function setAreaStatus(kind, text, prefix) {
+    const el = document.getElementById(dataId("data-area-status", prefix));
     if (!el) return;
     el.textContent = text || "";
     el.style.color = kind === "error" ? "var(--error, #c0504d)" : "";
   }
 
-  function renderAreaList(stations, sourceType) {
-    const listEl = document.getElementById("data-area-list");
+  function renderAreaList(stations, sourceType, prefix) {
+    const listEl = document.getElementById(dataId("data-area-list", prefix));
     if (!listEl) return;
     if (!stations.length) {
       listEl.innerHTML = "";
@@ -603,21 +723,21 @@
       `<th class="num">${escapeHtml(T("analysis_area_days_tec"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  async function findAreaStations() {
-    const centre = clean(document.getElementById("data-area-centre").value);
-    const radius = clean(document.getElementById("data-area-radius").value);
+  async function findAreaStations(prefix) {
+    const centre = clean(document.getElementById(dataId("data-area-centre", prefix)).value);
+    const radius = clean(document.getElementById(dataId("data-area-radius", prefix)).value);
     if (!centre || !radius) {
-      setAreaStatus("error", T("analysis_area_need_centre"));
+      setAreaStatus("error", T("analysis_area_need_centre"), prefix);
       return;
     }
-    const endpoint = document.getElementById("data-endpoint").value;
+    const endpoint = document.getElementById(dataId("data-endpoint", prefix)).value;
     const params = new URLSearchParams();
     if (isRangeEndpoint(endpoint)) {
-      appendRangeParams(params, endpoint);
+      appendRangeParams(params, endpoint, prefix);
     } else {
       // Single-day endpoints: the area is searched on that day.
-      const doy = document.getElementById("data-doy").value;
-      qpAppend(params, "year", document.getElementById("data-year").value);
+      const doy = document.getElementById(dataId("data-doy", prefix)).value;
+      qpAppend(params, "year", document.getElementById(dataId("data-year", prefix)).value);
       qpAppend(params, "doy_start", doy);
       qpAppend(params, "doy_end", doy);
     }
@@ -625,32 +745,32 @@
     params.set("radius_km", radius);
     params.set("source", "both");
 
-    const button = document.getElementById("data-area-find");
+    const button = document.getElementById(dataId("data-area-find", prefix));
     button.disabled = true;
-    setAreaStatus("info", T("analysis_area_searching"));
+    setAreaStatus("info", T("analysis_area_searching"), prefix);
     try {
       const res = await fetch("/analysis/api/stations/nearby?" + params.toString(), { credentials: "same-origin" });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setAreaStatus("error", formatBackendError(payload, res.status));
-        renderAreaList([], "");
+        setAreaStatus("error", formatBackendError(payload, res.status), prefix);
+        renderAreaList([], "", prefix);
         return;
       }
-      const sourceType = getDataSourceType();
+      const sourceType = getDataSourceType(prefix);
       const stations = Array.isArray(payload.stations) ? payload.stations : [];
       const usable = stations
         .filter((s) => (sourceType === "tec" ? s.tec_days > 0 : s.absoltec_days > 0))
         .map((s) => s.station);
-      renderAreaList(stations, sourceType);
+      renderAreaList(stations, sourceType, prefix);
       const values = { count: stations.length, usable: usable.length, km: radius, centre };
       if (!usable.length) {
-        setAreaStatus("error", T("analysis_area_none", values));
+        setAreaStatus("error", T("analysis_area_none", values), prefix);
         return;
       }
-      fillMultiSelect("data-stations", usable, usable);
-      setAreaStatus("info", T("analysis_area_found", values));
+      fillMultiSelect(dataId("data-stations", prefix), usable, usable);
+      setAreaStatus("info", T("analysis_area_found", values), prefix);
     } catch (error) {
-      setAreaStatus("error", String(error && error.message ? error.message : error));
+      setAreaStatus("error", String(error && error.message ? error.message : error), prefix);
     } finally {
       button.disabled = false;
     }
@@ -668,6 +788,10 @@
   }
 
   function updatePlotFieldHighlights() {
+    if (isDataPlot()) {
+      updateDataFieldHighlights("plot-data-");
+      return;
+    }
     const endpoint = document.getElementById("plot-endpoint").value;
     const rule = plotEndpointRules[endpoint] || { required: [], relevant: [] };
     const requiredSet = new Set(rule.required);
@@ -691,23 +815,23 @@
     msg.innerHTML = "Required for selected endpoint: <b>" + (requiredNames || "none") + "</b>" + note;
   }
 
-  function buildDataUrl() {
-    const endpoint = document.getElementById("data-endpoint").value;
+  function buildDataUrl(prefix) {
+    const endpoint = document.getElementById(dataId("data-endpoint", prefix)).value;
     const params = new URLSearchParams();
-    const year = document.getElementById("data-year").value;
-    const doy = document.getElementById("data-doy").value;
-    const station = document.getElementById("data-station").value;
-    const satellite = document.getElementById("data-satellite").value;
-    const source = document.getElementById("data-source").value;
-    const alpha = document.getElementById("data-alpha").value;
-    const stationsMulti = getMultiSelectedValues("data-stations");
+    const year = document.getElementById(dataId("data-year", prefix)).value;
+    const doy = document.getElementById(dataId("data-doy", prefix)).value;
+    const station = document.getElementById(dataId("data-station", prefix)).value;
+    const satellite = document.getElementById(dataId("data-satellite", prefix)).value;
+    const source = document.getElementById(dataId("data-source", prefix)).value;
+    const alpha = document.getElementById(dataId("data-alpha", prefix)).value;
+    const stationsMulti = getMultiSelectedValues(dataId("data-stations", prefix));
 
-    const appendRange = () => appendRangeParams(params, endpoint);
+    const appendRange = () => appendRangeParams(params, endpoint, prefix);
 
     // Propagation endpoints (proxied to tec-stat) — explicit per-endpoint param sets.
     if (endpoint.startsWith("propagation/")) {
       if (endpoint === "propagation/calc") {
-        qpAppend(params, "tec", document.getElementById("data-tec").value);
+        qpAppend(params, "tec", document.getElementById(dataId("data-tec", prefix)).value);
       } else if (endpoint === "propagation/absoltec/raw") {
         qpAppend(params, "year", year);
         qpAppend(params, "doy", doy);
@@ -725,17 +849,17 @@
         qpAppend(params, "doy", doy);
         qpAppend(params, "station", station);
         qpAppend(params, "satellite", satellite);
-        qpAppend(params, "observable", document.getElementById("data-observable").value);
+        qpAppend(params, "observable", document.getElementById(dataId("data-observable", prefix)).value);
       } else if (endpoint === "propagation/tec/raw/range") {
         appendRange();
         qpAppend(params, "station", station);
         qpAppendCsvArray(params, "stations", stationsMulti);
         qpAppend(params, "satellite", satellite);
-        qpAppend(params, "observable", document.getElementById("data-observable").value);
+        qpAppend(params, "observable", document.getElementById(dataId("data-observable", prefix)).value);
       }
-      qpAppend(params, "signal_band", document.getElementById("data-signal-band").value);
-      qpAppend(params, "f_hz", document.getElementById("data-f-hz").value);
-      qpAppend(params, "format", document.getElementById("data-format").value);
+      qpAppend(params, "signal_band", document.getElementById(dataId("data-signal-band", prefix)).value);
+      qpAppend(params, "f_hz", document.getElementById(dataId("data-f-hz", prefix)).value);
+      qpAppend(params, "format", document.getElementById(dataId("data-format", prefix)).value);
       return "/analysis/api/" + endpoint + "?" + params.toString();
     }
 
@@ -774,15 +898,16 @@
       qpAppend(params, "source", source);
     }
     if (endpoint === "stations/nearby") {
-      qpAppend(params, "near", document.getElementById("data-area-centre").value);
-      qpAppend(params, "radius_km", document.getElementById("data-area-radius").value);
+      qpAppend(params, "near", document.getElementById(dataId("data-area-centre", prefix)).value);
+      qpAppend(params, "radius_km", document.getElementById(dataId("data-area-radius", prefix)).value);
     }
 
-    qpAppend(params, "format", document.getElementById("data-format").value);
+    qpAppend(params, "format", document.getElementById(dataId("data-format", prefix)).value);
     return "/analysis/api/" + endpoint + "?" + params.toString();
   }
 
   function buildPlotUrl() {
+    if (isDataPlot()) return setQueryParam(buildDataUrl("plot-data-"), "format", "json");
     const endpointName = document.getElementById("plot-endpoint").value;
     const doyPath = clean(document.getElementById("plot-doy").value) || "1";
     const endpoint = (endpointName === "plots/absoltec/per-station-averages" || endpointName === "plots/cb/per-station-averages")
@@ -1633,7 +1758,7 @@
   }
 
   async function runPlotQuery() {
-    const format = document.getElementById("plot-format").value;
+    const format = isDataPlot() ? "json" : document.getElementById("plot-format").value;
     const endpointName = document.getElementById("plot-endpoint").value;
     const url = buildPlotUrl();
     state.lastPlotUrl = url;
@@ -1776,6 +1901,15 @@
       }
 
       state.lastPlotPayload = payload;
+      if (isDataPlot()) {
+        state.plotRows = window.AnalysisDataPlot.flattenRows(payload);
+        setupDataPlotAxes(state.plotRows);
+        await renderDataPlot();
+        pre.textContent = JSON.stringify(payload, null, 2);
+        pre.style.display = "block";
+        jsonTools.style.display = "flex";
+        return;
+      }
 
       if (format === "json") {
         pre.textContent = JSON.stringify(payload, null, 2);
@@ -1837,8 +1971,7 @@
     runPlotQuery();
   });
   document.getElementById("plot-endpoint").addEventListener("change", function () {
-    updatePlotSelectors();
-    updatePlotFieldHighlights();
+    updatePlotMode();
   });
   document.getElementById("plot-year").addEventListener("change", updatePlotSelectors);
   document.getElementById("plot-doy").addEventListener("change", updatePlotSelectors);
@@ -1956,6 +2089,7 @@
     observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
   })();
 
+  setupDataPlotControls();
   const areaFromUrl = prefillAreaFromUrl();
   loadIndexOptions().finally(function () {
     updateDataFieldHighlights();

@@ -243,6 +243,7 @@
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
           <button type="submit" class="btn btn-primary">{{ t('analysis_run_data_query') }}</button>
+          <button type="button" id="data-visualize" class="btn btn-secondary">{{ t('analysis_visualize_query') }}</button>
           <button type="button" id="data-open-new" class="btn btn-ghost">{{ t('analysis_open_new_tab') }}</button>
         </div>
       </form>
@@ -282,6 +283,22 @@
           <div id="plot-endpoint-description" class="analysis-endpoint-description"></div>
         </div>
 
+        <div id="plot-data-fields" hidden></div>
+        <div id="plot-data-requirements-msg" class="param-hint"></div>
+        <div id="plot-data-axes" hidden>
+          <div class="param-hint">{{ t('analysis_plot_data_hint') }}</div>
+          <div class="form-cols-2">
+            <div class="form-group">
+              <label for="plot-data-x" class="form-label">{{ t('analysis_plot_x') }}</label>
+              <select id="plot-data-x" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="plot-data-y" class="form-label">{{ t('analysis_plot_y') }}</label>
+              <select id="plot-data-y" class="form-select" multiple size="4"></select>
+            </div>
+          </div>
+        </div>
+        <div id="plot-specialized-fields" class="analysis-specialized-fields">
         <div class="form-cols-2">
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="plot-year">{{ t('label_year') }}</label>
@@ -427,6 +444,7 @@
           </div>
         </div>
 
+        </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
           <button type="submit" class="btn btn-primary">{{ t('analysis_render_plot') }}</button>
           <button type="button" id="plot-open-new" class="btn btn-ghost">{{ t('analysis_open_new_tab') }}</button>
@@ -492,8 +510,11 @@
 
 <script src="/static/vendor/plotly/plotly.min.js"></script>
 
+<script src="/static/js/analysis-data-plot.js"></script>
+
 <script id="analysis-i18n" type="application/json">{{ t_dict(
   'analysis_area_searching', 'analysis_area_found', 'analysis_area_none', 'analysis_area_need_centre',
+  'analysis_plot_row', 'analysis_plot_count', 'analysis_plot_rows', 'analysis_plot_no_values',
   'analysis_area_distance', 'analysis_area_days_abs', 'analysis_area_days_tec', 'analysis_label_station',
 ) | tojson }}</script>
 <script id="analysis-config" type="application/json">{{ {"analysisApiEnabled": true if analysis_api_enabled else false} | tojson }}</script>
@@ -512,7 +533,11 @@
 <div class="card" style="margin-top:20px;">
   <div class="card-header"><div class="card-title">Endpoint Groups (OpenAPI)</div></div>
   <div class="card-body" style="font-size:12px; color:var(--text-muted); line-height:1.8;">
+    <p>{{ t('analysis_api_guide_intro') }}</p>
+    <p>{{ t('analysis_api_guide_filters') }}</p>
+    <p>{{ t('analysis_api_guide_charts') }}</p>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">AbsolTEC</div>
+    <p>{{ t('analysis_api_absoltec') }}</p>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/stations</span> — List Stations</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/days</span> — List Days</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/absoltec/raw</span> — Raw Data</div>
@@ -522,13 +547,16 @@
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">TEC-suite</div>
+    <p>{{ t('analysis_api_tec') }}</p>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/stations</span> — Stations With Meta</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/satellites</span> — Satellites</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/data</span> — Satellite Data</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/tec/raw/range</span> — Satellite Data Range</div>
+    <div>GET <code>/tec/satellites/range</code> — {{ t("analysis_api_satellite_range") }}</div>
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">CB</div>
+    <p>{{ t('analysis_api_cb') }}</p>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/stations</span> — List Stations</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/days</span> — List Days</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/cb/raw</span> — Raw Data</div>
@@ -538,6 +566,7 @@
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Plots</div>
+    <p>{{ t('analysis_api_plots') }}</p>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/average</span> — Plot Absoltec Average</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/day</span> — Plot Absoltec Day</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/plots/absoltec/multi-station</span> — Plot Absoltec Multi Station</div>
@@ -558,8 +587,21 @@
 
     <div class="divider" style="margin:12px 0;"></div>
     <div style="font-family:var(--font-display); font-size:17px; color:var(--text); margin-bottom:6px;">Stations</div>
+    <p>{{ t('analysis_api_stations') }}</p>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/stations/available</span> — Available Stations</div>
     <div>GET <span style="font-family:var(--font-mono); color:var(--text);">/stations/map</span> — Station Map</div>
+    <div>GET <code>/stations/available/range</code> — {{ t('analysis_api_available_range') }}</div>
+    <div>GET <code>/stations/map/range</code> — {{ t('analysis_api_map_range') }}</div>
+    <div>GET <code>/stations/nearby</code> — {{ t('analysis_api_nearby') }}</div>
+    <div class="divider" style="margin:12px 0;"></div>
+    <div class="card-title">Propagation (B_k / GDD)</div>
+    <p>{{ t('analysis_api_propagation') }}</p>
+    <div>GET <code>/propagation/calc</code> — {{ t('analysis_api_calc') }}</div>
+    <div>GET <code>/propagation/absoltec/raw</code> — {{ t('analysis_api_prop_abs_raw') }}</div>
+    <div>GET <code>/propagation/absoltec/raw/range</code> — {{ t('analysis_api_prop_range') }}</div>
+    <div>GET <code>/propagation/absoltec/statistics</code> — {{ t('analysis_api_prop_stats') }}</div>
+    <div>GET <code>/propagation/tec/raw</code> — {{ t('analysis_api_prop_tec_raw') }}</div>
+    <div>GET <code>/propagation/tec/raw/range</code> — {{ t('analysis_api_prop_range') }}</div>
   </div>
 </div>
 {% endblock %}
