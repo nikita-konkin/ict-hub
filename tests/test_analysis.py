@@ -5,6 +5,25 @@ from typing import ClassVar
 from fastapi.testclient import TestClient
 
 
+def test_endpoint_guide_covers_download_menu():
+    import re
+    from pathlib import Path
+
+    from app.i18n import _TRANSLATIONS
+
+    template = (Path(__file__).resolve().parents[1] / "app/templates/analysis.html").read_text(encoding="utf-8")
+    menu = template.split('id="data-endpoint"', 1)[1].split("</select>", 1)[0]
+    guide = template.split("Endpoint Groups (OpenAPI)", 1)[1]
+    for endpoint in re.findall(r'<option value="([^"]+)"', menu):
+        assert f">/{endpoint}<" in guide, f"Missing endpoint description: {endpoint}"
+    keys = set(re.findall(r"t\(['\"](analysis_api_[a-z_]+)['\"]\)", guide))
+    assert keys
+    for lang in ("en", "ru"):
+        for key in keys:
+            assert key in _TRANSLATIONS[lang]
+            assert "???" not in _TRANSLATIONS[lang][key]
+
+
 def test_analysis_index_options_requires_auth(client: TestClient):
     response = client.get("/analysis/index-options", follow_redirects=False)
     assert response.status_code == 303

@@ -149,3 +149,5 @@
 .analysis-area-list tr.no-data td {
   color: var(--text-dim);
 }
+
+.analysis-specialized-fields:not([hidden]) { display: grid; gap: 12px; }
