@@ -100,7 +100,10 @@
     setPlotFetchStatus("info", "");
     document.getElementById("plot-viewer").style.display = "none";
     document.getElementById("plot-empty").style.display = "block";
-    for (const key of ["plot-data-x", "plot-data-y"]) document.getElementById(key).disabled = true;
+    for (const key of ["plot-data-x", "plot-data-y"]) {
+      document.getElementById(key).disabled = true;
+      document.getElementById(key).innerHTML = "";
+    }
     document.getElementById("plot-data-fields").hidden = !dataMode;
     document.getElementById("plot-data-requirements-msg").hidden = !dataMode;
     document.getElementById("plot-specialized-fields").hidden = dataMode;
@@ -122,12 +125,11 @@
     const previousX = x.value;
     const previousY = getMultiSelectedValues("plot-data-y");
     const numeric = window.AnalysisDataPlot.numericColumns(rows);
+    const defaults = window.AnalysisDataPlot.defaultAxes(rows, document.getElementById("plot-endpoint").value);
     fillSelect("plot-data-x", ["", ...cols], previousX);
     x.options[0].textContent = T("analysis_plot_row");
-    const preferred = ["timestamp", "datetime", "date", "ut", "hour", "time", "doy", "day"];
-    if (!cols.includes(previousX)) x.value = preferred.find((key) => cols.includes(key)) || (!numeric.length ? cols[0] : "") || "";
-    const values = numeric.filter((key) => !["year", "doy", "day"].includes(key) && key !== x.value);
-    fillMultiSelect("plot-data-y", [...numeric, "__count__"], previousY.length ? previousY : values.slice(0, 1));
+    if (!cols.includes(previousX)) x.value = defaults.x;
+    fillMultiSelect("plot-data-y", [...numeric, "__count__"], previousY.length ? previousY : [defaults.y]);
     y.options[y.options.length - 1].textContent = T("analysis_plot_count");
     if (!numeric.length) {
       y.innerHTML = '<option value="__count__" selected>' + escapeHtml(T("analysis_plot_count")) + '</option>';

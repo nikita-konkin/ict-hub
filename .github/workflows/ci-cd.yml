@@ -54,6 +54,7 @@ jobs:
         run: |
           npm ci
           npm run lint
+          node --test tests/test_analysis_data_plot.cjs
 
   data-indexer:
     runs-on: ubuntu-latest

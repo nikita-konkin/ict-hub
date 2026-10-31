@@ -10,13 +10,18 @@
       const scalars = Object.fromEntries(Object.entries(value).filter(([, v]) => v == null || typeof v !== "object"));
       const base = { ...context, ...scalars };
       const arrays = Object.entries(value).filter(([, v]) => Array.isArray(v));
+      const primitiveLists = arrays.filter(([, v]) => v.every((item) => item == null || typeof item !== "object"));
+      if (arrays.length && primitiveLists.length === arrays.length && arrays.every(([key]) => /stations$|satellites$|days$/.test(key))) {
+        return arrays.flatMap(([key, list]) => list.map((item) => ({ ...base, collection: key, [key]: item, value: item })));
+      }
       // Column-oriented series must be zipped, not concatenated.
-      if (arrays.length && arrays.every(([, v]) => v.every((item) => item == null || typeof item !== "object")) &&
-          (arrays.length > 1 || Object.keys(base).length === 0)) {
+      if (arrays.length && arrays.every(([, v]) => v.every((item) => item == null || typeof item !== "object"))) {
         const length = Math.max(...arrays.map(([, v]) => v.length));
         return Array.from({ length }, (_, i) => ({ ...base, ...Object.fromEntries(arrays.map(([k, v]) => [k, v[i] ?? null])) }));
       }
-      const children = Object.entries(value).filter(([k, v]) => v && typeof v === "object" && !["meta", "metadata", "layout"].includes(k));
+      const hasRecords = arrays.some(([, v]) => v.some((item) => item && typeof item === "object"));
+      const children = Object.entries(value).filter(([k, v]) => v && typeof v === "object" && !["meta", "metadata", "layout"].includes(k) &&
+        !(hasRecords && (!Array.isArray(v) || v.every((item) => item == null || typeof item !== "object"))));
       if (!children.length) return [base];
       return children.flatMap(([key, child]) => visit(child, { ...base, collection: context.collection ? context.collection + "/" + key : key }));
     }
@@ -29,6 +34,20 @@
 
   function numericColumns(rows) {
     return [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => rows.some((row) => isNumber(row[key])));
+  }
+
+  function defaultAxes(rows, endpoint) {
+    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const numeric = numericColumns(rows);
+    if (endpoint.startsWith("stations/") || /\/(stations|days|satellites)(\/range)?$/.test(endpoint)) {
+      return { x: ["stations", "satellites", "days", "station", "satellite", "day", "value"].find((key) => cols.includes(key)) || "", y: "__count__" };
+    }
+    const x = ["timestamp", "datetime", "date", "concat_ut", "concat_hour", "ut", "hour", "time", "doy", "day"].find((key) => cols.includes(key)) || "";
+    const preferred = endpoint.startsWith("propagation/") ? ["b_k", "mean_b_k", "gdd", "mean_gdd", "tec"]
+      : endpoint.startsWith("cb/") ? ["cb", "mean_cb", "tec"] : ["tec", "mean_tec", "tec_l1l2", "tec_c1p2"];
+    const metadata = [x, "year", "doy", "day", "doy_start", "doy_end", "alpha", "total_days", "f_hz", "n", "validity", "tsn"];
+    const y = preferred.find((key) => numeric.includes(key)) || numeric.find((key) => !metadata.includes(key)) || "__count__";
+    return { x, y };
   }
 
   function buildFigure(rows, xKey, yKeys, title) {
@@ -62,5 +81,5 @@
     };
   }
 
-  window.AnalysisDataPlot = { flattenRows, numericColumns, buildFigure };
+  window.AnalysisDataPlot = { flattenRows, numericColumns, defaultAxes, buildFigure };
 })();
