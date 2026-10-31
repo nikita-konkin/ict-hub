@@ -513,6 +513,17 @@ class TestStartJob:
         assert flags.get("correction_coefficient") == "0.97"
         assert flags.get("runner") == "auto"
 
+    @patch("app.jobs.start_container", return_value="container_abstec_batch_sites")
+    def test_abstec_batch_days_pass_selected_sites_to_the_wrapper(self, mock_start, operator_client):
+        operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(day_of_year="", days="122,123,124", site="mork,ntor"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        _, cmd, _ = mock_start.call_args.args
+        assert cmd[cmd.index("--site") + 1] == "mork,ntor", "Batch job did not hand the chosen sites to the wrapper"
+
     def test_abstec_missing_env_dat_root_returns_400(self, operator_client, monkeypatch):
         monkeypatch.setattr("app.jobs.cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST", "")
         response = operator_client.post(

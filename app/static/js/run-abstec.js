@@ -113,6 +113,7 @@
     const selectedSingleDays = selectedValues(dayOfYearSelect);
     const selectedBatchDays = selectedValues(daysSelect);
     const selectedDaySet = new Set(selectedSingleDays.concat(selectedBatchDays));
+    const chosenSites = new Set(selectedValues(siteSelect));
 
     siteSelect.innerHTML = "";
     if (!yearItem || !Array.isArray(yearItem.days)) {
@@ -134,14 +135,11 @@
       const option = document.createElement("option");
       option.value = siteName;
       option.textContent = siteName;
+      option.selected = chosenSites.has(siteName);
       siteSelect.appendChild(option);
     });
 
     syncSelect(siteSelect, siteHidden, siteChips);
-
-    // Batch mode auto-discovers stations; --site is only valid for
-    // single-run mode, so lock the selector while batch days are set.
-    siteSelect.disabled = selectedValues(daysSelect).length > 0;
   }
 
   yearSelect.addEventListener("change", function () {

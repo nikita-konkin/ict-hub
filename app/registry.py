@@ -291,7 +291,7 @@ CONVERTERS: dict[str, dict] = {
                 "type": "text",
                 "default": "",
                 "required": False,
-                "help": "Station/site name for single-run mode (e.g. aksu0010).",
+                "help": "Station/site names, comma separated (e.g. aksu0010). In batch mode they narrow the days to those stations.",
             },
             {
                 "name": "--elevation-cutoff",
