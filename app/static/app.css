@@ -1101,3 +1101,31 @@ tbody td.td-mono    { font-family: var(--font-mono); font-size: 11px; }
 /* Reveal the loading indicator only while an HTMX request is in flight */
 .htmx-indicator { display:none; }
 .htmx-request .htmx-indicator { display:inline; }
+
+/* ─── Data-indexer progress banner ───────────────────────────────────────── */
+.indexer-progress-card {
+  margin-bottom: 20px;
+  border-color: var(--warning-text);
+}
+.indexer-progress-title {
+  font-weight: 500;
+  color: var(--warning-text);
+}
+.indexer-progress-scan {
+  margin-top: 12px;
+}
+.indexer-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.indexer-progress-folder,
+.indexer-progress-timing {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}

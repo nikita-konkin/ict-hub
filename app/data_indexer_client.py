@@ -323,6 +323,13 @@ async def list_parquet_satellite_structure_async(host_root: str, refresh: bool =
     return await _cached_listing("parquet-satellites", host_root, _parse_parquet_sat_root, refresh)
 
 
+async def get_indexer_scans_async() -> list[dict[str, Any]]:
+    """Scans the indexer is running now, from its /status endpoint; empty when it is unreachable."""
+    payload = await _fetch_json_async("status", "")
+    scans = payload.get("scans") if payload else None
+    return [scan for scan in scans if isinstance(scan, dict)] if isinstance(scans, list) else []
+
+
 def _empty_rinex_station_map_payload(year: str, day: str) -> dict[str, object]:
     return {
         "year": year,

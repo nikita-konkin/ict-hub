@@ -683,3 +683,25 @@ class TestRinexStationMapErrors:
         with pytest.raises(m.DataIndexerError) as excinfo:
             await m.get_rinex_station_map_async("/mnt/rinex", year="2026_original")
         assert excinfo.value.status_code == 502
+
+
+class TestIndexerScans:
+    async def test_returns_the_scans_the_indexer_reports(self, monkeypatch):
+        import app.data_indexer_client as m
+
+        scan = {"type": "rinex", "root": "/mnt/rinex-ulq", "elapsed_seconds": 12.0, "expected_seconds": 58.0}
+
+        async def status(endpoint, root_path, **_kwargs):
+            return {"status": "healthy", "scans": [scan]} if endpoint == "status" else None
+
+        monkeypatch.setattr(m, "_fetch_json_async", status)
+        assert await m.get_indexer_scans_async() == [scan], "Scans reported by the indexer were not returned"
+
+    async def test_returns_no_scans_when_the_indexer_is_unreachable(self, monkeypatch):
+        import app.data_indexer_client as m
+
+        async def unreachable(endpoint, root_path, **_kwargs):
+            return None
+
+        monkeypatch.setattr(m, "_fetch_json_async", unreachable)
+        assert await m.get_indexer_scans_async() == [], "Unreachable indexer did not yield an empty scan list"

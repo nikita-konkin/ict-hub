@@ -23,7 +23,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import Receive, Scope, Send
 
-from app import analysis, auth, feedback, indexed_data, ionmaps, jobs, stations_map, tec_map
+from app import analysis, auth, feedback, indexed_data, indexer_progress, ionmaps, jobs, stations_map, tec_map
 from app import config as cfg
 from app.auth import hash_password, verify_password
 from app.config import ADMIN_PASSWORD, SECRET_KEY
@@ -273,6 +273,7 @@ app.include_router(jobs.router)
 app.include_router(analysis.router)
 app.include_router(ionmaps.router)
 app.include_router(indexed_data.router)
+app.include_router(indexer_progress.router)
 app.include_router(stations_map.router)
 app.include_router(feedback.router)
 app.include_router(tec_map.router)
