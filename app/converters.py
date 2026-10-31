@@ -138,14 +138,6 @@ async def _prepare_abstec(form: FormData, db: Session) -> PreparedRun:
         raise FormError("TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.")
     form["dat_path"] = dat_root_host
     form["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
-    # Batch mode auto-discovers stations per day; run_absoltec rejects
-    # --days combined with --site, so fail fast with a friendly message.
-    if str(form.get("days", "")).strip() and str(form.get("site", "")).strip():
-        raise FormError(
-            "Days (batch mode) cannot be combined with a Site "
-            "selection — batch runs auto-discover stations for each day. Clear the Site "
-            "selection, or use Day Of Year (single run) together with Site."
-        )
     notice = ""
     if str(form.get("runner", "")).strip() == "dockur":
         notice = await _prepare_dockur_runner(db)
