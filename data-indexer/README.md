@@ -47,6 +47,10 @@ The service uses the following environment variables (set in `.env` file):
     retried on the next restart instead of being locked out for a day.
   - `GET /status` reports `last_full_index`, including whether the next startup
     would index and why.
+  - `GET /status` also lists running scans under `scans`: data type, root,
+    elapsed time, and `expected_seconds`, the duration of the previous scan of
+    the same root (kept in the cache database; `null` before the first one).
+    converter-hub polls it to show a progress banner on every page.
 
 ### Data Paths
 Shared with converter-hub's own env vars of the same name (see `../.env.example`)

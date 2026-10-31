@@ -205,6 +205,9 @@
 
   <!-- ── Page content ───────────────────────────────────────────────────── -->
   <main class="main" {% if not (current_user is defined and current_user) %}style="margin-left:0;max-width:100%;display:flex;align-items:center;justify-content:center;min-height:100vh"{% endif %}>
+    {% if current_user is defined and current_user %}
+    <div id="indexer-progress" hx-get="/indexer/progress" hx-trigger="load" hx-swap="outerHTML"></div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 

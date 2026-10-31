@@ -180,6 +180,7 @@ def indexer_status():
         _rinex_cache,
         _tecsuite_cache,
         get_last_full_index_time,
+        scan_progress,
         should_run_full_index,
     )
 
@@ -198,6 +199,7 @@ def indexer_status():
         content={
             "status": "healthy",
             "cache_info": cache_info,
+            "scans": scan_progress(),
             "last_full_index": {
                 "at": last_index,
                 "age_seconds": age,

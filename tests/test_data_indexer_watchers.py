@@ -202,3 +202,19 @@ def test_startup_indexing_runs_off_the_event_loop(indexer_app, monkeypatch, mode
             assert time.monotonic() - began < 3, "the server waited for the startup scan"
     finally:
         release.set()
+
+
+def test_indexer_status_lists_running_scans(indexer_app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import data_indexer
+
+    scan = {
+        "type": "rinex",
+        "root": "/mnt/rinex-qwv",
+        "started_at": 1.0,
+        "elapsed_seconds": 41.0,
+        "expected_seconds": 97.0,
+    }
+    monkeypatch.setattr(data_indexer, "scan_progress", lambda: [scan])
+    assert TestClient(indexer_app.app).get("/status").json()["scans"] == [scan], "Status did not list running scans"

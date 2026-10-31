@@ -140,16 +140,16 @@ def _init_cache_db():
         print(f"Warning: Failed to initialize cache database: {e}")
 
 
-def get_last_full_index_time() -> float | None:
-    """Return the wall-clock time of the last completed full index, if known."""
+def _read_meta(key: str) -> float | None:
+    """Return a numeric service marker from the meta table, if recorded."""
     try:
         conn = sqlite3.connect(_CACHE_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM meta WHERE key = ?", (_LAST_FULL_INDEX_KEY,))
+        cursor.execute("SELECT value FROM meta WHERE key = ?", (key,))
         row = cursor.fetchone()
         conn.close()
     except Exception as e:
-        print(f"Warning: Failed to read last index time: {e}")
+        print(f"Warning: Failed to read meta key {key}: {e}")
         return None
     if not row:
         return None
@@ -159,20 +159,26 @@ def get_last_full_index_time() -> float | None:
         return None
 
 
-def set_last_full_index_time(timestamp: float | None = None) -> None:
-    """Record that a full index just completed (wall clock)."""
-    value = time.time() if timestamp is None else float(timestamp)
+def _write_meta(key: str, value: float) -> None:
+    """Record a numeric service marker in the meta table."""
     try:
         conn = sqlite3.connect(_CACHE_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-            (_LAST_FULL_INDEX_KEY, value),
-        )
+        cursor.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"Warning: Failed to record last index time: {e}")
+        print(f"Warning: Failed to record meta key {key}: {e}")
+
+
+def get_last_full_index_time() -> float | None:
+    """Return the wall-clock time of the last completed full index, if known."""
+    return _read_meta(_LAST_FULL_INDEX_KEY)
+
+
+def set_last_full_index_time(timestamp: float | None = None) -> None:
+    """Record that a full index just completed (wall clock)."""
+    _write_meta(_LAST_FULL_INDEX_KEY, time.time() if timestamp is None else float(timestamp))
 
 
 def should_run_full_index(now: float | None = None) -> tuple[bool, str, float | None]:
@@ -325,6 +331,13 @@ _watcher_disabled: set[str] = set()
 _root_generation: dict[str, int] = {}
 _scanned_generation: dict[tuple[str, str], int] = {}
 
+# Scans running now, keyed by (cache type, root), with their wall-clock start.
+# The hub polls them through /status to tell users how long to wait; the
+# previous duration of each scan, kept in the meta table, is the estimate.
+_active_scans: dict[tuple[str, str], float] = {}
+_active_scans_lock = threading.Lock()
+_clock = time.monotonic
+
 # Only these change what the indexer reports; opens, closes and in-place writes
 # (a converter filling its output files) would otherwise force constant rescans.
 _STRUCTURAL_EVENTS = {"created", "deleted", "moved"}
@@ -445,12 +458,44 @@ def _scan_and_store(
     # Read the generation before scanning, so changes made during the scan
     # leave this cache marked as invalidated.
     generation = _root_generation.get(host_root, 0)
-    result = scan_fn(root)
+    key = (cache_type, host_root)
+    started = time.time()
+    with _active_scans_lock:
+        _active_scans[key] = started
+    began = _clock()
+    try:
+        result = scan_fn(root)
+    finally:
+        with _active_scans_lock:
+            if _active_scans.get(key) == started:
+                del _active_scans[key]
+    _write_meta(_scan_duration_key(cache_type, host_root), _clock() - began)
     ts = time.time()
     cache_dict[host_root] = (ts, result)
     _scanned_generation[(cache_type, host_root)] = generation
     _save_cache_to_db(cache_type, host_root, (ts, result))
     return result
+
+
+def _scan_duration_key(cache_type: str, host_root: str) -> str:
+    return f"scan_duration:{cache_type}:{host_root}"
+
+
+def scan_progress() -> list[dict[str, object]]:
+    """Scans running now, oldest first, with elapsed time and the previous duration of the same scan."""
+    now = time.time()
+    with _active_scans_lock:
+        running = sorted(_active_scans.items(), key=lambda item: item[1])
+    return [
+        {
+            "type": cache_type,
+            "root": host_root,
+            "started_at": started,
+            "elapsed_seconds": max(0.0, now - started),
+            "expected_seconds": _read_meta(_scan_duration_key(cache_type, host_root)),
+        }
+        for (cache_type, host_root), started in running
+    ]
 
 
 def _refresh_invalidated_cache(

@@ -1,0 +1,25 @@
+<div id="indexer-progress" hx-get="/indexer/progress" hx-trigger="{{ 'every 5s' if scans else 'every 30s' }}" hx-swap="outerHTML">
+  {% if scans %}
+  <div class="card indexer-progress-card">
+    <div class="card-body">
+      <div class="indexer-progress-title">{{ t('indexer_progress_title') }}</div>
+      <p class="form-hint">{{ t('indexer_progress_hint') }}</p>
+      {% for scan in scans %}
+      <div class="indexer-progress-scan">
+        <div class="indexer-progress-row">
+          <span>{{ scan.label }} <span class="indexer-progress-folder">{{ scan.folder }}</span></span>
+          <span class="indexer-progress-timing">{{ scan.timing }}</span>
+        </div>
+        <div class="progress-track" role="progressbar" aria-label="{{ scan.label }}" aria-valuemin="0" aria-valuemax="100"{% if scan.percent is not none %} aria-valuenow="{{ scan.percent }}"{% endif %}>
+          {% if scan.percent is not none %}
+          <div class="progress-fill" style="width:{{ scan.percent }}%;"></div>
+          {% else %}
+          <div class="progress-fill indeterminate"></div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
