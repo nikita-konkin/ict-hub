@@ -10,6 +10,10 @@
       const scalars = Object.fromEntries(Object.entries(value).filter(([, v]) => v == null || typeof v !== "object"));
       const base = { ...context, ...scalars };
       const arrays = Object.entries(value).filter(([, v]) => Array.isArray(v));
+      const primitiveLists = arrays.filter(([, v]) => v.every((item) => item == null || typeof item !== "object"));
+      if (arrays.length && primitiveLists.length === arrays.length && arrays.every(([key]) => /stations$|satellites$|days$/.test(key))) {
+        return arrays.flatMap(([key, list]) => list.map((item) => ({ ...base, collection: key, [key]: item, value: item })));
+      }
       // Column-oriented series must be zipped, not concatenated.
       if (arrays.length && arrays.every(([, v]) => v.every((item) => item == null || typeof item !== "object"))) {
         const length = Math.max(...arrays.map(([, v]) => v.length));
@@ -17,7 +21,7 @@
       }
       const hasRecords = arrays.some(([, v]) => v.some((item) => item && typeof item === "object"));
       const children = Object.entries(value).filter(([k, v]) => v && typeof v === "object" && !["meta", "metadata", "layout"].includes(k) &&
-        !(hasRecords && Array.isArray(v) && v.every((item) => item == null || typeof item !== "object")));
+        !(hasRecords && (!Array.isArray(v) || v.every((item) => item == null || typeof item !== "object"))));
       if (!children.length) return [base];
       return children.flatMap(([key, child]) => visit(child, { ...base, collection: context.collection ? context.collection + "/" + key : key }));
     }

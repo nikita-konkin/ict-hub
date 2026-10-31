@@ -58,3 +58,12 @@ test('live statistics sidecar lists do not become measurements or default Y colu
   assert.equal(adapter.defaultAxes(rows, 'cb/statistics').y, 'mean_cb');
   assert.equal(adapter.defaultAxes(rows, 'propagation/absoltec/statistics').y, 'mean_b_k');
 });
+
+test('availability lists from different sources remain independent; nearby centre is metadata', () => {
+  const rows = adapter.flattenRows({ year: 2024, absoltec_stations: ['mork'], tec_stations: ['mork', 'ntor'] });
+  assert.equal(rows.length, 3);
+  assert.equal(adapter.defaultAxes(rows, 'stations/available').x, 'value');
+  const nearby = adapter.flattenRows({ centre: { station: 'mork', lat: 56 }, stations: [{ station: 'ntor', distance_km: 66 }] });
+  assert.equal(nearby.length, 1);
+  assert.equal(nearby[0].station, 'ntor');
+});
