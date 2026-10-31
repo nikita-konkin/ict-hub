@@ -43,3 +43,18 @@ test('metadata lists can be visualized as counts; empty results stay empty', () 
   assert.deepEqual(plain(figure.data[0].y), [2, 1]);
   assert.deepEqual(plain(adapter.buildFigure([], '', ['__count__'], '').data), []);
 });
+
+test('live availability envelopes preserve named list columns and default to counts', () => {
+  const rows = adapter.flattenRows({ year: 2024, doy: 122, stations: ['mork', 'ntor'], days: null });
+  assert.equal(rows[0].stations, 'mork');
+  assert.deepEqual(plain(adapter.defaultAxes(rows, 'absoltec/stations')), { x: 'stations', y: '__count__' });
+});
+
+test('live statistics sidecar lists do not become measurements or default Y columns', () => {
+  const rows = adapter.flattenRows([{ year: 2024, doy: 122, alpha: 0.05, stations_found: ['mork', 'ntor'],
+    points: [{ ut: 0, mean_tec: 20, mean_cb: 100, mean_b_k: 50 }, { ut: 1, mean_tec: 21, mean_cb: 101, mean_b_k: 51 }] }]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(plain(adapter.defaultAxes(rows, 'absoltec/statistics/per-station-day')), { x: 'ut', y: 'mean_tec' });
+  assert.equal(adapter.defaultAxes(rows, 'cb/statistics').y, 'mean_cb');
+  assert.equal(adapter.defaultAxes(rows, 'propagation/absoltec/statistics').y, 'mean_b_k');
+});
