@@ -37,10 +37,12 @@
   }
 
   function defaultAxes(rows, endpoint) {
-    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const cols = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => rows.some((row) => row[key] != null && row[key] !== ""));
     const numeric = numericColumns(rows);
     if (endpoint.startsWith("stations/") || /\/(stations|days|satellites)(\/range)?$/.test(endpoint)) {
-      return { x: ["stations", "satellites", "days", "station", "satellite", "day", "value"].find((key) => cols.includes(key)) || "", y: "__count__" };
+      const categories = /\/days$/.test(endpoint) ? ["days", "day", "value"]
+        : /\/satellites(\/range)?$/.test(endpoint) ? ["satellites", "satellite", "value"] : ["stations", "station", "value"];
+      return { x: categories.find((key) => cols.includes(key)) || "", y: "__count__" };
     }
     const x = ["timestamp", "datetime", "date", "concat_ut", "concat_hour", "ut", "hour", "time", "doy", "day"].find((key) => cols.includes(key)) || "";
     const preferred = endpoint.startsWith("propagation/") ? ["b_k", "mean_b_k", "gdd", "mean_gdd", "tec"]

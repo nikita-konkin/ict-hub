@@ -48,6 +48,10 @@ test('live availability envelopes preserve named list columns and default to cou
   const rows = adapter.flattenRows({ year: 2024, doy: 122, stations: ['mork', 'ntor'], days: null });
   assert.equal(rows[0].stations, 'mork');
   assert.deepEqual(plain(adapter.defaultAxes(rows, 'absoltec/stations')), { x: 'stations', y: '__count__' });
+  const days = adapter.flattenRows({ year: 2024, doy: null, station: 'mork', stations: null, days: [122, 123] });
+  assert.deepEqual(plain(adapter.defaultAxes(days, 'absoltec/days')), { x: 'days', y: '__count__' });
+  assert.equal(adapter.defaultAxes([{ station: 'mork', days: 2 }], 'stations/map/range').x, 'station');
+  assert.equal(adapter.defaultAxes([{ satellites: 'E02', days: 2 }], 'tec/satellites/range').x, 'satellites');
 });
 
 test('live statistics sidecar lists do not become measurements or default Y columns', () => {
