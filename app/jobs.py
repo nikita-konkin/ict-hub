@@ -433,10 +433,11 @@ async def run_page(
         if (
             candidate
             and (current_user.is_admin or candidate.user_id == current_user.id)
-            and candidate.status == "running"
-            and bool(candidate.container_id)
+            and (candidate.status != "running" or bool(candidate.container_id))
         ):
             active_job = candidate
+            if candidate.status != "running":
+                active_stream_tail = "all"
     else:
         running_query = (
             db.query(JobRun)
@@ -622,7 +623,7 @@ async def stream_job_logs(
     if not current_user.is_admin and job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if not job.container_id:
+    if not job.container_id and job.status == "running":
         raise HTTPException(status_code=400, detail="No container associated with this job")
 
     tail_param = request.query_params.get("tail", "all")
@@ -735,6 +736,8 @@ async def stream_job_logs(
                             # closes, and end. Looping back would never await
                             # and would block the event loop.
                             yield sse_event(done_event.event_type, done_event.payload_xml, event_id=done_event.id)
+                    else:
+                        yield sse_event("done", xml_payload("done", status=db_job.status))
                     return
 
                 if (time.monotonic() - heartbeat_at) >= float(cfg.SSE_HEARTBEAT_INTERVAL):

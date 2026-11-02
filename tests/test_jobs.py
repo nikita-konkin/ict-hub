@@ -69,15 +69,15 @@ class TestRunPage:
         response = client.get("/run/tec-suite", follow_redirects=False)
         assert response.status_code in (302, 303)
 
-    def test_completed_job_id_does_not_render_active_panel(self, operator_client, completed_job):
-        """Completed jobs in query params should not re-open the live SSE panel."""
+    def test_completed_job_id_renders_log_history(self, operator_client, completed_job):
+        """Completed jobs can be reopened to inspect their saved output."""
         response = operator_client.get(
             f"/run/tec-suite?job_id={completed_job.id}",
             follow_redirects=True,
         )
         assert response.status_code == 200
-        assert b"No job running" in response.content
-        assert f'data-stream-url="/jobs/{completed_job.id}/stream'.encode() not in response.content
+        assert f'data-stream-url="/jobs/{completed_job.id}/stream?tail=all"'.encode() in response.content
+        assert b'data-job-running="0"' in response.content
 
     def test_run_page_auto_attaches_running_job(self, operator_client, completed_job, db, monkeypatch):
         import app.job_runtime as runtime_module

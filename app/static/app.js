@@ -579,13 +579,7 @@
         clearReconnectTimer();
         source.close();
 
-        try {
-          const url = new URL(window.location.href);
-          if (url.searchParams.has("job_id")) {
-            url.searchParams.delete("job_id");
-            window.history.replaceState({}, "", url.toString());
-          }
-        } catch (_) {}
+
       });
 
       source.onopen = function () {
