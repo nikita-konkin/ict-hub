@@ -87,3 +87,84 @@ def test_indexed_data_page_renders_days_as_doy(admin_client: TestClient, monkeyp
     assert "015" in html
     # The calendar date stays reachable as a tooltip.
     assert 'title="DOY 015 · 2024-01-15"' in html
+
+
+def test_remove_abstec_parquet_previews_and_moves_only_selected(admin_client, monkeypatch, tmp_path):
+    from app import indexed_data
+
+    monkeypatch.setattr(indexed_data.cfg, "PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER", str(tmp_path))
+    selected = tmp_path / "2024" / "245" / "mork"
+    selected.mkdir(parents=True)
+    (selected / "result.parquet").write_text("old data")
+    other = tmp_path / "2024" / "245" / "ntor"
+    other.mkdir(parents=True)
+    (other / "result.parquet").write_text("keep")
+    params = {"year": "2024", "day_from": 245, "day_to": 245, "stations": "mork", "output_type": "parquet"}
+    preview = admin_client.get("/indexed-data/remove-abstec", params=params)
+    assert preview.status_code == 200
+    assert "2024" in preview.text
+    assert "mork" in preview.text
+    root, targets = indexed_data._removal_targets("2024", 245, 245, "mork")
+    digest = indexed_data._selection_digest([("parquet", root, targets)])
+    (selected / "result.parquet").write_text("changed data")
+    assert admin_client.post("/indexed-data/remove-abstec", data={**params, "digest": digest}).status_code == 409
+    digest = indexed_data._selection_digest([("parquet", root, targets)])
+    response = admin_client.post(
+        "/indexed-data/remove-abstec", data={**params, "digest": digest}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert not selected.exists()
+    assert (other / "result.parquet").read_text() == "keep"
+    recovered = list((tmp_path / ".ionflow-trash").glob("*/2024/245/mork/result.parquet"))
+    assert len(recovered) == 1
+    assert recovered[0].read_text() == "changed data"
+
+
+def test_remove_abstec_rejects_path_traversal(admin_client, monkeypatch, tmp_path):
+    from app import indexed_data
+
+    monkeypatch.setattr(indexed_data.cfg, "PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER", str(tmp_path))
+    response = admin_client.get(
+        "/indexed-data/remove-abstec",
+        params={"year": "2024", "day_from": 245, "day_to": 245, "stations": "../x", "output_type": "parquet"},
+    )
+    assert response.status_code == 400
+
+
+def test_remove_abstec_requires_admin(operator_client):
+    assert operator_client.get("/indexed-data/remove-abstec").status_code == 403
+    assert (
+        operator_client.post(
+            "/indexed-data/remove-abstec",
+            data={"year": "2024", "day_from": 1, "day_to": 1, "stations": "mork", "digest": "x"},
+        ).status_code
+        == 403
+    )
+
+
+def test_remove_both_abs_tec_outputs(admin_client, monkeypatch, tmp_path):
+    from app import indexed_data
+
+    dat_root = tmp_path / "dat"
+    pq_root = tmp_path / "parquet"
+    for root in (dat_root, pq_root):
+        folder = root / "2024" / "245" / "mork"
+        folder.mkdir(parents=True)
+        (folder / "result.dat").write_text("result")
+    monkeypatch.setattr(indexed_data.cfg, "ABSTEC_OUTPUT_DATA_PATH_CONTAINER", str(dat_root))
+    monkeypatch.setattr(indexed_data.cfg, "PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER", str(pq_root))
+    params = {"year": "2024", "day_from": 245, "day_to": 245, "stations": "mork", "output_type": "both"}
+    preview = admin_client.get("/indexed-data/remove-abstec", params=params)
+    assert preview.status_code == 200
+    assert "DAT:" in preview.text
+    assert "PARQUET:" in preview.text
+    selection = indexed_data._selection("2024", 245, 245, "mork", "both")
+    response = admin_client.post(
+        "/indexed-data/remove-abstec",
+        data={**params, "digest": indexed_data._selection_digest(selection)},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    for root in (dat_root, pq_root):
+        assert not (root / "2024" / "245" / "mork").exists()
+        assert len(list((root / ".ionflow-trash").glob("*/2024/245/mork/result.dat"))) == 1

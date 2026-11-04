@@ -22,6 +22,7 @@
   <p class="page-subtitle" style="margin-top:4px;">{{ t('indexed_data_doy_note') }}</p>
   <div style="margin-top:12px;">
     <a class="btn btn-ghost" href="/indexed-data?refresh=1">Refresh index</a>
+    {% if current_user.is_admin %}<a class="btn btn-ghost" href="/indexed-data/remove-abstec">Remove AbsTEC output data</a>{% endif %}
     {% if refresh %}
       <span class="badge badge-muted" style="margin-left:10px;">Force refresh</span>
     {% endif %}

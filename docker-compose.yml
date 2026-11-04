@@ -134,10 +134,10 @@ services:
       # Mount TEC DAT output into converter-hub so AbsTEC selectors can discover year/day/site.
       - ${TECSUITE_OUT_DAT_DATA_PATH_HOST}:${TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}:ro
       # Mount AbsTEC output into converter-hub for year/day/site browsing.
-      - ${ABSTEC_OUTPUT_DATA_PATH_HOST}:${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}:ro
+      - ${ABSTEC_OUTPUT_DATA_PATH_HOST}:${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
       # Mount DAT <-> Parquet output directories for future browsing support.
       - ${PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
-      - ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}:ro
+      - ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
 
       # ── Docker socket (REQUIRED) ─────────────────────────────────────────
       # Mounting the socket lets this container start/stop/inspect other

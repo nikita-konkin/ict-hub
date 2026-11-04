@@ -1,0 +1,27 @@
+﻿{% extends "base.html" %}
+{% block title %}Remove AbsTEC output data{% endblock %}
+{% block content %}
+<div class="page-header"><h1 class="page-title">Remove AbsTEC output data</h1>
+<p class="page-subtitle">Select a year, day-of-year range and stations. Selected station folders are moved to a recovery folder on the same filesystem.</p></div>
+<div class="card" style="padding:20px;">
+<form method="get" action="/indexed-data/remove-abstec" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end;">
+<label>Output <select name="output_type"><option value="both" {% if output_type == "both" %}selected{% endif %}>DAT and Parquet</option><option value="dat" {% if output_type == "dat" %}selected{% endif %}>DAT only</option><option value="parquet" {% if output_type == "parquet" %}selected{% endif %}>Parquet only</option></select></label>
+<label>Year <input name="year" value="{{ year }}" required pattern="[0-9]{4}" placeholder="2024"></label>
+<label>First day <input type="number" name="day_from" min="1" max="366" value="{{ day_from }}" required></label>
+<label>Last day <input type="number" name="day_to" min="1" max="366" value="{{ day_to }}" required></label>
+<label>Stations <input name="stations" value="{{ stations }}" required placeholder="mork ntor yosh"></label>
+<button class="btn btn-primary" type="submit">Preview selection</button>
+</form>
+{% if digest %}
+<h2 style="margin-top:24px;">Folders to remove ({{ targets|length }})</h2>
+{% if targets %}
+<ul>{% for target in targets %}<li class="td-mono">{{ target }}</li>{% endfor %}</ul>
+<p>The complete folders listed above, including all files inside them, will be moved to <code>.ionflow-trash</code> under each selected output root.</p>
+<form method="post" action="/indexed-data/remove-abstec" onsubmit="return confirm('Move the {{ targets|length }} listed station folders out of the active output data?');">
+<input type="hidden" name="output_type" value="{{ output_type }}"><input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="day_from" value="{{ day_from }}"><input type="hidden" name="day_to" value="{{ day_to }}"><input type="hidden" name="stations" value="{{ stations }}"><input type="hidden" name="digest" value="{{ digest }}">
+<button type="submit" class="btn btn-danger">Remove listed folders</button></form>
+{% else %}<p>No matching folders found.</p>{% endif %}
+{% endif %}
+<p style="margin-top:20px;"><a href="/indexed-data">Back to indexed data</a></p>
+</div>
+{% endblock %}
