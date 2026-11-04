@@ -168,3 +168,44 @@ def test_remove_both_abs_tec_outputs(admin_client, monkeypatch, tmp_path):
     for root in (dat_root, pq_root):
         assert not (root / "2024" / "245" / "mork").exists()
         assert len(list((root / ".ionflow-trash").glob("*/2024/245/mork/result.dat"))) == 1
+
+
+def test_read_only_second_mount_leaves_both_selections_in_place(admin_client, monkeypatch, tmp_path):
+    import errno
+    from pathlib import Path
+
+    from app import indexed_data
+
+    dat_root = tmp_path / "dat"
+    pq_root = tmp_path / "parquet"
+    for root in (dat_root, pq_root):
+        folder = root / "2024" / "245" / "mork"
+        folder.mkdir(parents=True)
+        (folder / "result").write_text("data")
+    monkeypatch.setattr(indexed_data.cfg, "ABSTEC_OUTPUT_DATA_PATH_CONTAINER", str(dat_root))
+    monkeypatch.setattr(indexed_data.cfg, "PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER", str(pq_root))
+    selection = indexed_data._selection("2024", 245, 245, "mork", "both")
+    digest = indexed_data._selection_digest(selection)
+    original_mkdir = Path.mkdir
+
+    def read_only_parquet(path, *args, **kwargs):
+        if pq_root in path.parents and ".ionflow-trash" in path.parts:
+            raise OSError(errno.EROFS, "Read-only file system")
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", read_only_parquet)
+    response = admin_client.post(
+        "/indexed-data/remove-abstec",
+        data={
+            "year": "2024",
+            "day_from": 245,
+            "day_to": 245,
+            "stations": "mork",
+            "output_type": "both",
+            "digest": digest,
+        },
+    )
+    assert response.status_code == 503
+    assert "PARQUET output is mounted read-only" in response.text
+    assert (dat_root / "2024" / "245" / "mork" / "result").exists()
+    assert (pq_root / "2024" / "245" / "mork" / "result").exists()

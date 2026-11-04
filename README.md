@@ -479,6 +479,16 @@ docker run --rm -v "$PWD:/work" -v ict-hub-node-modules:/work/node_modules -w /w
 | `PARQUET_OUTPUT_ABSTEC_DATA_PATH` | `/app/abstec_parquet_out`    | Container path for AbsTEC Parquet output       |
 | `PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER` | `/mnt/abstec-parquet-out` | Path inside converter-hub for browsing AbsTEC Parquet output |
 
+### Removing AbsTEC output
+
+Admins can preview and remove selected station/day folders from Indexed data. The hub moves them to `.ionflow-trash` under the corresponding DAT or Parquet root; this keeps the files recoverable and does not free disk space. The `converter-hub` service needs writable mounts for both output roots. After updating `docker-compose.yml` on the Docker host, apply mount changes by recreating the service:
+
+```sh
+docker compose up -d --force-recreate converter-hub
+```
+
+Use the same Compose files and environment as the running deployment. A container restart or image-only update does not change existing mounts. If removal still reports a read-only filesystem, check the host filesystem and any Compose overrides; if it reports permission denied, check directory ownership and permissions for the container user.
+
 ### AbsTEC dockur XP Runner (optional)
 Enables the "dockur (Windows XP VM)" option in the AbsTEC Suite **Runner** dropdown. Requires the `abstec-xp` VM from `abstec-suite/docker-compose.dockur.yml` to exist and share the same DAT input / output host paths (see `abstec-suite/README.dockur.md`). When a dockur job is submitted the hub checks the VM container and starts it automatically if it is stopped (a notice is shown, since XP needs a minute or two to boot before the first station runs); if the container does not exist at all, the job is rejected with setup instructions.
 

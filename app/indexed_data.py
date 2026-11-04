@@ -10,6 +10,7 @@ Shows the folder trees currently indexed by the data-indexer service for:
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import re
 import uuid
@@ -300,15 +301,23 @@ def remove_abstec_output(
         raise HTTPException(409, "The selection changed. Preview it again.")
     batch_id = uuid.uuid4().hex
     moved = []
+    batches = []
+    current_kind = ""
     try:
-        for _kind, root, targets in selections:
+        # Prepare every recovery directory before moving anything. This catches
+        # read-only mounts even when both output types were selected.
+        for kind, root, targets in selections:
             if not targets:
                 continue
+            current_kind = kind.upper()
             trash = root / ".ionflow-trash"
             if trash.is_symlink():
                 raise HTTPException(400, "Trash directory cannot be a symbolic link")
             batch = trash / batch_id
             batch.mkdir(parents=True)
+            batches.append((kind, root, targets, batch))
+        for kind, root, targets, batch in batches:
+            current_kind = kind.upper()
             for path in targets:
                 dest = batch / path.relative_to(root)
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -319,6 +328,16 @@ def remove_abstec_output(
             dest.rename(original)
         if isinstance(exc, HTTPException):
             raise
+        if exc.errno == errno.EROFS:
+            raise HTTPException(
+                503,
+                f"AbsTEC {current_kind} output is mounted read-only. Recreate converter-hub with writable "
+                "AbsTEC output mounts and check that the host filesystem is writable.",
+            ) from exc
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            raise HTTPException(
+                503, f"Cannot write to AbsTEC {current_kind} output. Check host directory permissions."
+            ) from exc
         raise HTTPException(500, f"Could not remove selection: {exc}") from exc
     audit.record(
         db,
