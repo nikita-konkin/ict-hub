@@ -428,7 +428,7 @@ CONVERTERS: dict[str, dict] = {
                 "long": "--dry-run",
                 "label": "Dry Run",
                 "type": "checkbox",
-                "default": True,
+                "default": False,
                 "required": False,
                 "help": "Validate and update absolTEC.dia without launching absolTEC.exe.",
             },

@@ -7,6 +7,7 @@ with the right arguments and handle both success and failure paths.
 """
 
 import json
+import re
 from datetime import UTC
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -53,6 +54,10 @@ class TestRunPage:
         assert b'for="abstec-day-of-year-select"' in response.content
         assert b'for="abstec-days-select"' in response.content
         assert b'for="abstec-site-select"' in response.content
+
+    def test_abstec_run_page_leaves_dry_run_unticked(self, operator_client):
+        response = operator_client.get("/run/abstec-suite", follow_redirects=True)
+        assert not re.search(rb'name="dry_run"\s+checked', response.content), "Dry Run is ticked by default"
 
     def test_dat_parquet_run_page_renders_env_backed_path_controls(self, operator_client):
         response = operator_client.get("/run/dat-parquet-handler", follow_redirects=True)
@@ -1046,6 +1051,13 @@ class TestJobHistory:
         assert response.status_code == 200
         # Clamped onto the only page, so the job row is listed.
         assert f">#{completed_job.id}</td>" in response.text
+
+    def test_history_shows_status_before_wide_columns(self, operator_client, completed_job):
+        text = operator_client.get("/history").text
+        assert text.index("<th>Status</th>") < text.index("<th>Data Range</th>"), "Status sits behind wide columns"
+
+    def test_history_drops_the_input_path_column(self, operator_client, completed_job):
+        assert "<th>Input Path</th>" not in operator_client.get("/history").text, "Input Path column still takes width"
 
     def test_history_empty_state_rendered(self, operator_client):
         """With no jobs at all, the empty state message should be shown."""
