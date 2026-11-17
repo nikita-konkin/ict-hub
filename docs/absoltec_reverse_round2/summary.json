@@ -1,0 +1,151 @@
+[
+  {
+    "day": 32,
+    "original_rows": 48,
+    "probe_rows": 48,
+    "changed_printed_coefficients": 2,
+    "maximum_printed_coefficient_change": 0.001000000000000334,
+    "native_vs_original": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 48,
+      "max_abs_error": 0.023203307800002904,
+      "rmse": 0.01255847872421835,
+      "bias": -0.007913442173541563,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    },
+    "native_vs_probe": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 48,
+      "max_abs_error": 0.023203307800002904,
+      "rmse": 0.012587757680115651,
+      "bias": -0.007955108840208188,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    }
+  },
+  {
+    "day": 33,
+    "original_rows": 48,
+    "probe_rows": 48,
+    "changed_printed_coefficients": 0,
+    "maximum_printed_coefficient_change": 0.0,
+    "native_vs_original": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 47,
+      "max_abs_error": 0.04284196119999706,
+      "rmse": 0.021179880753547996,
+      "bias": -0.017145352407083054,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    },
+    "native_vs_probe": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 47,
+      "max_abs_error": 0.04284196119999706,
+      "rmse": 0.021179880753547996,
+      "bias": -0.017145352407083054,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    }
+  },
+  {
+    "day": 34,
+    "original_rows": 9,
+    "probe_rows": 9,
+    "changed_printed_coefficients": 1,
+    "maximum_printed_coefficient_change": 0.0009999999999994458,
+    "native_vs_original": null,
+    "native_vs_probe": null
+  },
+  {
+    "day": 35,
+    "original_rows": 48,
+    "probe_rows": 48,
+    "changed_printed_coefficients": 0,
+    "maximum_printed_coefficient_change": 0.0,
+    "native_vs_original": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 47,
+      "max_abs_error": 0.025018251999998853,
+      "rmse": 0.009759398778346617,
+      "bias": -0.006286856137083223,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    },
+    "native_vs_probe": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 47,
+      "max_abs_error": 0.025018251999998853,
+      "rmse": 0.009759398778346617,
+      "bias": -0.006286856137083223,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    }
+  },
+  {
+    "day": 36,
+    "original_rows": 48,
+    "probe_rows": 48,
+    "changed_printed_coefficients": 1,
+    "maximum_printed_coefficient_change": 0.0009999999999994458,
+    "native_vs_original": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 46,
+      "max_abs_error": 0.03692286349999918,
+      "rmse": 0.02286462362164975,
+      "bias": -0.021228000929791397,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    },
+    "native_vs_probe": {
+      "matched_finite_count": 48,
+      "missing_reference": 0,
+      "missing_candidate": 0,
+      "missing_both": 0,
+      "nonfinite_reference": 0,
+      "nonfinite_candidate": 0,
+      "failing_tolerance_count": 46,
+      "max_abs_error": 0.03692286349999918,
+      "rmse": 0.022882854509738725,
+      "bias": -0.02124883426312472,
+      "metric_overflow": false,
+      "passes_tolerance": false
+    }
+  }
+]

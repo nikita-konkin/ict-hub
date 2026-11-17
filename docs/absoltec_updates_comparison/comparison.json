@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-11-17T21:56:11.895838+00:00",
+  "days": [
+    32,
+    33,
+    34,
+    35,
+    36
+  ],
+  "original_dir": "C:\\Users\\VV\\AppData\\Local\\Temp\\opencode\\cmp-updated\\originals",
+  "candidates": {
+    "legacy-2017": "C:\\Users\\VV\\AppData\\Local\\Temp\\opencode\\cmp-updated\\legacy",
+    "published-updated": "C:\\Users\\VV\\AppData\\Local\\Temp\\opencode\\cmp-updated\\published",
+    "published-old": "C:\\Users\\VV\\AppData\\Local\\Temp\\opencode\\cmp-updated\\published-old"
+  },
+  "conventions": [
+    "Differences are candidate minus original; no interpolation, no fitted offsets.",
+    "Original all-zero coefficient rows are missing placeholders.",
+    "Shared epochs pair by exact UT; day coverage differences are preserved."
+  ]
+}

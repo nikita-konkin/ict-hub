@@ -198,8 +198,11 @@ async def stream_logs(
 
     def _read_logs() -> None:
         """Blocking thread: reads logs line-by-line and posts to the queue."""
-        client = docker.from_env()
         try:
+            # Docker's client initialization contacts the daemon too. Keep it
+            # inside the guarded block so a connection failure still signals
+            # EOF instead of leaving the SSE consumer waiting forever.
+            client = docker.from_env()
             container = client.containers.get(container_id)
             # Explicitly request both stdout and stderr. Some images/log drivers
             # may otherwise produce no output with defaults.
@@ -290,8 +293,8 @@ def stop_container(container_id: str) -> None:
     Gracefully stop a running container (sends SIGTERM, waits 10s, then SIGKILL).
     Silently ignores if the container is already gone.
     """
-    client = docker.from_env()
     try:
+        client = docker.from_env()
         container = client.containers.get(container_id)
         container.stop(timeout=10)
         logger.info("Stopped container %s", container_id[:12])
@@ -312,8 +315,8 @@ def get_container_state(container_id: str) -> dict[str, object]:
         "exit_code": int | None,
       }
     """
-    client = docker.from_env()
     try:
+        client = docker.from_env()
         container = client.containers.get(container_id)
         container.reload()
         state = container.attrs.get("State", {}) or {}
@@ -387,8 +390,8 @@ def _get_exit_code_only(container_id: str) -> int:
     Retrieve the container's exit code without attempting removal.
     Useful when Docker auto-remove (--rm) is enabled.
     """
-    client = docker.from_env()
     try:
+        client = docker.from_env()
         container = client.containers.get(container_id)
         container.reload()
         exit_code = container.attrs.get("State", {}).get("ExitCode", -1)

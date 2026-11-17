@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-16T23:40:59.633158+00:00",
+  "parameters": {
+    "dat_path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-corpus\\dat",
+    "output_dir": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative",
+    "year": 2025,
+    "days": [
+      32,
+      33,
+      34,
+      35,
+      36
+    ],
+    "sites": [
+      "aksu"
+    ],
+    "steps": [
+      0.5,
+      0.05,
+      0.016666666666666666
+    ],
+    "models": [
+      "legacy-2017",
+      "published"
+    ],
+    "legacy_exe": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\absolTEC.exe",
+    "legacy_steps": [
+      0.5
+    ],
+    "timeout_seconds": 120.0,
+    "atol": 0.001,
+    "rtol": 0.0,
+    "time_tolerance": 1e-06,
+    "elevation_cutoff": 10.0,
+    "correction_coefficient": 0.97,
+    "window_hours": 1.0,
+    "run_numerical_tests": true,
+    "input_provenance": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-corpus\\provenance.json"
+  },
+  "versions": {
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "native_package": "0.1.0.dev0",
+    "numpy": "1.26.4",
+    "scipy": "1.13.1",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "machine": "AMD64",
+    "logical_cpus": 32,
+    "thread_environment": {
+      "OPENBLAS_NUM_THREADS": null,
+      "OMP_NUM_THREADS": null,
+      "MKL_NUM_THREADS": null
+    }
+  },
+  "legacy_executable": {
+    "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\absolTEC.exe",
+    "sha256": "31984eb0df935b52751cf92458b4471ca8260a98fed9d5fb6492fe175d3443f5",
+    "bytes": 843776
+  },
+  "input_provenance": {
+    "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-corpus\\provenance.json",
+    "sha256": "3ccf5aa56bf0d2717728afeed39feecda6d73a09dcc069a3585db1c67f900962",
+    "bytes": 11544,
+    "snapshot": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\input-provenance.json"
+  },
+  "implementation_files": [
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\__init__.py",
+      "sha256": "06c768817ae0b22a86df5a7f1c0825c682f117ec57ba99b173b3af884876bf12",
+      "bytes": 266
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\__main__.py",
+      "sha256": "3c699d4e78794cb4c8e60f04c04a92f2d8fe0c16fd263ac365bcb86fb960b9ac",
+      "bytes": 19112
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\bias.py",
+      "sha256": "179d61d14325bdf8f2a1298715792604c1ced46dd0dedbfd4728040ae0e8db28",
+      "bytes": 2050
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\geometry.py",
+      "sha256": "d5f55e03f6ddcecabd87890778f76fa4a307fd473a32c694dba2367c630f3fed",
+      "bytes": 3920
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\io.py",
+      "sha256": "fc080f6b165bbd1dd9b3e0ea7687d47a077536783d8c13477f71ad8b9e091de9",
+      "bytes": 15462
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\legacy.py",
+      "sha256": "5efd96bd7afb77bcf61eb3e137cc95a7cbbcbf6400a2c3156f4ad8c61f7ad278",
+      "bytes": 14050
+    },
+    {
+      "path": "N:\\ict-hub\\absoltec_native\\solver.py",
+      "sha256": "9e704f8d1ff16590a1961f594c8644786a3a55ecb4cbd62e5e2408144259399e",
+      "bytes": 16179
+    },
+    {
+      "path": "N:\\ict-hub\\scripts\\compare_absoltec.py",
+      "sha256": "5ba51ea724289f100a1692511a5e9bc17222135a0cb427e6406356c44bba077a",
+      "bytes": 13856
+    },
+    {
+      "path": "N:\\ict-hub\\scripts\\validate_absoltec_science.py",
+      "sha256": "bbb6a79ffecb25ce3315ef8f4299ecc51219bf3c93a3ba326e61422a546fb9e8",
+      "bytes": 35711
+    }
+  ],
+  "cases": [
+    {
+      "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\cases\\2025_032_aksu\\manifest.json",
+      "sha256": "9d8f34bb42a7fd60cdcbaea61e05def71e8d55d382475020031eac6d6d258366",
+      "bytes": 34054
+    },
+    {
+      "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\cases\\2025_033_aksu\\manifest.json",
+      "sha256": "354a401991bd2c2ae36ab682adc74243296c1d0d8c75418a935dae423f3726b4",
+      "bytes": 34055
+    },
+    {
+      "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\cases\\2025_034_aksu\\manifest.json",
+      "sha256": "77742312166a0702787bc9e56f9f8fa5319126bb8cd87f35c8a97eb2dfb347f1",
+      "bytes": 19316
+    },
+    {
+      "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\cases\\2025_035_aksu\\manifest.json",
+      "sha256": "2570fe7d864680ba06cb450f89d1cef6ee75ff7fd96b3bb0062c87105f76540d",
+      "bytes": 33763
+    },
+    {
+      "path": "C:\\Users\\VV\\AppData\\Local\\AbsolTEC-Reconstruction\\science-validation-20261117-relative\\cases\\2025_036_aksu\\manifest.json",
+      "sha256": "b97401cce4bc95cfa308cea903d018872c3143f31bfda3084b6d8ac8c30cc9d2",
+      "bytes": 34351
+    }
+  ]
+}

@@ -1,0 +1,230 @@
+{
+  "limitation": "Header-only 3.04 to 3.03 relabel for tec-suite parser compatibility, not certified RINEX conversion",
+  "members": [
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0320.zip",
+      "archive_sha256": "5d0f981dd54ca8a292eab7a966b2b1b2fa0fe8ca2514dd73c94250dd36efa68b",
+      "member": "aksu0320.25o",
+      "original_sha256": "e6b7d0775d12d949665af75e75f3a18b5315ddd7c73858fddddf70de67f93825",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "c362a03f9e38f350833668a493c6b3b09b29e50aee3861f3013e433379d88407"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0320.zip",
+      "archive_sha256": "5d0f981dd54ca8a292eab7a966b2b1b2fa0fe8ca2514dd73c94250dd36efa68b",
+      "member": "aksu0320.25n",
+      "original_sha256": "777981cd4b3e556aa8e2f3395f47677ce423adc0913036605906022be78b9729",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "c13fe9f68213bada86f180a57c80149e5e7e8c530245e0e7bdb2b32797e32261"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0320.zip",
+      "archive_sha256": "5d0f981dd54ca8a292eab7a966b2b1b2fa0fe8ca2514dd73c94250dd36efa68b",
+      "member": "aksu0320.25g",
+      "original_sha256": "52534b62bda4e762f7460fdd2956da559c9a5840ee5688c28a34ede966f8e98d",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "0b446af599cb715d66a87782f9d8fe25b06ea969c8a3f0b40957fef4e613ac67"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0320.zip",
+      "archive_sha256": "5d0f981dd54ca8a292eab7a966b2b1b2fa0fe8ca2514dd73c94250dd36efa68b",
+      "member": "aksu0320.25l",
+      "original_sha256": "5e244e15a5c61cb061edd786a2b525945af4a01e78f7979cb1dc574c1de81435",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "2caac6f7210ce199796687e8dcbb5b57be703b9895cc992ea9ee204b34b9f19c"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0320.zip",
+      "archive_sha256": "5d0f981dd54ca8a292eab7a966b2b1b2fa0fe8ca2514dd73c94250dd36efa68b",
+      "member": "aksu0320.25f",
+      "original_sha256": "67c8a4324d17d4c3b369d6298605a8763f11cafb05bd6a8a536f12e940b36405",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "4c3c2fb61faf96cb68736e6e9f3120c5ac8a79e3a13be452ea2f724724839002"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0330.zip",
+      "archive_sha256": "ea2a15d34ace3e92cbdb17eb6553087ad5f213eccd8e808c06538102b10c88f9",
+      "member": "aksu0330.25o",
+      "original_sha256": "defe63df1b90dc41d89d9f0a2bf7763575e3252faf076c42ffcc5194c9274a87",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "9a8bb941eb65595ab1ebabcb9a31ac658e86066f4985d6e489485c76598256b1"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0330.zip",
+      "archive_sha256": "ea2a15d34ace3e92cbdb17eb6553087ad5f213eccd8e808c06538102b10c88f9",
+      "member": "aksu0330.25n",
+      "original_sha256": "0c7d82111b2b9a14cd12e02d13de0ef9649939afb42af8feae4062ade5e723e5",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "afa763339f693f36acaf2fb1291df8b79b0e671e3a5bd3d77f86a8fbb26b03bb"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0330.zip",
+      "archive_sha256": "ea2a15d34ace3e92cbdb17eb6553087ad5f213eccd8e808c06538102b10c88f9",
+      "member": "aksu0330.25g",
+      "original_sha256": "5b128d8c1693206e7ccdfb937f8656790025e25506196054f7e2e385e61442cb",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "62772363f51fd7b1d9c496775bfd18a46bca4767cb20f5261481312ebbb9166b"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0330.zip",
+      "archive_sha256": "ea2a15d34ace3e92cbdb17eb6553087ad5f213eccd8e808c06538102b10c88f9",
+      "member": "aksu0330.25l",
+      "original_sha256": "291e0bb0905a15460240c2373b17ee5a1648d14b13ec8ba56bb7086d07b1c3ac",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "a46f5dedce8726dde383c7a91f7717539b5a8f1f8c43b2e2fa57b0a7b4429868"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0330.zip",
+      "archive_sha256": "ea2a15d34ace3e92cbdb17eb6553087ad5f213eccd8e808c06538102b10c88f9",
+      "member": "aksu0330.25f",
+      "original_sha256": "724c437b2a350983ab327a37e99de6ff4e20510fc71d6b8f5eb82026531aeb9b",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "7b0962bbfe54c8c8d1654665d38f9a7b5c5e75307e69f26bdd21b98ff074ed3b"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0340.zip",
+      "archive_sha256": "7f9595a0ca3773a1c827bb230422c302b8b04f016a6aca7bf427ccca0801c31e",
+      "member": "aksu0340.25o",
+      "original_sha256": "9fc4da039a8850c1eca39878c60f65b6d29422b5f78542931a41c38f83cb292a",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "02a4c30cc3454ce5834bf597580f80dbf1a9587de3863bc4f4c8ee5969873582"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0340.zip",
+      "archive_sha256": "7f9595a0ca3773a1c827bb230422c302b8b04f016a6aca7bf427ccca0801c31e",
+      "member": "aksu0340.25n",
+      "original_sha256": "60b63291e0ba78f5586abcbf271f332b5a2761cb53d77f7b9a04e09a01c80ed7",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "04632175c6dc5f57225de843926d28dbaf461a573efe039da60fb72e8ceb9235"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0340.zip",
+      "archive_sha256": "7f9595a0ca3773a1c827bb230422c302b8b04f016a6aca7bf427ccca0801c31e",
+      "member": "aksu0340.25g",
+      "original_sha256": "f325b6184c82fe88df791c48e2b8c542d6cfc5129587b4d629d37854eb8652e3",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "c8ff2b1e0ec718fcfb4875619b7004d3912ff51a586c18670470693cb7e8895e"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0340.zip",
+      "archive_sha256": "7f9595a0ca3773a1c827bb230422c302b8b04f016a6aca7bf427ccca0801c31e",
+      "member": "aksu0340.25l",
+      "original_sha256": "7c6e7c11e732fa3e404d7c082bdda21be75ed1b6ddfaa9a717af67f103afe5df",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "b5fef7783ab9184884ec53eab7d44cdd112662dfaffcca1b556f838eb18f58a3"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0340.zip",
+      "archive_sha256": "7f9595a0ca3773a1c827bb230422c302b8b04f016a6aca7bf427ccca0801c31e",
+      "member": "aksu0340.25f",
+      "original_sha256": "bf95477fe5a405899adf3e11d2353f52bd3dc62d2f3908ec71ef88d5fb82c3a8",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "bf0293512f9329d45ab9ba17d232f0ac18dec94b1b9add8b30a38ba0e78148ff"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0350.zip",
+      "archive_sha256": "eaae80cd88a02cfb35dfc092d765fcbe82ef464da360c5d57fe066ff1fcbd74c",
+      "member": "aksu0350.25o",
+      "original_sha256": "d74ced682d9b3547c887d1db66acb7c52ebc6db71991990679ec696c3b54f6cd",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "42c5d2e480b9fc553365703a550f6f1e26e58d73c5901f0ce263d623c3bfbef6"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0350.zip",
+      "archive_sha256": "eaae80cd88a02cfb35dfc092d765fcbe82ef464da360c5d57fe066ff1fcbd74c",
+      "member": "aksu0350.25n",
+      "original_sha256": "6d0f084b9809ac14928f2744fb1e393b64586788a2f5f67d7b8916ba64c6b122",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "46da99372c458f2fa4de9bee20903e53151d462cd15d7748885a89376da83824"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0350.zip",
+      "archive_sha256": "eaae80cd88a02cfb35dfc092d765fcbe82ef464da360c5d57fe066ff1fcbd74c",
+      "member": "aksu0350.25g",
+      "original_sha256": "893185332c18b37f9a619a2f2acc6bd05645e90f343817489b9b601c0d51ded5",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "e27365d1ab83b1984e9c0ac9acb1204c5c201f298614de3fb16864a467e15e32"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0350.zip",
+      "archive_sha256": "eaae80cd88a02cfb35dfc092d765fcbe82ef464da360c5d57fe066ff1fcbd74c",
+      "member": "aksu0350.25l",
+      "original_sha256": "c535f314bde79129f72d53596768ea62854d9fa3a5f6a2cb1ccc9375af7732a1",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "fdf8667914ed118e11cb312b1427831286877150b672d7d2b80771db2feef7f5"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0350.zip",
+      "archive_sha256": "eaae80cd88a02cfb35dfc092d765fcbe82ef464da360c5d57fe066ff1fcbd74c",
+      "member": "aksu0350.25f",
+      "original_sha256": "2d5f563f87514882e014f5b8df195541238a821d60be05be127fa8ddaf669237",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "eb739b34785f6ee4ed6657de09cab73960165143fb3dc99b0749efefd377e367"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0360.zip",
+      "archive_sha256": "bb316bb429faab2532660efe520a9822d5adae33b6f16d6ec1b153973a66b905",
+      "member": "aksu0360.25o",
+      "original_sha256": "361690a117054541a6d198a863e7a36873cf0129f7411ddc54047a9dc4ba1434",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "2c6cf9c3f9a5306f5bac2c242275d834aaa04bda060ba4436a4016c49784a79e"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0360.zip",
+      "archive_sha256": "bb316bb429faab2532660efe520a9822d5adae33b6f16d6ec1b153973a66b905",
+      "member": "aksu0360.25n",
+      "original_sha256": "02a2d76e394f3d477bb5f8e1af44841b7dba3e73ac64c823d71d686ec8a6fd11",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "29450a6cf04f5bfc7095877d3c1d9afd38c6407896a4bd0f64697f7964643d0e"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0360.zip",
+      "archive_sha256": "bb316bb429faab2532660efe520a9822d5adae33b6f16d6ec1b153973a66b905",
+      "member": "aksu0360.25g",
+      "original_sha256": "0c8d4f96f9c3e49bcd9c14b88da77dcadbc3c4f3527948bb9c96bb54ad0cdae9",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "d0aadcb152786186024956def1058cdc8b3be29b358128c25f84698fc455d0b0"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0360.zip",
+      "archive_sha256": "bb316bb429faab2532660efe520a9822d5adae33b6f16d6ec1b153973a66b905",
+      "member": "aksu0360.25l",
+      "original_sha256": "3d85075e56e11ffb69493964b2d369c7ad417f9f02a851a66f5fb8ff490dc091",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "f77a60b5d785cf4f9c9b35bfce25bebc45e0135cd2dc3016cf9076fe04a6cbaa"
+    },
+    {
+      "archive": "C:\\Users\\VV\\Downloads\\aksu0360.zip",
+      "archive_sha256": "bb316bb429faab2532660efe520a9822d5adae33b6f16d6ec1b153973a66b905",
+      "member": "aksu0360.25f",
+      "original_sha256": "7cfe98c9e50030c6dca726b926d60d7be7810efa7f52e2d6521e19ee622ba6c3",
+      "source_version": "3.04",
+      "adapted_header_only": true,
+      "derived_sha256": "b36556a44c21ceb2aedffb43a89dbae570b16003e9c167da4fd4763630e8c8a2"
+    }
+  ]
+}

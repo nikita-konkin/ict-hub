@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -132,16 +133,139 @@ async def _abstec_page() -> dict[str, object]:
     return {"abstec_dat_tree": await list_tecsuite_output_structure_async(scan_path) if scan_path else []}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AbsTEC Native
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ABSTEC_NATIVE_DAY_RE = re.compile(r"^\d{1,3}$")
+_ABSTEC_NATIVE_DAYS_RE = re.compile(r"^\d{1,3}(?:-\d{1,3})?(?:,\d{1,3}(?:-\d{1,3})?)*$")
+
+
+async def _abstec_native_page() -> dict[str, object]:
+    scan_path = _scan_path(cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER, cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)
+    return {
+        "abstec_dat_tree": await list_tecsuite_output_structure_async(scan_path) if scan_path else [],
+        "abstec_output_host_path": cfg.ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST,
+    }
+
+
+async def _prepare_abstec_native(form: FormData, db: Session) -> PreparedRun:
+    dat_root_host = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
+    if not dat_root_host:
+        raise FormError("TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.")
+    output_host = cfg.ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST.strip()
+    if not output_host:
+        raise FormError("ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST is not configured.")
+    year = str(form.get("year", "")).strip()
+    if not re.fullmatch(r"\d{4}", year):
+        raise FormError("Year must be a four-digit number.")
+    day_of_year = str(form.get("day_of_year", "")).strip()
+    days = str(form.get("days", "")).strip()
+    if not day_of_year and not days:
+        raise FormError("Select at least one day (single or batch).")
+    if day_of_year and days:
+        raise FormError("Select either a single day or a batch range, not both.")
+    if day_of_year and (not _ABSTEC_NATIVE_DAY_RE.fullmatch(day_of_year) or not 1 <= int(day_of_year) <= 366):
+        raise FormError("Day of year must be a number from 1 to 366.")
+    if days and not _ABSTEC_NATIVE_DAYS_RE.fullmatch(days):
+        raise FormError("Days must be a comma-separated list of days or inclusive ranges, e.g. 032-036.")
+    model = str(form.get("model", "legacy-2017")).strip() or "legacy-2017"
+    if model not in {"legacy-2017", "published"}:
+        raise FormError("Model must be legacy-2017 or published.")
+    for key, label, default in (
+        ("time_step_hours", "Time step hours", "0.5"),
+        ("correction_coefficient", "Correction coefficient", "0.97"),
+        ("window_hours", "Window half width", "1.0"),
+    ):
+        raw = str(form.get(key, default)).strip() or default
+        try:
+            number = float(raw)
+        except ValueError as exc:
+            raise FormError(f"{label} must be a finite number.") from exc
+        if not math.isfinite(number) or number <= 0:
+            raise FormError(f"{label} must be a positive finite number.")
+        if key == "correction_coefficient" and number > 1:
+            raise FormError("Correction coefficient must be at most 1.")
+        if key == "window_hours" and number > 6:
+            raise FormError("Window half width must be at most 6 hours.")
+        form[key] = raw
+    try:
+        elevation = int(str(form.get("elevation_cutoff", 10)))
+        jobs = int(str(form.get("jobs", 1)))
+    except ValueError as exc:
+        raise FormError("Elevation cutoff and parallel jobs must be integers.") from exc
+    if not 0 <= elevation < 90:
+        raise FormError("Elevation cutoff must be an integer from 0 to 89 degrees.")
+    if not 1 <= jobs <= 8:
+        raise FormError("Parallel jobs must be an integer from 1 to 8.")
+    form["elevation_cutoff"] = elevation
+    form["jobs"] = jobs
+    shell_height = str(form.get("shell_height_km", "")).strip()
+    if shell_height:
+        try:
+            height = float(shell_height)
+        except ValueError as exc:
+            raise FormError("Shell height must be a finite number.") from exc
+        if not math.isfinite(height) or not 0 < height <= 2000:
+            raise FormError("Shell height must be in (0, 2000] km.")
+        form["shell_height_km"] = shell_height
+    auto_alpha = is_truthy_checkbox(form.get("auto_alpha"))
+    nonneg = is_truthy_checkbox(form.get("nonneg"))
+    if model == "legacy-2017":
+        if auto_alpha:
+            raise FormError("Latitude-dependent alpha requires the published model.")
+        if nonneg:
+            raise FormError("The non-negative bounded solve requires the published model.")
+        if shell_height:
+            raise FormError("A custom shell height requires the published model.")
+    form["model"] = model
+    form["dat_path"] = dat_root_host
+    form["output_dir"] = output_host
+    return PreparedRun(input_note=_env_note("TECSUITE_OUT_DAT_DATA_PATH_HOST"), output_path=output_host)
+
+
 async def _prepare_abstec(form: FormData, db: Session) -> PreparedRun:
     dat_root_host = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
     if not dat_root_host:
         raise FormError("TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured.")
+    runner = str(form.get("runner", "auto")).strip() or "auto"
+    if runner not in {"auto", "wine", "direct", "dockur"}:
+        raise FormError("AbsTEC runner must be auto, wine, direct, or dockur.")
+    form["runner"] = runner
+    for key, label, default in (
+        ("time_step_hours", "Time step hours", "0.5"),
+        ("correction_coefficient", "Correction coefficient", "0.97"),
+        ("elevation_cutoff", "Elevation cutoff", 10),
+        ("jobs", "Parallel jobs", 1),
+    ):
+        raw = form.get(key, default)
+        if raw in (None, ""):
+            raw = default
+        try:
+            number = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise FormError(f"{label} must be a finite number.") from exc
+        if not math.isfinite(number):
+            raise FormError(f"{label} must be a finite number.")
+        if key == "time_step_hours" and number <= 0:
+            raise FormError("Time step hours must be positive.")
+        if key == "correction_coefficient" and not 0 < number <= 1:
+            raise FormError("Correction coefficient must be greater than 0 and at most 1.")
+        if key == "elevation_cutoff" and (not number.is_integer() or not 0 <= number <= 90):
+            raise FormError("Elevation cutoff must be an integer from 0 to 90 degrees.")
+        if key == "jobs" and (not number.is_integer() or not 1 <= number <= 8):
+            raise FormError("Parallel jobs must be an integer from 1 to 8.")
+        form[key] = int(number) if key in {"elevation_cutoff", "jobs"} else str(raw).strip()
+    if form["jobs"] > 1 and runner != "dockur":
+        raise FormError("Parallel jobs above 1 require the dockur runner.")
     form["dat_path"] = dat_root_host
     form["output_dir"] = cfg.ABSTEC_OUTPUT_DATA_PATH_HOST.strip()
     notice = ""
-    if str(form.get("runner", "")).strip() == "dockur":
+    if runner == "dockur":
         notice = await _prepare_dockur_runner(db)
-    return PreparedRun(input_note=_env_note("TECSUITE_OUT_DAT_DATA_PATH_HOST"), notice=notice)
+    return PreparedRun(
+        input_note=_env_note("TECSUITE_OUT_DAT_DATA_PATH_HOST"), output_path=form["output_dir"], notice=notice
+    )
 
 
 async def _prepare_dockur_runner(db: Session) -> str:
@@ -332,12 +456,14 @@ async def _prepare_dat_parquet(form: FormData, db: Session) -> PreparedRun:
 _PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {
     "tec-suite": _tec_suite_page,
     "abstec-suite": _abstec_page,
+    "abstec-native": _abstec_native_page,
     "dat-parquet-handler": _dat_parquet_page,
 }
 
 _PREPARE_FORM: dict[str, Callable[[FormData, Session], Awaitable[PreparedRun]]] = {
     "tec-suite": _prepare_tec_suite,
     "abstec-suite": _prepare_abstec,
+    "abstec-native": _prepare_abstec_native,
     "dat-parquet-handler": _prepare_dat_parquet,
 }
 
