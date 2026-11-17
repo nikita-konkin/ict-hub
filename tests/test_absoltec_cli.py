@@ -288,7 +288,17 @@ def test_published_upgrade_flags_reach_solver_config():
 def test_legacy_model_rejects_published_upgrade_flags(tmp_path, capsys, flag):
     source = tmp_path / "in"
     source.mkdir()
-    args = ["--dat-path", str(source), "--output-dir", str(tmp_path / "out"), "--year", "2026", "--day-of-year", "1", *flag]
+    args = [
+        "--dat-path",
+        str(source),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--year",
+        "2026",
+        "--day-of-year",
+        "1",
+        *flag,
+    ]
     with pytest.raises(SystemExit, match="2"):
         cli.main(args)
     assert "legacy" in capsys.readouterr().err

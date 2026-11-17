@@ -430,7 +430,7 @@ def _fit_bvls(o: PreparedObservations, config: SolverConfig) -> Solution:
         if np.any(scales == 0):
             missing.append({"ut": float(t0), "reason": "rank-deficient geometry", "observations": m})
             continue
-        q, r = linalg.qr(design, mode="economic", check_finite=False)
+        _q, r = linalg.qr(design, mode="economic", check_finite=False)
         singular = linalg.svdvals(r, check_finite=False)
         condition = float(singular[0] / singular[-1]) if singular[-1] > 0 else float("inf")
         if condition > config.condition_limit:

@@ -22,8 +22,8 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -119,7 +119,11 @@ def _dcb_metrics(original_dcb: Path, candidate_dcb: Path) -> dict:
             matched += 1
             rows.append({"section": section, "key": key, "difference": float(b - a)})
             maximum = max(maximum, abs(b - a))
-    return {"keys_match": matched if matched == total else 0, "max_abs": float(maximum) if matched else None, "pairs": rows}
+    return {
+        "keys_match": matched if matched == total else 0,
+        "max_abs": float(maximum) if matched else None,
+        "pairs": rows,
+    }
 
 
 def _plots(cases: list[dict], summary: list[dict], dcb_rows: list[dict], output: Path) -> None:
@@ -153,7 +157,10 @@ def _plots(cases: list[dict], summary: list[dict], dcb_rows: list[dict], output:
             axes[0].text(position, 9, "No shared\nepochs", ha="center")
     axes[0].set(title="VTEC maximum absolute difference", ylabel="mTECU (restored versus original)", ylim=(0, 50))
     axes[0].legend(frameon=False, loc="upper right")
-    for offset, index, color, label in [(-0.18, 0, COLORS[0], "Original"), (0.18, 1, COLORS[1], "Restored legacy-2017")]:
+    for offset, index, color, label in [
+        (-0.18, 0, COLORS[0], "Original"),
+        (0.18, 1, COLORS[1], "Restored legacy-2017"),
+    ]:
         values = [pair[index] for pair in solved_pairs]
         axes[1].bar(x + offset, values, width=0.34, color=color, label=label)
         for pos, value in zip(x + offset, values, strict=True):
@@ -171,7 +178,7 @@ def _plots(cases: list[dict], summary: list[dict], dcb_rows: list[dict], output:
     for model in ("legacy-2017", "published-updated", "published-old"):
         fig, axes = plt.subplots(len(cases), 2, figsize=(11, 2.2 * len(cases)), layout="constrained")
         axes = np.atleast_2d(axes)
-        for row, (case, pair) in enumerate(zip(cases, axes, strict=True)):
+        for case, pair in zip(cases, axes, strict=True):
             entry = case["models"].get(model)
             if entry is None:
                 continue

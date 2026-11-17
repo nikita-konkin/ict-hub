@@ -86,6 +86,7 @@ async def test_native_page_context_reports_native_output_path(monkeypatch):
     monkeypatch.setattr(cfg, "TECSUITE_OUT_DAT_DATA_PATH_CONTAINER", "/mnt/tecsuite-out")
     monkeypatch.setattr(cfg, "TECSUITE_OUT_DAT_DATA_PATH_HOST", "")
     monkeypatch.setattr(cfg, "ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST", r"N:\OUT")
+
     async def fake_tree(scan_path):
         return [{"year": "2025", "days": [{"day": "032"}]}] if scan_path else []
 

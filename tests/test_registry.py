@@ -451,19 +451,22 @@ class TestCommandBuilding:
             },
         )
         cmd_str = " ".join(cmd)
-        assert "--model" in cmd_str and "published" in cmd_str
+        assert "--model" in cmd_str
+        assert "published" in cmd_str
         assert "--auto-alpha" in cmd_str
         assert "--nonneg" in cmd_str
-        assert "--jobs" in cmd_str and "2" in cmd_str
+        assert "--jobs" in cmd_str
+        assert "2" in cmd_str
         assert "--shell-height-km" not in cmd_str
         assert "--overwrite" not in cmd_str
-        assert "--days" in cmd_str and "032-036" in cmd_str
+        assert "--days" in cmd_str
+        assert "032-036" in cmd_str
         assert vols[r"N:\DAT"] == {"bind": "/data/in", "mode": "rw"}
         assert vols[r"N:\OUT"] == {"bind": "/data/out", "mode": "rw"}
 
     def test_build_abstec_native_legacy_command_is_minimal(self):
         """Legacy-2017 mode never emits published-only flags by default."""
-        cmd, vols = build_command(
+        cmd, _vols = build_command(
             "abstec-native",
             {
                 "dat_path": r"N:\DAT",
