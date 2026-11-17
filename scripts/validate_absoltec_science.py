@@ -21,6 +21,12 @@ import platform
 import re
 import shutil
 import subprocess
+
+# Indirection so tests can patch only this harness's child launches.
+# Patching stdlib subprocess.Popen directly would also intercept unrelated
+# subprocess users (e.g. platform.platform() runs `uname` on Linux), which
+# breaks under fakes.
+_popen = subprocess.Popen
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -309,7 +315,7 @@ def _run_process(
     error = None
     returncode = None
     try:
-        process = subprocess.Popen(  # noqa: S603 -- explicit caller-owned executable, argument list, no shell.
+        process = _popen(
             command,
             cwd=cwd,
             stdin=subprocess.DEVNULL,

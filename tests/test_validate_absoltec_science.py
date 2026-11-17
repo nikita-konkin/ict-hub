@@ -104,7 +104,7 @@ def mocked_engines(monkeypatch):
         processes.append(process)
         return process
 
-    monkeypatch.setattr(validation.subprocess, "Popen", launch)
+    monkeypatch.setattr(validation, "_popen", launch)
     monkeypatch.setattr(validation, "reconstruct", lambda data, config: _solution(config.time_step_hours))
     monkeypatch.setattr(
         validation,
@@ -185,9 +185,7 @@ def test_skipped_numerical_tests_do_not_become_passing_from_parity(tmp_path, moc
 
 
 def test_done_without_output_is_a_failed_reference(tmp_path, mocked_engines, monkeypatch):
-    monkeypatch.setattr(
-        validation.subprocess, "Popen", lambda command, **options: FakeProcess(command, produce=False, **options)
-    )
+    monkeypatch.setattr(validation, "_popen", lambda command, **options: FakeProcess(command, produce=False, **options))
     report = validation.run_validation(_settings(tmp_path))
     reference = report["cases"][0]["legacy"][0]
     assert reference["execution"]["status"] == "success"
@@ -200,7 +198,7 @@ def test_done_without_output_is_a_failed_reference(tmp_path, mocked_engines, mon
 @pytest.mark.parametrize("mode", ["zero", "shorten"])
 def test_empty_zero_or_truncated_reference_never_passes_coverage(tmp_path, mocked_engines, monkeypatch, mode):
     monkeypatch.setattr(
-        validation.subprocess, "Popen", lambda command, **options: FakeProcess(command, **{mode: True}, **options)
+        validation, "_popen", lambda command, **options: FakeProcess(command, **{mode: True}, **options)
     )
     report = validation.run_validation(_settings(tmp_path))
     reference = report["cases"][0]["legacy"][0]
@@ -210,9 +208,7 @@ def test_empty_zero_or_truncated_reference_never_passes_coverage(tmp_path, mocke
 
 
 def test_nonzero_legacy_exit_invalidates_even_complete_output(tmp_path, mocked_engines, monkeypatch):
-    monkeypatch.setattr(
-        validation.subprocess, "Popen", lambda command, **options: FakeProcess(command, returncode=7, **options)
-    )
+    monkeypatch.setattr(validation, "_popen", lambda command, **options: FakeProcess(command, returncode=7, **options))
     report = validation.run_validation(_settings(tmp_path))
     reference = report["cases"][0]["legacy"][0]
     assert reference["execution"]["returncode"] == 7
@@ -234,7 +230,7 @@ def test_timeout_kills_child_and_retains_logs(tmp_path, mocked_engines, monkeypa
         processes.append(process)
         return process
 
-    monkeypatch.setattr(validation.subprocess, "Popen", launch)
+    monkeypatch.setattr(validation, "_popen", launch)
     report = validation.run_validation(_settings(tmp_path, timeout_seconds=0.01))
     reference = report["cases"][0]["legacy"][0]
     assert processes[0].killed
@@ -339,7 +335,7 @@ def test_numerical_test_evidence_requires_tests_without_skips_or_failures(tmp_pa
             Path(xml).write_text('<testsuites><testsuite tests="3" failures="0" errors="0" skipped="1"/></testsuites>')
             processes.append(self)
 
-    monkeypatch.setattr(validation.subprocess, "Popen", NumericalProcess)
+    monkeypatch.setattr(validation, "_popen", NumericalProcess)
     report = validation._numerical_tests(tmp_path, 2)
     assert report["status"] == "failed"
     assert report["counts"]["skipped"] == 1
