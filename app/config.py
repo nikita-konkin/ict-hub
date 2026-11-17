@@ -151,6 +151,20 @@ DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "nikitaikonkin/dat-parqu
 # Docker image name for the AbsTEC Suite container
 ABSTEC_SUITE_IMAGE: str = os.getenv("ABSTEC_SUITE_IMAGE", "nikitaikonkin/abstec-suite:latest")
 
+# Docker image name for the native AbsolTEC reconstruction container. Unlike
+# the other converter images this one is built locally from Dockerfile.absoltec-native
+# (no Docker Hub repository yet), so the default is a local tag.
+ABSTEC_NATIVE_IMAGE: str = os.getenv("ABSTEC_NATIVE_IMAGE", "absoltec-native:latest")
+
+# Host path where native AbsolTEC output should be persisted.
+ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST: str = os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST", "")
+
+# Container output path used by the native AbsolTEC image.
+ABSTEC_NATIVE_OUTPUT_DATA_PATH: str = os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH", "/data/out")
+
+# Path inside converter-hub container used to browse native AbsolTEC output folders.
+ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER: str = os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER", "")
+
 # Host path where AbsTEC output should be persisted.
 ABSTEC_OUTPUT_DATA_PATH_HOST: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH_HOST", "")
 

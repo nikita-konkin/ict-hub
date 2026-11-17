@@ -4,6 +4,10 @@ ConverterHub is two services: the hub (`app/`), which serves the web UI and runs
 jobs, and the data-indexer (`data-indexer/`), which lists the data on disk. The
 three flows below cover most of what they do together:
 
+Sequence diagrams for the native AbsolTEC reconstruction (batch run and the
+recovered seven-coefficient fitting algorithm) live in
+[absoltec_sequence.md](absoltec_sequence.md).
+
 1. [Converter job](#1-converter-job-start-live-log-stop): start a container,
    stream its log, stop it.
 2. [Data browsing](#2-data-browsing-through-the-data-indexer): fill the run

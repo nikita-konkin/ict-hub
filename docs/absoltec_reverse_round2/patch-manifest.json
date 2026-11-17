@@ -1,0 +1,43 @@
+{
+  "purpose": "Isolated causal experiment: remove six binary64-to-binary32-to-binary64 solver stores; not a distributable fix",
+  "source_sha256": "31984eb0df935b52751cf92458b4471ca8260a98fed9d5fb6492fe175d3443f5",
+  "patched_sha256": "64ef24178c5745a8adf1ed4f72a11c4cff48f2f613f442775285f3819671138b",
+  "patches": [
+    {
+      "address": "0x401304",
+      "file_offset": 1796,
+      "original": "f20f5adbf30f5adb",
+      "replacement": "9090909090909090"
+    },
+    {
+      "address": "0x4015cd",
+      "file_offset": 2509,
+      "original": "f20f5adbf30f5adb",
+      "replacement": "9090909090909090"
+    },
+    {
+      "address": "0x4018ef",
+      "file_offset": 3311,
+      "original": "f20f5adbf30f5adb",
+      "replacement": "9090909090909090"
+    },
+    {
+      "address": "0x401b55",
+      "file_offset": 3925,
+      "original": "f20f5ac9f30f5ac9",
+      "replacement": "9090909090909090"
+    },
+    {
+      "address": "0x4020b7",
+      "file_offset": 5303,
+      "original": "f20f5ac0f30f5ac0",
+      "replacement": "9090909090909090"
+    },
+    {
+      "address": "0x402364",
+      "file_offset": 5988,
+      "original": "f20f5ac0f30f5ac0",
+      "replacement": "9090909090909090"
+    }
+  ]
+}

@@ -9,11 +9,27 @@ Tests validate:
 """
 
 from app.i18n import _TRANSLATIONS as TRANSLATIONS
-from app.registry import CONVERTERS, build_command, get_converter
+from app.registry import CONVERTERS, build_command, detect_converter_runtime_failure, get_converter
 
 
 class TestConverterRegistry:
     """Tests for converter definitions and flag specifications."""
+
+    def test_abstec_final_runtime_failure_has_actionable_warning(self):
+        line = "Skipping year=2024 day=245 site=mork due to absolTEC runtime failure: exit 9020"
+        message = detect_converter_runtime_failure(line, "abstec-suite")
+        assert message is not None
+        assert "year=2024 day=245 site=mork" in message
+        assert "zero container exit code" in message
+        assert detect_converter_runtime_failure(line, "tec-suite") is None
+
+    def test_abstec_successful_retry_and_existing_skips_are_not_failures(self):
+        for line in (
+            "Cleaned absolTEC attempt failed with code 9020; retrying raw input",
+            "Skipping year=2024 day=245 site=mork: output already exists",
+            "Batch run complete. Total station runs: 87, skipped: 83",
+        ):
+            assert detect_converter_runtime_failure(line, "abstec-suite") is None
 
     def test_tec_suite_converter_exists(self):
         """TEC-Suite converter should be registered."""
@@ -49,6 +65,20 @@ class TestConverterRegistry:
         conv = get_converter("dat-parquet-handler")
         assert conv is not None
         assert "parquet" in conv["label"].lower()
+
+    def test_abstec_native_converter_exists(self):
+        """The native AbsolTEC reconstruction should be registered as a converter."""
+        conv = get_converter("abstec-native")
+        assert conv is not None
+        assert "native" in conv["label"].lower()
+        assert conv["container_volumes"]["dat_path"] == "/data/in"
+
+    def test_abstec_native_model_select_offers_both_models(self):
+        """The native converter's model flag should offer legacy-2017 and published."""
+        conv = get_converter("abstec-native")
+        model = next(f for f in conv["flags"] if f["long"] == "--model")
+        assert model["type"] == "select"
+        assert [value for value, _ in model["options"]] == ["legacy-2017", "published"]
 
     def test_dat_parquet_has_day_from_flag(self):
         """DAT <-> Parquet should have --day-from flag."""
@@ -397,6 +427,58 @@ class TestCommandBuilding:
         unticked, _vols = build_command("abstec-suite", form)
         assert "--clean-input" in ticked
         assert "--clean-input" not in unticked
+
+    def test_build_abstec_native_command_published_with_upgrades(self):
+        """Native command with the published model and TuRBOTEC options."""
+        cmd, vols = build_command(
+            "abstec-native",
+            {
+                "dat_path": r"N:\DAT",
+                "output_dir": r"N:\OUT",
+                "year": "2025",
+                "days": "032-036",
+                "site": "aksu",
+                "model": "published",
+                "time_step_hours": "0.5",
+                "elevation_cutoff": 10,
+                "correction_coefficient": "0.97",
+                "window_hours": "1.0",
+                "auto_alpha": True,
+                "shell_height_km": "",
+                "nonneg": True,
+                "jobs": 2,
+                "overwrite": False,
+            },
+        )
+        cmd_str = " ".join(cmd)
+        assert "--model" in cmd_str and "published" in cmd_str
+        assert "--auto-alpha" in cmd_str
+        assert "--nonneg" in cmd_str
+        assert "--jobs" in cmd_str and "2" in cmd_str
+        assert "--shell-height-km" not in cmd_str
+        assert "--overwrite" not in cmd_str
+        assert "--days" in cmd_str and "032-036" in cmd_str
+        assert vols[r"N:\DAT"] == {"bind": "/data/in", "mode": "rw"}
+        assert vols[r"N:\OUT"] == {"bind": "/data/out", "mode": "rw"}
+
+    def test_build_abstec_native_legacy_command_is_minimal(self):
+        """Legacy-2017 mode never emits published-only flags by default."""
+        cmd, vols = build_command(
+            "abstec-native",
+            {
+                "dat_path": r"N:\DAT",
+                "output_dir": r"N:\OUT",
+                "year": "2025",
+                "day_of_year": "032",
+                "site": "aksu",
+                "model": "legacy-2017",
+            },
+        )
+        cmd_str = " ".join(cmd)
+        assert "--model legacy-2017" in cmd_str
+        assert "--auto-alpha" not in cmd_str
+        assert "--nonneg" not in cmd_str
+        assert "--day-of-year 032" in cmd_str
 
 
 class TestFlagTranslationRendering:

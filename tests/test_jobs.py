@@ -508,6 +508,7 @@ class TestStartJob:
         assert job is not None
         assert job.converter == "abstec-suite"
         assert job.rinex_path == "Configured from environment variable TECSUITE_OUT_DAT_DATA_PATH_HOST"
+        assert job.output_path == "/data/abstec-out"
 
         flags = json.loads(job.flags_json)
         assert flags.get("dat_path") == "/data/tecs-out"
@@ -517,6 +518,77 @@ class TestStartJob:
         assert flags.get("time_step_hours") == "0.5"
         assert flags.get("correction_coefficient") == "0.97"
         assert flags.get("runner") == "auto"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"runner": "native"},
+            {"time_step_hours": "nan"},
+            {"time_step_hours": "inf"},
+            {"time_step_hours": "0"},
+            {"time_step_hours": "-1"},
+            {"correction_coefficient": "nan"},
+            {"correction_coefficient": "0"},
+            {"correction_coefficient": "1.01"},
+            {"elevation_cutoff": "-1"},
+            {"elevation_cutoff": "91"},
+            {"elevation_cutoff": "10.5"},
+            {"elevation_cutoff": "inf"},
+            {"jobs": "0"},
+            {"jobs": "9"},
+            {"jobs": "1.5"},
+            {"jobs": "nan"},
+            {"runner": "wine", "jobs": "2"},
+            {"runner": "direct", "jobs": "2"},
+            {"runner": "auto", "jobs": "2"},
+        ],
+    )
+    @patch("app.jobs.start_container")
+    @patch("app.converters.ensure_container_running")
+    def test_invalid_abstec_settings_do_not_start_container_or_vm(
+        self, mock_ensure, mock_start, operator_client, db, overrides
+    ):
+        from app.models import JobRun
+
+        before = db.query(JobRun).count()
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(**overrides),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert not mock_start.called
+        assert not mock_ensure.called
+        assert db.query(JobRun).count() == before
+
+    @patch("app.jobs.start_container", return_value="container_abstec_limits")
+    def test_abstec_accepts_finite_parameter_bounds_without_adding_a_time_step_floor(self, mock_start, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(elevation_cutoff="0", time_step_hours="0.001", correction_coefficient="1"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        _, command, _ = mock_start.call_args.args
+        assert command[command.index("--elevation-cutoff") + 1] == "0"
+        assert command[command.index("--time-step-hours") + 1] == "0.001"
+        assert command[command.index("--correction-coefficient") + 1] == "1"
+
+    @patch("app.jobs.start_container", return_value="container_abstec_csv")
+    def test_abstec_keeps_existing_csv_year_and_day_selection(self, mock_start, operator_client):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(year="2025,2026", day_of_year="001,002", runner=" direct "),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        _, command, _ = mock_start.call_args.args
+        assert command[command.index("--year") + 1] == "2025,2026"
+        assert command[command.index("--day-of-year") + 1] == "001,002"
+        assert command[command.index("--runner") + 1] == "direct"
 
     @patch("app.jobs.start_container", return_value="container_abstec_batch_sites")
     def test_abstec_batch_days_pass_selected_sites_to_the_wrapper(self, mock_start, operator_client):
@@ -563,6 +635,22 @@ class TestStartJob:
         assert mock_start.called
         # No boot notice when the VM was already up.
         assert b"started automatically" not in response.content
+
+    @patch("app.jobs.start_container", return_value="container_dockur_parallel")
+    @patch("app.converters.ensure_container_running", return_value="running")
+    def test_dockur_job_accepts_maximum_parallel_jobs(self, mock_ensure, mock_start, operator_client, dockur_env):
+        response = operator_client.post(
+            "/jobs/start",
+            data=self._start_abstec_job_data(runner=" dockur ", jobs="8"),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        mock_ensure.assert_called_once_with("abstec-xp")
+        _, command, volumes = mock_start.call_args.args
+        assert command[command.index("--runner") + 1] == "dockur"
+        assert command[command.index("--jobs") + 1] == "8"
+        assert volumes["/data/dockur-jobs"]["bind"] == "/data/jobs"
 
     @patch("app.jobs.start_container", return_value="container_dockur_vm_started")
     @patch("app.converters.ensure_container_running", return_value="started")
@@ -1382,3 +1470,127 @@ def test_image_match_score_prefers_matching_tag():
     assert _image_match_score("registry.local/tec-suite:v2", "tec-suite:v2") == 2
     assert _image_match_score("tec-suite:v1", "tec-suite:v2") == 1
     assert _image_match_score("abstec:v2", "tec-suite:v2") == 0
+
+
+_FINAL_ABSTEC_FAILURE = (
+    "WARNING: Skipping year=2024 day=245 site=mork2450 due to absolTEC runtime failure: "
+    "The system cannot execute the specified program. (exit code 9020)"
+)
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (_FINAL_ABSTEC_FAILURE, "failed"),
+        ("Skipping year=2024 day=245 site=mork2450 because output already exists", "success"),
+        (
+            "Cleaned input attempt failed; raw input retry succeeded. Batch run complete. Total station runs: 87, skipped: 83",
+            "success",
+        ),
+    ],
+)
+def test_abs_station_failure_overrides_zero_exit_only_for_unrecovered_failures(completed_job, db, message, expected):
+    from app.job_runtime import persist_job_finished, record_converter_log_failure
+
+    completed_job.converter = "abstec-suite"
+    completed_job.status = "running"
+    completed_job.exit_code = None
+    db.commit()
+    record_converter_log_failure(db, completed_job, message)
+    done = persist_job_finished(db, completed_job, 0)
+    db.refresh(completed_job)
+    assert completed_job.status == expected
+    assert completed_job.exit_code == 0
+    assert f"<status>{expected}</status><exit_code>0</exit_code>" in done.payload_xml
+
+
+def test_abs_failure_detection_does_not_change_completed_history(completed_job, db):
+    from app.job_runtime import persist_job_finished, record_converter_log_failure
+
+    completed_job.converter = "abstec-suite"
+    completed_job.status = "success"
+    completed_job.exit_code = 0
+    db.commit()
+    assert record_converter_log_failure(db, completed_job, _FINAL_ABSTEC_FAILURE) is None
+    persist_job_finished(db, completed_job, 0)
+    db.refresh(completed_job)
+    assert completed_job.status == "success"
+
+
+@pytest.mark.asyncio
+async def test_abs_failure_is_retained_without_log_storage_and_after_reattach(completed_job, db, monkeypatch):
+    import app.job_runtime as runtime
+    from app.models import JobEvent
+
+    completed_job.converter = "abstec-suite"
+    completed_job.status = "running"
+    completed_job.exit_code = None
+    completed_job.container_id = "abs123"
+    db.commit()
+    # Existing events indicate a producer restart. It must still inspect the
+    # logs produced while the hub was unavailable, even when ordinary logs
+    # are disabled or later pruned.
+    runtime.append_job_event(db, completed_job.id, "progress", "<progress><value>1</value></progress>")
+    seen_tail = []
+
+    async def fake_stream(*args, **kwargs):
+        seen_tail.append(kwargs["tail"])
+        yield ("log", _FINAL_ABSTEC_FAILURE)
+        yield ("done", 0)
+
+    monkeypatch.setattr(runtime, "SessionLocal", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(
+        runtime, "get_container_state", lambda _: {"status": "exited", "running": False, "exit_code": 0}
+    )
+    monkeypatch.setattr(runtime, "stream_logs", fake_stream)
+    monkeypatch.setattr(runtime.cfg, "JOB_EVENT_LOG_MAX_LINES", 0)
+    await runtime._produce_job_events(completed_job.id)
+    db.refresh(completed_job)
+    assert seen_tail == ["all"]
+    assert completed_job.status == "failed"
+    assert completed_job.exit_code == 0
+    errors = db.query(JobEvent).filter_by(job_id=completed_job.id, event_type="job_error").all()
+    assert len(errors) == 1
+    assert "abstec_station_runtime_failure" in errors[0].payload_xml
+    assert "rerun the failed station-days" in errors[0].payload_xml
+
+
+@pytest.mark.asyncio
+async def test_abs_direct_stream_exposes_failed_station_with_actual_zero_exit(completed_job, db, monkeypatch):
+    import app.jobs as jobs
+
+    completed_job.converter = "abstec-suite"
+    completed_job.status = "running"
+    completed_job.exit_code = None
+    completed_job.container_id = "abs123"
+    db.commit()
+
+    async def fake_stream(*args, **kwargs):
+        yield ("log", _FINAL_ABSTEC_FAILURE)
+        yield ("done", 0)
+
+    monkeypatch.setattr(jobs, "stream_logs", fake_stream)
+    events = [event async for event in jobs._stream_job_logs_direct(completed_job, db)]
+    assert any("event: job_error" in event and "unrecovered runtime failure" in event for event in events)
+    assert "<status>failed</status><exit_code>0</exit_code>" in events[-1]
+    db.refresh(completed_job)
+    assert completed_job.status == "failed"
+    assert completed_job.exit_code == 0
+
+
+def test_abs_zero_exit_reconciliation_waits_for_log_inspection(completed_job, db, monkeypatch):
+    import app.job_runtime as runtime
+
+    completed_job.converter = "abstec-suite"
+    completed_job.status = "running"
+    completed_job.exit_code = None
+    completed_job.container_id = "abs123"
+    db.commit()
+    monkeypatch.setattr(
+        runtime, "get_container_state", lambda _: {"status": "exited", "running": False, "exit_code": 0}
+    )
+    assert runtime.reconcile_job_state(completed_job.id, db=db) is False
+    db.refresh(completed_job)
+    assert completed_job.status == "running"
+    assert completed_job.exit_code is None

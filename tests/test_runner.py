@@ -6,6 +6,7 @@ They exercise the pure functions that do progress parsing, command building,
 and volume mapping — the logic most likely to break if the registry changes.
 """
 
+import asyncio
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -365,6 +366,27 @@ class TestStopContainer:
         # Should not raise
         stop_container("gone123")
 
+    @patch("app.runner.docker.from_env", side_effect=RuntimeError("daemon unavailable"))
+    def test_client_initialization_failure_is_logged(self, mock_from_env, caplog):
+        from app.runner import stop_container
+
+        stop_container("abc123")
+        assert "daemon unavailable" in caplog.text
+
+
+class TestDockerStateFailures:
+    @patch("app.runner.docker.from_env", side_effect=RuntimeError("daemon unavailable"))
+    def test_state_is_unknown_when_client_cannot_connect(self, mock_from_env):
+        from app.runner import get_container_state
+
+        assert get_container_state("abc123") == {"status": "unknown", "running": False, "exit_code": None}
+
+    @patch("app.runner.docker.from_env", side_effect=RuntimeError("daemon unavailable"))
+    def test_exit_code_is_unknown_when_client_cannot_connect(self, mock_from_env):
+        from app.runner import _get_exit_code_only
+
+        assert _get_exit_code_only("abc123") == -1
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner — stream_logs
@@ -373,6 +395,20 @@ class TestStopContainer:
 
 class TestStreamLogs:
     """Tests for runner.stream_logs."""
+
+    @pytest.mark.asyncio
+    @patch("app.runner.docker.from_env", side_effect=RuntimeError("daemon unavailable"))
+    async def test_client_initialization_failure_terminates_stream(self, mock_from_env):
+        from app.runner import stream_logs
+
+        async def collect():
+            return [event async for event in stream_logs("abc123", [])]
+
+        # A failing background reader must notify the async consumer, rather
+        # than silently dying before it can enqueue the EOF sentinel.
+        events = await asyncio.wait_for(collect(), timeout=2)
+        assert ("error", "daemon unavailable") in events
+        assert events[-1] == ("done", -1)
 
     @pytest.mark.asyncio
     @patch("app.runner._get_exit_code_only", return_value=0)

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import config as cfg
 from app.database import SessionLocal
 from app.models import JobEvent, JobRun
-from app.registry import get_converter
+from app.registry import detect_converter_runtime_failure, get_converter
 from app.runner import get_container_state, stream_logs
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,32 @@ def _prune_job_log_events(db: Session, job_id: int, keep_last: int) -> None:
 # Exit code recorded for a job the user stopped. Container exit codes are
 # 0-255, so it never collides with a real one.
 STOPPED_EXIT_CODE = -2
+_ABSTEC_FAILURE_CODE = "abstec_station_runtime_failure"
+
+
+def _has_station_runtime_failure(db: Session, job_id: int) -> bool:
+    return (
+        db.query(JobEvent.id)
+        .filter(
+            JobEvent.job_id == job_id,
+            JobEvent.event_type == "job_error",
+            JobEvent.payload_xml.contains(f"<code>{_ABSTEC_FAILURE_CODE}</code>"),
+        )
+        .first()
+        is not None
+    )
+
+
+def record_converter_log_failure(db: Session, job: JobRun, message: str) -> str | None:
+    """Retain a converter failure separately from ordinary, prunable logs."""
+    if job.status != "running":
+        return None
+    failure = detect_converter_runtime_failure(message, job.converter)
+    if failure is None or _has_station_runtime_failure(db, job.id):
+        return None
+    append_job_event(db, job.id, "job_error", xml_payload("job_error", code=_ABSTEC_FAILURE_CODE, message=failure))
+    logger.error("Job %s: %s", job.id, failure)
+    return failure
 
 
 def status_for_exit_code(exit_code: int) -> str:
@@ -159,6 +185,8 @@ def persist_job_finished(db: Session, job: JobRun, exit_code: int) -> JobEvent |
         job.finished_at = job.finished_at or datetime.now(UTC)
         job.exit_code = exit_code
         job.status = status_for_exit_code(exit_code)
+        if exit_code == 0 and job.converter == "abstec-suite" and _has_station_runtime_failure(db, job.id):
+            job.status = "failed"
     final_status = job.status
     recorded_exit_code = job.exit_code if job.exit_code is not None else exit_code
 
@@ -214,6 +242,12 @@ def reconcile_job_state(job_id: int, db: Session | None = None) -> bool:
         if not isinstance(exit_code, int):
             exit_code = -1
 
+        # The legacy wrapper can return zero after unrecovered station errors.
+        # Its log producer/direct stream must inspect the logs before declaring
+        # this batch successful. A nonzero exit is unambiguously a failure.
+        if job.converter == "abstec-suite" and exit_code == 0:
+            return False
+
         persist_job_finished(db, job, exit_code)
         return True
     finally:
@@ -262,7 +296,9 @@ async def _produce_job_events(job_id: int) -> None:
         progress_patterns = conv.get("progress_patterns", []) if conv else []
         auto_remove = _parse_auto_remove(job.flags_json)
         existing_event_count = db.query(JobEvent).filter(JobEvent.job_id == job_id).count()
-        tail: str | int = "all" if existing_event_count == 0 else 0
+        # Re-read AbsTEC's retained logs on reattach: errors may have happened
+        # while the hub was down. The coded failure event is deduplicated.
+        tail: str | int = "all" if existing_event_count == 0 or job.converter == "abstec-suite" else 0
         log_since_prune = 0
 
         async for event_type, payload in stream_logs(
@@ -280,6 +316,7 @@ async def _produce_job_events(job_id: int) -> None:
             if event_type == "heartbeat":
                 continue
             if event_type == "log":
+                record_converter_log_failure(db, job, str(payload))
                 if cfg.JOB_EVENT_LOG_MAX_LINES == 0:
                     continue
                 append_job_event(

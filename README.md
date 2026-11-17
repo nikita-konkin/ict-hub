@@ -4,6 +4,11 @@ A lightweight, luxury-minimal web interface for running Docker-based data conver
 
 Includes a dedicated **data-indexer microservice** that provides fast XML-indexed browsing of RINEX, TEC-suite, AbsTEC, and Parquet data structures with persistent caching.
 
+An experimental [native AbsolTEC reconstruction](docs/absoltec_reconstruction.md)
+can be run separately with `python -m absoltec_native`. It removes the Windows/Wine
+dependency and supports one-minute grids, but scientific agreement with the legacy
+executable is not yet established. The hub continues to use its existing runner.
+
 ---
 
 ## Features

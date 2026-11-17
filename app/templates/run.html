@@ -73,7 +73,7 @@
           {% endif %}
         {% endif %}
 
-        {% if converter_name == 'abstec-suite' %}
+        {% if converter_name in ('abstec-suite', 'abstec-native') %}
           <input type="hidden" name="dat_path" id="abstec-dat-path" value="{{ abstec_dat_host_path or '' }}">
           <input type="hidden" name="output_dir" id="abstec-output-dir" value="{{ abstec_output_host_path or '' }}">
           <input type="hidden" name="year" id="abstec-year-hidden" value="">
@@ -184,7 +184,7 @@
         {% for flag in converter.flags %}
           {% set key = flag.long.lstrip('-').replace('-','_') %}
           {% set skip_tecsuite_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
-          {% set skip_abstec_flag = converter_name == 'abstec-suite' and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
+          {% set skip_abstec_flag = converter_name in ('abstec-suite', 'abstec-native') and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
           {% set skip_dat_parquet_flag = converter_name == 'dat-parquet-handler' and key in ('src', 'dst', 'direction') %}
           {% set skip_default_flag = skip_tecsuite_flag or skip_abstec_flag or skip_dat_parquet_flag %}
           {% set translated_label = t('flag_label_' ~ key) %}
@@ -403,7 +403,7 @@
 <script src="/static/js/run-dat-parquet.js"></script>
 {% endif %}
 
-{% if converter_name == 'abstec-suite' %}
+{% if converter_name in ('abstec-suite', 'abstec-native') %}
 <script id="abstec-dat-tree-data" type="application/json">{{ abstec_dat_tree | tojson }}</script>
 <script src="/static/js/run-abstec.js"></script>
 {% endif %}

@@ -1,0 +1,47 @@
+{
+  "checked_at_utc": "2026-11-16T23:30:06.878Z",
+  "url": "http://10.0.0.130:8081/",
+  "deployed_version": "ae9c38f",
+  "native_runner_available": false,
+  "runner_options": [
+    "auto",
+    "wine",
+    "direct",
+    "dockur"
+  ],
+  "jobs": [
+    {
+      "flags": "{\n  \"auto_remove\": false,\n  \"clean_input\": false,\n  \"correction_coefficient\": \"0.97\",\n  \"dat_path\": \"/ssdraid/tec_data/tecsuite-0.7.4\",\n  \"day_of_year\": \"\",\n  \"days\": \"245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273\",\n  \"dry_run\": false,\n  \"elevation_cutoff\": 10,\n  \"execution_timeout_seconds\": \"\",\n  \"jobs\": 8,\n  \"max_consecutive_failures\": 25,\n  \"min_data_rows\": 0,\n  \"output_dir\": \"/ssdraid/tec_data/abstec-out\",\n  \"runner\": \"dockur\",\n  \"site\": \"mork,ntor,yosh\",\n  \"skip_existing\": false,\n  \"time_step_hours\": \"0.05\",\n  \"workdir\": \"/data/workdir\",\n  \"year\": \"2024\"\n}",
+      "text": "#76\tadmin\tAbsTEC Suite\tFAILED\t11 Nov 2026\n07:16:45\t142s\t1\tyear=2024, days=245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273, site=mork,ntor,yosh\t\nShow"
+    },
+    {
+      "flags": "{\n  \"auto_remove\": true,\n  \"clean_input\": true,\n  \"correction_coefficient\": \"0.97\",\n  \"dat_path\": \"/ssdraid/tec_data/tecsuite-0.7.4\",\n  \"day_of_year\": \"\",\n  \"days\": \"245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273\",\n  \"dry_run\": false,\n  \"elevation_cutoff\": 10,\n  \"execution_timeout_seconds\": \"\",\n  \"jobs\": 8,\n  \"max_consecutive_failures\": 250,\n  \"min_data_rows\": 0,\n  \"output_dir\": \"/ssdraid/tec_data/abstec-out\",\n  \"runner\": \"dockur\",\n  \"site\": \"mork,ntor,yosh\",\n  \"skip_existing\": false,\n  \"time_step_hours\": \"0.05\",\n  \"workdir\": \"/data/workdir\",\n  \"year\": \"2024\"\n}",
+      "text": "#71\tadmin\tAbsTEC Suite\tSUCCESS\t06 Nov 2026\n20:08:26\t315s\t0\tyear=2024, days=245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273, site=mork,ntor,yosh\t\nShow"
+    }
+  ],
+  "job76": {
+    "status": "failed",
+    "container_exit_code": 1,
+    "completed_station_attempts": 43,
+    "total_station_attempts": 87,
+    "abort_after_consecutive_failures": 25,
+    "observed_guest_exit_code": 9020,
+    "error": "The system cannot execute the specified program.",
+    "source_url": "http://10.0.0.130:8081/run/abstec-suite?job_id=76"
+  },
+  "job71": {
+    "displayed_status": "success",
+    "container_exit_code": 0,
+    "total_station_attempts": 87,
+    "reported_skipped": 83,
+    "skip_existing": false,
+    "unrecovered_station_failure_seen": true,
+    "source_url": "http://10.0.0.130:8081/run/abstec-suite?job_id=71",
+    "log_tail": "024_273_ntor_c8e01024\n[absolTEC] The system cannot execute the specified program.\nSkipping year=2024 day=272 site=yosh due to absolTEC runtime failure: absolTEC exited with code 9020 in the XP guest (job 20261106_201025_2024_272_yosh_0d903cd8). Last output: The system cannot execute the specified program. Job folder kept for inspection.\nCompleted 79 / 87\nProgress: 91%\nProcessing year=2024 day=273 site=yosh (87/87)\nCleaned input for year=2024 day=273 site=yosh: dropped 9485 placeholder or repeated row(s).\nPrepared absolTEC.dia for year=2024 day=273 site=yosh: W:\\in\\ | 10.0 | 2024 | 273 | yosh | 0.05 | 0.97\nSubmitted dockur job: 20261106_201027_2024_273_yosh_a7602c18\n[absolTEC] The system cannot execute the specified program.\nSkipping year=2024 day=272 site=ntor due to absolTEC runtime failure: absolTEC exited with code 9020 in the XP guest (job 20261106_201026_2024_272_ntor_8607d863). Last output: The system cannot execute the specified program. Job folder kept for inspection.\nCompleted 80 / 87\nProgress: 92%\n[absolTEC] The system cannot execute the specified program.\nabsolTEC failed on the cleaned input for year=2024 day=273 site=ntor (absolTEC exited with code 9020 in the XP guest (job 20261106_201026_2024_273_ntor_c8e01024). Last output: The system cannot execute the specified program. Job folder kept for inspection.); trying the raw input.\nPrepared absolTEC.dia for year=2024 day=273 site=ntor: W:\\in\\ | 10.0 | 2024 | 273 | ntor | 0.05 | 0.97\nSubmitted dockur job: 20261106_201028_2024_273_ntor_85b53149\n[absolTEC] The system cannot execute the specified program.\nabsolTEC failed on the cleaned input for year=2024 day=273 site=mork (absolTEC exited with code 9020 in the XP guest (job 20261106_201025_2024_273_mork_055a679c). Last output: The system cannot execute the specified program. Job folder kept for inspection.); trying the raw input.\nPrepared absolTEC.dia for year=2024 day=273 site=mork: W:\\in\\ | 10.0 | 2024 | 273 | mork | 0.05 | 0.97\nSubmitted dockur job: 20261106_201029_2024_273_mork_42fe146f\n[absolTEC] The system cannot execute the specified program.\nabsolTEC failed on the cleaned input for year=2024 day=273 site=yosh (absolTEC exited with code 9020 in the XP guest (job 20261106_201027_2024_273_yosh_a7602c18). Last output: The system cannot execute the specified program. Job folder kept for inspection.); trying the raw input.\nPrepared absolTEC.dia for year=2024 day=273 site=yosh: W:\\in\\ | 10.0 | 2024 | 273 | yosh | 0.05 | 0.97\nSubmitted dockur job: 20261106_201029_2024_273_yosh_4a3c4a13\n[absolTEC] The system cannot execute the specified program.\nSkipping year=2024 day=273 site=ntor due to absolTEC runtime failure: absolTEC exited with code 9020 in the XP guest (job 20261106_201028_2024_273_ntor_85b53149). Last output: The system cannot execute the specified program. Job folder kept for inspection.\nCompleted 81 / 87\nProgress: 93%\n[absolTEC] The system cannot execute the specified program.\nSkipping year=2024 day=273 site=mork due to absolTEC runtime failure: absolTEC exited with code 9020 in the XP guest (job 20261106_201029_2024_273_mork_42fe146f). Last output: The system cannot execute the specified program. Job folder kept for inspection.\nCompleted 82 / 87\nProgress: 94%\n[absolTEC] The system cannot execute the specified program.\nSkipping year=2024 day=273 site=yosh due to absolTEC runtime failure: absolTEC exited with code 9020 in the XP guest (job 20261106_201029_2024_273_yosh_4a3c4a13). Last output: The system cannot execute the specified program. Job folder kept for inspection.\nCompleted 83 / 87\nProgress: 95%\n[absolTEC]  Error, no data\nFinished dockur job: year=2024 day=245 site=yosh\nabsolTEC produced no output for year=2024 day=245 site=yosh (nothing staged under /app/abstec-out/_stage/20261106_200835_2024_245_yosh_836742c7). The guest run itself succeeded, so either the station's DAT input yielded no usable arcs, or the XP VM's /shared/out mount does not point at --output-dir.\nPrepared absolTEC.dia for year=2024 day=245 site=yosh: W:\\in\\ | 10.0 | 2024 | 245 | yosh | 0.05 | 0.97\nSubmitted dockur job: 20261106_201058_2024_245_yosh_5531905a\n[absolTEC]  Done\nFinished dockur job: year=2024 day=247 site=ntor\nOrganized station output under day folder: /app/abstec-out/2024/247/ntor\nCleaned input for year=2024 day=247 site=ntor solved 480 of 480 half-hours.\nCompleted 84 / 87\nProgress: 97%\n[absolTEC]  Done\nFinished dockur job: year=2024 day=248 site=ntor\nOrganized station output under day folder: /app/abstec-out/2024/248/ntor\nCleaned input for year=2024 day=248 site=ntor solved 480 of 480 half-hours.\nCompleted 85 / 87\nProgress: 98%\n[absolTEC]  Done\nFinished dockur job: year=2024 day=253 site=mork\nOrganized station output under day folder: /app/abstec-out/2024/253/mork\nKept the raw input's result for year=2024 day=253 site=mork: 0 half-hours solved from cleaned input, 480 from raw, of 480.\nCompleted 86 / 87\nProgress: 99%\n[absolTEC]  Error, no data\nFinished dockur job: year=2024 day=245 site=yosh\nabsolTEC produced no output for year=2024 day=245 site=yosh (nothing staged under /app/abstec-out/_stage/20261106_201058_2024_245_yosh_5531905a). The guest run itself succeeded, so either the station's DAT input yielded no usable arcs, or the XP VM's /shared/out mount does not point at --output-dir.\nKept the raw input's result for year=2024 day=245 site=yosh: 0 half-hours solved from cleaned input, 0 from raw, of 480.\nCompleted 87 / 87\nProgress: 100%\nBatch run complete. Total station runs: 87, skipped: 83"
+  },
+  "limitations": [
+    "Read-only review of saved job logs and settings; no new production job started.",
+    "XP guest's precise resource/execution failure cause cannot be proved from hub logs.",
+    "Historical SUCCESS means wrapper exit zero, not verified scientific completeness."
+  ]
+}

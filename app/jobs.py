@@ -39,6 +39,7 @@ from app.job_runtime import (
     ensure_job_producer,
     persist_job_finished,
     reconcile_job_state,
+    record_converter_log_failure,
     sse_event,
     status_for_exit_code,
     xml_payload,
@@ -319,6 +320,9 @@ async def _stream_job_logs_direct(
 
         if event_type == "log":
             message = str(payload)
+            failure = record_converter_log_failure(db, job, message)
+            if failure:
+                yield sse_event("job_error", xml_payload("job_error", message=failure))
             yield sse_event(
                 "log",
                 xml_payload("log", message=message, level="info"),

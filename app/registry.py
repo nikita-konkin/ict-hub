@@ -434,6 +434,187 @@ CONVERTERS: dict[str, dict] = {
             },
         ],
     },
+    "abstec-native": {
+        "image": cfg.ABSTEC_NATIVE_IMAGE,
+        "label": "AbsTEC Native",
+        "description": (
+            "Native open reconstruction of AbsolTEC from tec-suite DAT inputs: "
+            "legacy-2017 parity mode or the published TuRBOTEC model with "
+            "1/S-weighted leveling, latitude-dependent mapping and optional "
+            "bounded-variable non-negative least squares. Experimental; "
+            "scientific parity unverified."
+        ),
+        "log_emit_interval_sec": 1.0,
+        "progress_patterns": [
+            # Example: "Processing year=2025 day=032 site=aksu (3/30)"
+            r"Processing\s+year=\d{4}\s+day=\d{1,3}\s+site=[^\s]+\s*\((\d+)\s*/\s*(\d+)\)",
+            # Example: "Completed 5 / 30"
+            r"Completed\s+(\d+)\s*/\s*(\d+)",
+        ],
+        "container_volumes": {
+            "dat_path": "/data/in",
+            "output_dir": cfg.ABSTEC_NATIVE_OUTPUT_DATA_PATH or "/data/out",
+        },
+        "flags": [
+            {
+                "name": "--dat-path",
+                "long": "--dat-path",
+                "label": "Input DAT Root (host path)",
+                "type": "text",
+                "default": "",
+                "required": True,
+                "is_volume": "dat_path",
+                "help": "Host path mounted to /data/in containing YYYY/DDD/SITE/*.dat.",
+            },
+            {
+                "name": "--output-dir",
+                "long": "--output-dir",
+                "label": "Output Root (host path)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "is_volume": "output_dir",
+                "help": "Optional host output path mounted to /data/out.",
+            },
+            {
+                "name": "--year",
+                "long": "--year",
+                "label": "Year",
+                "type": "text",
+                "default": "",
+                "required": True,
+                "help": "Four-digit year of the DAT inputs.",
+            },
+            {
+                "name": "--day-of-year",
+                "long": "--day-of-year",
+                "label": "Day Of Year (single)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Single day selection, e.g. 032.",
+            },
+            {
+                "name": "--days",
+                "long": "--days",
+                "label": "Days (batch)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Comma-separated days or inclusive ranges, e.g. 032-036.",
+            },
+            {
+                "name": "--site",
+                "long": "--site",
+                "label": "Site",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Station directory names, comma separated; omitted discovers all stations.",
+            },
+            {
+                "name": "--model",
+                "long": "--model",
+                "label": "Model",
+                "type": "select",
+                "default": "legacy-2017",
+                "required": False,
+                "options": [
+                    ("legacy-2017", "legacy-2017 (2017 binary parity)"),
+                    ("published", "published (TuRBOTEC model)"),
+                ],
+                "help": (
+                    "legacy-2017 reproduces the recovered 2017 binary behavior; "
+                    "published is the alternative scientific model."
+                ),
+            },
+            {
+                "name": "--time-step-hours",
+                "long": "--time-step-hours",
+                "label": "Time Step Hours",
+                "type": "text",
+                "default": "0.5",
+                "required": False,
+                "help": "Output grid step in hours (decimals allowed, e.g. 0.5).",
+            },
+            {
+                "name": "--elevation-cutoff",
+                "long": "--elevation-cutoff",
+                "label": "Elevation Cutoff",
+                "type": "number",
+                "default": 10,
+                "required": False,
+                "help": "Elevation cutoff in degrees.",
+                "min": 0,
+                "max": 90,
+            },
+            {
+                "name": "--correction-coefficient",
+                "long": "--correction-coefficient",
+                "label": "Correction Coefficient",
+                "type": "text",
+                "default": "0.97",
+                "required": False,
+                "help": "MSLM correcting coefficient alpha (0 < alpha <= 1).",
+            },
+            {
+                "name": "--window-hours",
+                "long": "--window-hours",
+                "label": "Window Half Width (hours)",
+                "type": "text",
+                "default": "1.0",
+                "required": False,
+                "help": "Fitting window half width in hours (0 < w <= 6).",
+            },
+            {
+                "name": "--auto-alpha",
+                "long": "--auto-alpha",
+                "label": "Latitude-Dependent Alpha (published)",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": "Pick the TuRBOTEC latitude-dependent alpha (0.87/0.97/0.94) instead of the correction coefficient.",
+            },
+            {
+                "name": "--shell-height-km",
+                "long": "--shell-height-km",
+                "label": "Shell Height (km, published)",
+                "type": "text",
+                "default": "",
+                "required": False,
+                "help": "Override the 450 km mapping shell height, e.g. 506.7 for Schaer's canonical MSLM.",
+            },
+            {
+                "name": "--nonneg",
+                "long": "--nonneg",
+                "label": "Non-Negative Bounded Solve (published)",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": "Bounded-variable least squares: I_v >= 0.5 TECU and slant-TEC-preserving DCB bounds (TuRBOTEC Eq. 8).",
+            },
+            {
+                "name": "--jobs",
+                "long": "--jobs",
+                "label": "Parallel Station Jobs",
+                "type": "number",
+                "default": 1,
+                "required": False,
+                "help": "Simultaneous station computations (1-8).",
+                "min": 1,
+                "max": 8,
+            },
+            {
+                "name": "--overwrite",
+                "long": "--overwrite",
+                "label": "Overwrite Existing Output",
+                "type": "checkbox",
+                "default": False,
+                "required": False,
+                "help": "Replace existing station output folders.",
+            },
+        ],
+    },
     # ── Add future converters here ────────────────────────────────────────────
     # "my_converter": {
     #     "image": "my-converter:latest",
@@ -451,6 +632,31 @@ def get_converter(name: str) -> dict | None:
 # argparse prints this when handed a flag it does not define. It is the exact
 # symptom of the UI being newer than the converter image it drives.
 _UNRECOGNISED_ARGS_RE = re.compile(r"unrecognized arguments:\s*(?P<flags>.+)", re.IGNORECASE)
+_ABSTEC_FINAL_RUNTIME_FAILURE_RE = re.compile(
+    r"Skipping\s+year=(?P<year>\d{4})\s+day=(?P<day>\d{1,3})\s+site=(?P<site>\S+)"
+    r"\s+due to absolTEC runtime failure:",
+    re.IGNORECASE,
+)
+
+
+def detect_converter_runtime_failure(log_text: str, converter_name: str) -> str | None:
+    """Detect a wrapper's final unrecovered station failure, not a retry error.
+
+    The legacy AbsTEC wrapper can skip failed stations and still exit zero.
+    Existing-output skips and a failed cleaned attempt followed by successful
+    raw processing are not failures of the completed batch.
+    """
+    if converter_name != "abstec-suite":
+        return None
+    match = _ABSTEC_FINAL_RUNTIME_FAILURE_RE.search(log_text or "")
+    if match is None:
+        return None
+    return (
+        f"AbsTEC could not process year={match['year']} day={match['day']} site={match['site']}. "
+        "The wrapper skipped this station after an unrecovered runtime failure; "
+        "a zero container exit code does not mean the batch completed. "
+        "Review the station errors and rerun the failed station-days."
+    )
 
 
 def detect_runner_version_skew(log_text: str, converter_name: str | None = None) -> str | None:
