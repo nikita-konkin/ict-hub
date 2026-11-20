@@ -73,7 +73,7 @@
           {% endif %}
         {% endif %}
 
-        {% if converter_name in ('abstec-suite', 'abstec-native') %}
+        {% if converter_name in ('abstec-suite', 'abstec-native', 'maptec-native') %}
           <input type="hidden" name="dat_path" id="abstec-dat-path" value="{{ abstec_dat_host_path or '' }}">
           <input type="hidden" name="output_dir" id="abstec-output-dir" value="{{ abstec_output_host_path or '' }}">
           <input type="hidden" name="year" id="abstec-year-hidden" value="">
@@ -82,23 +82,30 @@
           <input type="hidden" name="site" id="abstec-site-hidden" value="">
 
           <p class="form-hint" style="margin-bottom:10px;">{{ t('run_hint_abstec_input_root') }}</p>
+          {% if converter_name == 'maptec-native' %}
+          <p class="form-hint" style="margin-bottom:20px;">{{ t('run_hint_maptec_output_root') }}</p>
+          {% if not abstec_output_host_path %}
+          <div class="alert alert-danger" style="margin-bottom:20px;">{{ t('run_error_maptec_output_root') }}</div>
+          {% endif %}
+          {% else %}
           <p class="form-hint" style="margin-bottom:20px;">{{ t('run_hint_abstec_output_root') }}</p>
+          {% endif %}
 
           <div class="form-group">
             <label class="form-label" for="abstec-year-select">{{ t('label_year') }}</label>
-            <select class="form-select" id="abstec-year-select" multiple size="4" {% if not abstec_dat_tree %}disabled{% endif %}>
+            <select class="form-select" id="abstec-year-select" {% if converter_name != 'maptec-native' %}multiple{% endif %} size="4" {% if not abstec_dat_tree %}disabled{% endif %}>
               {% for year_item in abstec_dat_tree %}
               <option value="{{ year_item.year }}">{{ year_item.year }}</option>
               {% endfor %}
             </select>
-            <p class="form-hint">{{ t('run_hint_abstec_years') }}</p>
+            {% if converter_name != 'maptec-native' %}<p class="form-hint">{{ t('run_hint_abstec_years') }}</p>{% endif %}
             <div id="abstec-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
           <div class="form-group">
             <label class="form-label" for="abstec-day-of-year-select">{{ t('run_label_day_of_year_single') }}</label>
-            <select class="form-select" id="abstec-day-of-year-select" multiple size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
-            <p class="form-hint">{{ t('run_hint_abstec_day_single') }}</p>
+            <select class="form-select" id="abstec-day-of-year-select" {% if converter_name != 'maptec-native' %}multiple{% endif %} size="8" {% if not abstec_dat_tree %}disabled{% endif %}></select>
+            {% if converter_name != 'maptec-native' %}<p class="form-hint">{{ t('run_hint_abstec_day_single') }}</p>{% endif %}
             <div id="abstec-day-of-year-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
           </div>
 
@@ -118,7 +125,7 @@
 
           {% if not abstec_dat_host_path %}
           <div class="alert alert-danger" style="margin-bottom:20px;">
-            TECSUITE_OUT_DAT_DATA_PATH_HOST is empty. Set it in .env to enable AbsTEC selectors.
+            TECSUITE_OUT_DAT_DATA_PATH_HOST is empty. Set it in .env to enable DAT selectors.
           </div>
           {% elif not abstec_dat_tree %}
           <div class="alert alert-danger" style="margin-bottom:20px;">
@@ -184,7 +191,7 @@
         {% for flag in converter.flags %}
           {% set key = flag.long.lstrip('-').replace('-','_') %}
           {% set skip_tecsuite_flag = converter_name == 'tec-suite' and key in ('root', 'out') %}
-          {% set skip_abstec_flag = converter_name in ('abstec-suite', 'abstec-native') and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
+          {% set skip_abstec_flag = converter_name in ('abstec-suite', 'abstec-native', 'maptec-native') and key in ('dat_path', 'output_dir', 'year', 'day_of_year', 'days', 'site') %}
           {% set skip_dat_parquet_flag = converter_name == 'dat-parquet-handler' and key in ('src', 'dst', 'direction') %}
           {% set skip_default_flag = skip_tecsuite_flag or skip_abstec_flag or skip_dat_parquet_flag %}
           {% set translated_label = t('flag_label_' ~ key) %}
@@ -403,7 +410,7 @@
 <script src="/static/js/run-dat-parquet.js"></script>
 {% endif %}
 
-{% if converter_name in ('abstec-suite', 'abstec-native') %}
+{% if converter_name in ('abstec-suite', 'abstec-native', 'maptec-native') %}
 <script id="abstec-dat-tree-data" type="application/json">{{ abstec_dat_tree | tojson }}</script>
 <script src="/static/js/run-abstec.js"></script>
 {% endif %}

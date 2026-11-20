@@ -50,6 +50,7 @@ COPY --from=vendor /build/app/static/vendor/ ./app/static/vendor/
 
 # Copy the rest of the application source
 COPY app/ ./app/
+COPY maptec_native/ ./maptec_native/
 
 # Create directories that must exist at runtime.
 # /app/data       → SQLite database (mounted as a named volume)

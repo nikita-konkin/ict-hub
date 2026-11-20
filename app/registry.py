@@ -30,6 +30,9 @@ import re
 from typing import Any
 
 from app import config as cfg
+from maptec_native.settings import DEFAULTS as MAPTEC_DEFAULTS
+from maptec_native.settings import LABELS as MAPTEC_LABELS
+from maptec_native.settings import OPTION_HELP as MAPTEC_OPTION_HELP
 
 logger = logging.getLogger(__name__)
 
@@ -615,6 +618,60 @@ CONVERTERS: dict[str, dict] = {
             },
         ],
     },
+    "maptec-native": {
+        "image": cfg.MAPTEC_NATIVE_IMAGE,
+        "label": "MapTEC Native",
+        "description": "Map filtered TEC variations at ionospheric pierce points from tec-suite DAT files",
+        "log_emit_interval_sec": 1.0,
+        "progress_patterns": [r"Writing maps\s+(\d+)\s*/\s*(\d+)", r"Completed\s+(\d+)\s*/\s*(\d+)"],
+        "container_volumes": {"dat_path": "/data/in", "output_dir": "/data/out"},
+        "flags": [
+            {
+                "name": "--" + key.replace("_", "-"),
+                "long": "--" + key.replace("_", "-"),
+                "label": label,
+                "type": "text",
+                "default": "",
+                "is_volume": key,
+                "volume_mode": mode,
+                "help": help_text,
+            }
+            for key, label, mode, help_text in (
+                ("dat_path", "Input DAT root", "ro", "Reads the configured tec-suite output root"),
+                ("output_dir", "Output root", "rw", "Writes maps to the configured MapTEC output root"),
+            )
+        ]
+        + [
+            {
+                "name": "--" + key.replace("_", "-"),
+                "long": "--" + key.replace("_", "-"),
+                "label": label,
+                "type": "text",
+                "default": str(getattr(MAPTEC_DEFAULTS, key, "")),
+                "help": MAPTEC_OPTION_HELP.get(key, f"Choose {label.lower()} from the indexed DAT folders"),
+            }
+            for key, label in {
+                "year": "Year",
+                "day_of_year": "Day of year",
+                "days": "Batch days",
+                "site": "Sites",
+                **MAPTEC_LABELS,
+            }.items()
+        ]
+        + [
+            {"name": name, "long": name, "label": label, "type": "checkbox", "default": False, "help": help_text}
+            for name, label, help_text in (
+                (
+                    "--no-previous-day",
+                    "Skip previous-day observations",
+                    "Filter the start using the selected day alone",
+                ),
+                ("--no-next-day", "Skip next-day observations", "Filter the end using the selected day alone"),
+                ("--solar-terminator", "Draw the solar terminator", "Plot the edge of Earth's shadow at shell height"),
+                ("--overwrite", "Overwrite existing maps", "Replace the entire map directory for each selected day"),
+            )
+        ],
+    },
     # ── Add future converters here ────────────────────────────────────────────
     # "my_converter": {
     #     "image": "my-converter:latest",
@@ -723,7 +780,7 @@ def build_command(converter_name: str, form_data: dict[str, Any]) -> tuple[list[
                 container_path = conv["container_volumes"][flag["is_volume"]]
                 # RINEX must be writable because TEC-Suite extracts archives under
                 # /data/rinex/<day>/... before processing.
-                volumes[host_path] = {"bind": container_path, "mode": "rw"}
+                volumes[host_path] = {"bind": container_path, "mode": flag.get("volume_mode", "rw")}
             # Also emit the CLI flag pointing at the container-side path
             if converter_name == "tec-suite" and key == "root":
                 root_subpath = str(form_data.get("root_subpath", "")).strip()
