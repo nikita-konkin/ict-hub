@@ -66,6 +66,7 @@ DEFAULT_PATHS = {
     "rinex": os.getenv("RINEX_DATA_PATH_CONTAINER", "/mnt/rinex-server"),
     "tecsuite": os.getenv("TECSUITE_OUT_DAT_DATA_PATH_CONTAINER", "/mnt/tecsuite-out"),
     "abstec": os.getenv("ABSTEC_OUTPUT_DATA_PATH_CONTAINER", "/mnt/abstec-out"),
+    "abstec_native": os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER", "/mnt/abstec-native-out"),
     "parquet_tecsuite": os.getenv("PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER", "/mnt/tecsuite-parquet-out"),
     "parquet_abstec": os.getenv("PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER", "/mnt/abstec-parquet-out"),
 }
@@ -77,6 +78,7 @@ _HOST_PATH_ENVS = (
     "RINEX_DATA_PATH_HOST",
     "TECSUITE_OUT_DAT_DATA_PATH_HOST",
     "ABSTEC_OUTPUT_DATA_PATH_HOST",
+    "ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST",
     "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST",
     "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST",
 )

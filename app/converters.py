@@ -379,6 +379,9 @@ def dat_parquet_profiles(direction: str) -> dict[str, dict[str, str]]:
             "TEC-Suite DAT output", "TECSUITE_OUT_DAT_DATA_PATH_HOST", "PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST"
         ),
         "abstec": _profile("AbsTEC output", "ABSTEC_OUTPUT_DATA_PATH_HOST", "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST"),
+        "abstec-native": _profile(
+            "AbsTEC Native output", "ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST", "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST"
+        ),
     }
 
 
@@ -404,21 +407,29 @@ def _reduce_to_year_days(dat_tree: Tree) -> Tree:
 async def _dat_parquet_page() -> dict[str, object]:
     dat_tecsuite = _scan_path(cfg.TECSUITE_OUT_DAT_DATA_PATH_CONTAINER, cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST)
     dat_abstec = _scan_path(cfg.ABSTEC_OUTPUT_DATA_PATH_CONTAINER, cfg.ABSTEC_OUTPUT_DATA_PATH_HOST)
+    dat_abstec_native = _scan_path(
+        cfg.ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER, cfg.ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST
+    )
     parquet_tecsuite = _scan_path(
         cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST
     )
     parquet_abstec = _scan_path(cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER, cfg.PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST)
 
-    tecsuite_tree, abstec_tree, parquet_tecsuite_tree, parquet_abstec_tree = await asyncio.gather(
+    tecsuite_tree, abstec_tree, abstec_native_tree, parquet_tecsuite_tree, parquet_abstec_tree = await asyncio.gather(
         list_tecsuite_output_structure_async(dat_tecsuite) if dat_tecsuite else _no_tree(),
-        # AbsTEC output is a plain YYYY/DDD tree, which the parquet listing handles.
+        # AbsTEC output, legacy or native, is a plain YYYY/DDD tree, which the parquet listing handles.
         list_parquet_output_structure_async(dat_abstec) if dat_abstec else _no_tree(),
+        list_parquet_output_structure_async(dat_abstec_native) if dat_abstec_native else _no_tree(),
         list_parquet_output_structure_async(parquet_tecsuite) if parquet_tecsuite else _no_tree(),
         list_parquet_output_structure_async(parquet_abstec) if parquet_abstec else _no_tree(),
     )
     return {
         "dat_parquet_source_tree_matrix": {
-            "dat-to-parquet": {"tecsuite": _reduce_to_year_days(tecsuite_tree), "abstec": abstec_tree},
+            "dat-to-parquet": {
+                "tecsuite": _reduce_to_year_days(tecsuite_tree),
+                "abstec": abstec_tree,
+                "abstec-native": abstec_native_tree,
+            },
             "parquet-to-dat": {"tecsuite": parquet_tecsuite_tree, "abstec": parquet_abstec_tree},
         },
     }
