@@ -2,8 +2,12 @@
 
 The TEC Map service can render different scalar fields derived from VTEC. Pick
 one via the `?field=...` query parameter on `/tec-map/gif` and
-`/tec-map/snapshot` (the Analysis page exposes the same choice through the
+`/tec-map/snapshot` (IonMaps exposes the same choice through the
 **Field** dropdown).
+
+The IonMaps **TEC variations (dTEC)** data source draws station–satellite
+pierce points from the converter's period-band tables. See
+[Viewing in IonMaps](tec_variations.md#viewing-in-ionmaps).
 
 Only `vtec` (default) and `vtec_gradient` are implemented today. The remaining
 variants below are documented as a forward-looking specification: when one is

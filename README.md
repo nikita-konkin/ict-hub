@@ -131,6 +131,12 @@ host. Set `TEC_VARIATIONS_IMAGE` if the image has a different tag. Open
 limit the sites. The job container mounts the DAT root read-only and writes to
 the configured output root.
 
+Open **IonMaps** and choose **TEC variations (dTEC)** to view those tables.
+Compose mounts the same host output read-only into the hub at
+`TEC_VARIATIONS_OUTPUT_DATA_PATH_CONTAINER` (default `/mnt/tec-variations-out`).
+With no host output path configured, IonMaps reports that TEC Variations
+output is unavailable.
+
 Install the dependencies and run the standalone CLI with Python 3.12.
 
 ```bash

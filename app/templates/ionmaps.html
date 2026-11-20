@@ -16,11 +16,18 @@
     <div class="card-title">{{ t('ionmaps_card_title') }}</div>
   </div>
   <div class="card-body">
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+    <div data-tecmap-data="vtec" style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
       {{ t('ionmaps_card_intro') }}
     </div>
 
     <form id="tecmap-form" style="display:grid; gap:12px;">
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="tecmap-data">{{ t('ionmaps_label_data') }}</label>
+        <select id="tecmap-data" class="form-select">
+          <option value="vtec">{{ t('ionmaps_data_vtec') }}</option>
+          <option value="dtec">{{ t('ionmaps_data_dtec') }}</option>
+        </select>
+      </div>
       <div class="form-cols-2">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" for="tecmap-mode">{{ t('ionmaps_label_mode') }}</label>
@@ -38,7 +45,36 @@
         </div>
       </div>
 
-      <details>
+      <div data-tecmap-data="dtec" hidden>
+        <div class="form-cols-4">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-dtec-band">{{ t('ionmaps_dtec_band') }}</label>
+            <select id="tecmap-dtec-band" class="form-select"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-dtec-limit">{{ t('ionmaps_dtec_limit') }}</label>
+            <input id="tecmap-dtec-limit" class="form-input" type="number" min="0" step="any" placeholder="{{ t('ionmaps_dtec_auto') }}">
+            <div class="param-hint">{{ t('ionmaps_dtec_limit_hint') }}</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="tecmap-dtec-step">{{ t('ionmaps_dtec_step') }}</label>
+            <select id="tecmap-dtec-step" class="form-select">
+              <option value="30">{{ t('ionmaps_dtec_30_seconds') }}</option>
+              <option value="60" selected>{{ t('ionmaps_dtec_1_minute') }}</option>
+              <option value="120">{{ t('ionmaps_dtec_2_minutes') }}</option>
+              <option value="300">{{ t('ionmaps_dtec_5_minutes') }}</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">
+              <input id="tecmap-dtec-terminator" type="checkbox">
+              {{ t('ionmaps_dtec_terminator') }}
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <details id="tecmap-available-data">
         <summary style="cursor:pointer; font-size:12px; color:var(--text);">{{ t('ionmaps_avail_summary') }}</summary>
         <div style="margin-top:10px; display:grid; gap:10px;">
           <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:10px; align-items:end;">
@@ -103,31 +139,31 @@
       <details>
         <summary style="cursor:pointer; font-size:12px; color:var(--text);">{{ t('ionmaps_advanced') }}</summary>
         <div class="form-cols-4" style="margin-top:10px;">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-min-el">{{ t('ionmaps_label_min_el') }}</label>
             <input id="tecmap-min-el" class="form-input" type="number" min="0" max="90" step="0.1" value="20">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-frame-min">{{ t('ionmaps_label_frame_min') }}</label>
             <input id="tecmap-frame-min" class="form-input" type="number" min="1" max="240" step="1" value="15">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-grid-res">{{ t('ionmaps_label_grid_res') }}</label>
             <input id="tecmap-grid-res" class="form-input" type="number" min="0.1" max="10" step="0.1" value="1.0">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-sigma">{{ t('ionmaps_label_sigma') }}</label>
             <input id="tecmap-sigma" class="form-input" type="number" min="0" max="20" step="0.1" value="1.0">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-sampling">{{ t('ionmaps_label_sampling') }}</label>
             <input id="tecmap-sampling" class="form-input" type="number" min="1" max="3600" step="1" value="300">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-height">{{ t('ionmaps_label_height') }}</label>
             <input id="tecmap-height" class="form-input" type="number" min="50" max="2000" step="1" value="350">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-interp">{{ t('ionmaps_label_interp') }}</label>
             <select id="tecmap-interp" class="form-select">
               <option value="linear" selected>{{ t('ionmaps_interp_linear') }}</option>
@@ -137,7 +173,7 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_interp') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-field">{{ t('ionmaps_label_field') }}</label>
             <select id="tecmap-field" class="form-select">
               <option value="vtec" selected>VTEC [TECU]</option>
@@ -147,7 +183,7 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_field') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-signal-band">{{ t('ionmaps_label_signal_band') }}</label>
             <select id="tecmap-signal-band" class="form-select">
               <option value="gps_l1" selected>GPS L1 (1575.42 MHz)</option>
@@ -167,12 +203,12 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_signal_band') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-vtec-smooth">{{ t('ionmaps_label_vtec_smooth') }}</label>
             <input id="tecmap-vtec-smooth" class="form-input" type="number" min="0" max="50" step="1" value="0">
             <div class="param-hint">{{ t('ionmaps_hint_vtec_smooth') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-normalize-stations">{{ t('ionmaps_label_normalize') }}</label>
             <select id="tecmap-normalize-stations" class="form-select">
               <option value="off" selected>{{ t('ionmaps_normalize_off') }}</option>
@@ -181,7 +217,7 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_normalize') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-model">{{ t('ionmaps_label_model') }}</label>
             <select id="tecmap-model" class="form-select">
               <option value="off" selected>{{ t('ionmaps_model_off') }}</option>
@@ -205,7 +241,7 @@
             <input id="tecmap-basemap-alpha" class="form-input" type="number" min="0" max="1" step="0.01" value="0.28">
             <div class="param-hint">{{ t('ionmaps_hint_basemap_alpha') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-mode="range" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-field-alpha">{{ t('ionmaps_label_field_alpha') }}</label>
             <input id="tecmap-field-alpha" class="form-input" type="number" min="0" max="1" step="0.01" placeholder="auto">
             <div class="param-hint">{{ t('ionmaps_hint_field_alpha') }}</div>
@@ -227,7 +263,7 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_quality') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-upsample">{{ t('ionmaps_label_upsample') }}</label>
             <select id="tecmap-upsample" class="form-select">
               <option value="1">{{ t('ionmaps_upsample_1') }}</option>
@@ -242,7 +278,7 @@
             <input id="tecmap-dpi" class="form-input" type="number" min="50" max="300" step="10" placeholder="auto">
             <div class="param-hint">{{ t('ionmaps_hint_dpi') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-show-accuracy">{{ t('ionmaps_label_show_accuracy') }}</label>
             <select id="tecmap-show-accuracy" class="form-select">
               <option value="off" selected>{{ t('ionmaps_accuracy_off') }}</option>
@@ -250,7 +286,7 @@
             </select>
             <div class="param-hint">{{ t('ionmaps_hint_show_accuracy') }}</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;" data-tecmap-data="vtec">
             <label class="form-label" for="tecmap-show-params">{{ t('ionmaps_label_show_params') }}</label>
             <select id="tecmap-show-params" class="form-select">
               <option value="on" selected>{{ t('ionmaps_params_on') }}</option>
@@ -263,9 +299,9 @@
 
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">{{ t('ionmaps_btn_run') }}</button>
-        <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot">{{ t('ionmaps_btn_png') }}</button>
-        <button id="tecmap-validate" type="button" class="btn btn-secondary">{{ t('ionmaps_btn_validate') }}</button>
-        <button id="tecmap-series" type="button" class="btn btn-secondary">{{ t('ionmaps_btn_series') }}</button>
+        <button id="tecmap-frame-png" type="button" class="btn btn-secondary" data-tecmap-mode="snapshot" data-tecmap-data="vtec">{{ t('ionmaps_btn_png') }}</button>
+        <button id="tecmap-validate" type="button" class="btn btn-secondary" data-tecmap-data="vtec">{{ t('ionmaps_btn_validate') }}</button>
+        <button id="tecmap-series" type="button" class="btn btn-secondary" data-tecmap-data="vtec">{{ t('ionmaps_btn_series') }}</button>
         <a id="tecmap-last-url" href="#" class="btn btn-ghost" style="display:none;" target="_blank" rel="noopener">{{ t('ionmaps_btn_open_url') }}</a>
       </div>
     </form>
@@ -291,6 +327,8 @@
   'ionmaps_js_animation_failed', 'ionmaps_js_download', 'ionmaps_js_err_date',
   'ionmaps_js_err_range', 'ionmaps_js_err_snapshot_mode', 'ionmaps_js_err_stations',
   'ionmaps_js_err_timestamp', 'ionmaps_js_exporting_series', 'ionmaps_js_fetching_snapshot',
+  'ionmaps_dtec_band_unit', 'ionmaps_js_dtec_not_configured', 'ionmaps_js_dtec_availability_failed',
+  'ionmaps_js_dtec_empty', 'ionmaps_js_dtec_pick_band',
   'ionmaps_js_frame_failed', 'ionmaps_js_gateway_error', 'ionmaps_js_group_add',
   'ionmaps_js_job_drawing', 'ionmaps_js_job_encoding', 'ionmaps_js_job_gridding',
   'ionmaps_js_job_loading', 'ionmaps_js_job_queued', 'ionmaps_js_job_queued_behind',
