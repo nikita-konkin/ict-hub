@@ -69,7 +69,7 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 # data-indexer has its own top-level "app" module, so it is checked in a
 # separate run (see README.md) rather than listed here.
-files = ["app"]
+files = ["app", "tec_variations"]
 
 [[tool.mypy.overrides]]
 # No type information published for these.

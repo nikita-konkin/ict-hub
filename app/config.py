@@ -172,6 +172,9 @@ ABSTEC_NATIVE_OUTPUT_DATA_PATH: str = os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH"
 # Path inside converter-hub container used to browse native AbsolTEC output folders.
 ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER: str = os.getenv("ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER", "")
 
+TEC_VARIATIONS_IMAGE: str = os.getenv("TEC_VARIATIONS_IMAGE", "tec-variations:latest")
+TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST: str = os.getenv("TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST", "")
+
 # Host path where AbsTEC output should be persisted.
 ABSTEC_OUTPUT_DATA_PATH_HOST: str = os.getenv("ABSTEC_OUTPUT_DATA_PATH_HOST", "")
 
