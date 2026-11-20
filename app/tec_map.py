@@ -38,6 +38,7 @@ from app.tec_map_render import (
     build_animation_gif_bytes,
     build_frame_image_bytes,
     build_snapshot_plotly_json,
+    choose_animation_dpi,
 )
 from app.tec_map_validation import loso_cross_validate, summarize_validation
 
@@ -617,12 +618,7 @@ def _animation_request(
             )
             duration_hours = float((heuristic_end_dt - heuristic_start_dt).total_seconds() / 3600.0)
             frame_count = math.ceil(duration_hours * 60.0 / max(int(frame_minutes), 1))
-            if frame_count >= 80:
-                chosen_dpi = 80
-            elif frame_count >= 48:
-                chosen_dpi = 90
-            elif frame_count >= 24:
-                chosen_dpi = 100
+            chosen_dpi = choose_animation_dpi(animation_format, render_quality == "high", frame_count)
         except Exception:
             chosen_dpi = 120
 
@@ -811,7 +807,7 @@ def tec_map_gif_job_start(
     GET /tec-map/gif. Poll `status_url`, then fetch `result_url`. The same
     request again returns the existing job.
     """
-    key = "&".join(f"{name}={value}" for name, value in sorted(request.query_params.multi_items()))
+    key = "vtec:" + "&".join(f"{name}={value}" for name, value in sorted(request.query_params.multi_items()))
     try:
         job = tec_map_jobs.submit(current_user.id, key, lambda progress: render_animation(animation, progress))
     except tec_map_jobs.JobLimitError as exc:

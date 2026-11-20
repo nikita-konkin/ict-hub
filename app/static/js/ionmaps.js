@@ -7,6 +7,13 @@
   const form = document.getElementById("tecmap-form");
   if (!form) return;
 
+  const dataEl = document.getElementById("tecmap-data");
+  const dtecBandEl = document.getElementById("tecmap-dtec-band");
+  const dtecLimitEl = document.getElementById("tecmap-dtec-limit");
+  const dtecStepEl = document.getElementById("tecmap-dtec-step");
+  const dtecTerminatorEl = document.getElementById("tecmap-dtec-terminator");
+  const dtecAvailabilityUrl = "/tec-map/dtec/availability";
+  const isDtec = () => dataEl.value === "dtec";
   const modeEl = document.getElementById("tecmap-mode");
   const stationsEl = document.getElementById("tecmap-stations");
   const dateEl = document.getElementById("tecmap-date");
@@ -59,6 +66,11 @@
 
   let lastGifObjectUrl = "";
   let tecIndexOptions = null;
+  let dtecIndexOptions = null;
+  let dtecStations = [];
+  let dtecDayRequest = 0;
+  let availabilityRequest = 0;
+  let renderRequests = new AbortController();
 
   function setStationHint(text) {
     if (!stationHintEl) return;
@@ -154,7 +166,9 @@
     availStationsEl.innerHTML = "";
     const year = clean(availYearEl?.value);
     const doy = clean(availDoyEl?.value);
-    const stations = (tecIndexOptions?.stationsByYearDoy?.[year]?.[doy] || []).map((s) => String(s).toLowerCase());
+    const stations = isDtec()
+      ? dtecStations
+      : (tecIndexOptions?.stationsByYearDoy?.[year]?.[doy] || []).map((s) => String(s).toLowerCase());
     const selected = new Set(parseStations(stationsEl?.value || ""));
 
     if (!stations.length) {
@@ -186,10 +200,10 @@
       return btn;
     }
 
-    fetchStationGroups(year, doy);
+    if (!isDtec()) fetchStationGroups(year, doy);
     const groups = stationGroupsCache[year + "-" + doy];
 
-    if (!Array.isArray(groups)) {
+    if (isDtec() || !Array.isArray(groups)) {
       // Flat fallback (grouping unavailable or still loading).
       stations.sort().forEach((station) => availStationsEl.appendChild(makeChip(station)));
       return;
@@ -236,7 +250,7 @@
 
   function updateAvailDoys() {
     const year = clean(availYearEl?.value);
-    const doys = Array.isArray(tecIndexOptions?.doysByYear?.[year]) ? tecIndexOptions.doysByYear[year] : [];
+    const doys = (isDtec() ? dtecIndexOptions : tecIndexOptions)?.doysByYear?.[year] || [];
     fillSelect(availDoyEl, doys, clean(doyEl?.value));
     if (availDoyEl && !clean(availDoyEl.value) && Array.isArray(doys) && doys.length) {
       availDoyEl.value = String(doys[0]);
@@ -272,6 +286,13 @@
     const doy = clean(doyEl?.value);
     if (!availYearEl || !availDoyEl) return;
 
+    if (isDtec()) {
+      availYearEl.value = selectHasValue(availYearEl, year) ? year : "";
+      updateAvailDoys();
+      availDoyEl.value = selectHasValue(availDoyEl, doy) ? doy : "";
+      updateAvailabilityDay();
+      return;
+    }
     if (year && selectHasValue(availYearEl, year) && clean(availYearEl.value) !== year) {
       availYearEl.value = year;
       updateAvailDoys();
@@ -283,7 +304,7 @@
     updateAvailStations();
   }
 
-  async function loadTecIndexOptions(force) {
+  async function loadTecIndexOptions(force, requestId) {
     if (!force && window.__ictHubTecIndexOptions && typeof window.__ictHubTecIndexOptions === "object") {
       tecIndexOptions = window.__ictHubTecIndexOptions;
       setStationHint(T("ionmaps_js_index_ready"));
@@ -293,19 +314,78 @@
     try {
       setStationHint(T("ionmaps_js_index_loading"));
       const res = await fetch("/analysis/index-options", { credentials: "same-origin" });
+      if (requestId !== availabilityRequest) return false;
       if (!res.ok) {
         setStationHint(T("ionmaps_js_index_unavailable") + " (" + res.status + ").");
         return false;
       }
       const payload = await res.json();
+      if (requestId !== availabilityRequest) return false;
       tecIndexOptions = payload?.tec && typeof payload.tec === "object" ? payload.tec : null;
       window.__ictHubTecIndexOptions = tecIndexOptions;
       setStationHint(tecIndexOptions ? T("ionmaps_js_index_ready") : T("ionmaps_js_index_empty"));
       return Boolean(tecIndexOptions);
     } catch (_) {
-      setStationHint(T("ionmaps_js_index_failed"));
+      if (requestId === availabilityRequest) setStationHint(T("ionmaps_js_index_failed"));
       return false;
     }
+  }
+
+  async function loadDtecIndexOptions(requestId) {
+    setStationHint(T("ionmaps_js_index_loading"));
+    try {
+      const res = await fetch(dtecAvailabilityUrl, { credentials: "same-origin" });
+      const payload = res.ok ? await res.json() : null;
+      if (requestId !== availabilityRequest) return;
+      dtecIndexOptions = payload;
+      if (res.status === 404) setStationHint(T("ionmaps_js_dtec_not_configured"));
+      else if (!res.ok) setStationHint(T("ionmaps_js_dtec_availability_failed"));
+      else setStationHint(payload.years.length ? "" : T("ionmaps_js_dtec_empty"));
+    } catch (_) {
+      if (requestId !== availabilityRequest) return;
+      dtecIndexOptions = null;
+      setStationHint(T("ionmaps_js_dtec_availability_failed"));
+    }
+  }
+
+  async function updateAvailabilityDay() {
+    setAvailDateLabel();
+    if (!isDtec()) {
+      updateAvailStations();
+      return;
+    }
+    const requestId = ++dtecDayRequest;
+    const year = clean(availYearEl.value);
+    const doy = clean(availDoyEl.value);
+    dtecBandEl.disabled = true;
+    dtecStations = [];
+    updateAvailStations();
+    if (!year || !doy || !dtecIndexOptions) {
+      fillSelect(dtecBandEl, [], "");
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ year, doy });
+      const res = await fetch(dtecAvailabilityUrl + "?" + params, { credentials: "same-origin" });
+      const payload = res.ok ? await res.json() : { stations: [], bands: [] };
+      if (requestId !== dtecDayRequest) return;
+      const selected = dtecBandEl.value;
+      const bandOptions = payload.bands.map((band) => {
+        const label = band.minutes.join("–") + " " + T("ionmaps_dtec_band_unit");
+        return new Option(label, band.column);
+      });
+      dtecBandEl.replaceChildren(...bandOptions);
+      if (selectHasValue(dtecBandEl, selected)) dtecBandEl.value = selected;
+      dtecBandEl.disabled = !bandOptions.length;
+      dtecStations = payload.stations;
+      setStationHint(res.ok || res.status === 404 ? "" : T("ionmaps_js_dtec_availability_failed"));
+    } catch (_) {
+      if (requestId !== dtecDayRequest) return;
+      dtecStations = [];
+      fillSelect(dtecBandEl, [], "");
+      setStationHint(T("ionmaps_js_dtec_availability_failed"));
+    }
+    updateAvailStations();
   }
 
   function setStatus(kind, text) {
@@ -330,10 +410,15 @@
 
   function updateModeVisibility() {
     const mode = modeEl ? modeEl.value : "snapshot";
-    document.querySelectorAll("[data-tecmap-mode]").forEach((el) => {
-      const wanted = el.getAttribute("data-tecmap-mode");
-      const show = wanted === mode;
+    document.querySelectorAll("[data-tecmap-mode], [data-tecmap-data]").forEach((el) => {
+      const wantedMode = el.dataset.tecmapMode;
+      const wantedData = el.dataset.tecmapData;
+      const show = (!wantedMode || wantedMode === mode) && (!wantedData || wantedData === dataEl.value);
+      el.hidden = !show;
       el.style.display = show ? "" : "none";
+      if (wantedData) {
+        el.querySelectorAll("input").forEach((input) => { input.disabled = wantedData !== dataEl.value; });
+      }
     });
 
     if (plotEl && window.Plotly) window.Plotly.purge(plotEl);
@@ -347,6 +432,7 @@
     if (plotEl) plotEl.style.display = "none";
     if (outputEl) outputEl.style.display = "none";
     if (gifDownloadEl) gifDownloadEl.style.display = "none";
+    if (isDtec() && validateResultEl) validateResultEl.style.display = "none";
     setStatus("info", "");
   }
 
@@ -397,14 +483,15 @@
     return " (" + res.status + "): " + (message || res.statusText);
   }
 
-  async function runSnapshot(url) {
+  async function runSnapshot(url, signal) {
     setStatus("info", T("ionmaps_js_fetching_snapshot"));
-    const res = await fetch(url, { credentials: "same-origin" });
+    const res = await fetch(url, { credentials: "same-origin", signal });
     if (!res.ok) {
       throw new Error(T("ionmaps_js_snapshot_failed") + (await responseError(res)));
     }
 
     const payload = await res.json();
+    if (signal.aborted) return;
     if (!plotEl || !window.Plotly) {
       throw new Error(T("ionmaps_js_no_plotly"));
     }
@@ -417,6 +504,7 @@
       scrollZoom: true,
       modeBarButtonsToRemove: ["select2d", "lasso2d"],
     });
+    if (signal.aborted) return;
     if (plotEl) plotEl.style.display = "block";
     if (outputEl) outputEl.style.display = "block";
     setStatus("success", T("ionmaps_js_snapshot_done"));
@@ -441,11 +529,12 @@
   // The animation renders as a background job: start it, poll its progress,
   // then download it. Each request is short, so no browser or proxy timeout
   // can cut off a render that takes many minutes.
-  async function runGif(url) {
+  async function runGif(url, signal) {
     setStatus("info", T("ionmaps_js_rendering"));
     const started = await fetch(url.replace("/tec-map/gif?", "/tec-map/gif/jobs?"), {
       method: "POST",
       credentials: "same-origin",
+      signal,
     });
     if (!started.ok) {
       throw new Error(T("ionmaps_js_animation_failed") + (await responseError(started)));
@@ -453,6 +542,7 @@
     let job = await started.json();
     let failedPolls = 0;
     while (job.status !== "done") {
+      if (signal.aborted) return;
       if (job.status === "failed") {
         throw new Error(T("ionmaps_js_animation_failed") + ": " + (job.error || ""));
       }
@@ -460,10 +550,11 @@
       await new Promise(function (resolve) { setTimeout(resolve, 1500); });
       let res = null;
       try {
-        res = await fetch(job.status_url, { credentials: "same-origin" });
+        res = await fetch(job.status_url, { credentials: "same-origin", signal });
       } catch (_) {
         // network blip; retried below
       }
+      if (signal.aborted) return;
       if (res && res.ok) {
         job = await res.json();
         failedPolls = 0;
@@ -476,7 +567,7 @@
       throw new Error(T("ionmaps_js_animation_failed") + (await responseError(res)));
     }
 
-    const res = await fetch(job.result_url, { credentials: "same-origin" });
+    const res = await fetch(job.result_url, { credentials: "same-origin", signal });
     if (!res.ok) {
       throw new Error(T("ionmaps_js_animation_failed") + (await responseError(res)));
     }
@@ -486,6 +577,7 @@
     const ext = contentType.indexOf("webm") >= 0 ? "webm" : (isVideo ? "mp4" : "gif");
 
     const blob = await res.blob();
+    if (signal.aborted) return;
     if (lastGifObjectUrl) URL.revokeObjectURL(lastGifObjectUrl);
     lastGifObjectUrl = URL.createObjectURL(blob);
 
@@ -501,7 +593,8 @@
     if (gifWrapEl) gifWrapEl.style.display = "block";
     if (gifDownloadEl) {
       gifDownloadEl.href = lastGifObjectUrl;
-      gifDownloadEl.setAttribute("download", "tec_map." + ext);
+      const filename = url.startsWith("/tec-map/dtec/") ? "dtec_map" : "tec_map";
+      gifDownloadEl.setAttribute("download", filename + "." + ext);
       gifDownloadEl.textContent = T("ionmaps_js_download") + " " + ext.toUpperCase();
       gifDownloadEl.style.display = "";
     }
@@ -509,36 +602,7 @@
     setStatus("success", ext.toUpperCase() + " " + T("ionmaps_js_ready"));
   }
 
-  function buildRequestUrl() {
-    const mode = modeEl ? modeEl.value : "snapshot";
-    const stations = parseStations(stationsEl ? stationsEl.value : "");
-    if (!stations.length) throw new Error(T("ionmaps_js_err_stations"));
-
-    const params = new URLSearchParams();
-    const yearValue = clean(yearEl ? yearEl.value : "");
-    const doyValue = clean(doyEl ? doyEl.value : "");
-    const dateValue = clean(dateEl ? dateEl.value : "");
-    const endDateValue = clean(endDateEl ? endDateEl.value : "");
-    const canonicalDate = (yearValue && doyValue) ? yDoyToIsoDate(yearValue, doyValue) : "";
-
-    if (yearValue && doyValue) {
-      params.set("year", yearValue);
-      params.set("doy", doyValue);
-    } else if (!dateValue) {
-      throw new Error(T("ionmaps_js_err_date"));
-    }
-
-    const effectiveDate = canonicalDate || dateValue;
-    if (effectiveDate) {
-      params.set("date", effectiveDate);
-      if (dateEl && clean(dateEl.value) !== effectiveDate) {
-        dateEl.value = effectiveDate;
-      }
-    }
-    if (endDateValue) params.set("end_date", endDateValue);
-
-    for (const station of stations) params.append("stations", station);
-
+  function addVtecParams(params) {
     addNumberParam(params, "min_elevation_deg", minElEl);
     addNumberParam(params, "sampling_interval_seconds", samplingEl);
     addNumberParam(params, "frame_minutes", frameMinEl);
@@ -577,6 +641,48 @@
 
     const modelValue = clean(modelEl ? modelEl.value : "") || "off";
     if (modelValue !== "off") params.set("model", modelValue);
+  }
+
+  function buildRequestUrl() {
+    const mode = modeEl ? modeEl.value : "snapshot";
+    const stations = parseStations(stationsEl ? stationsEl.value : "");
+    if (!stations.length) throw new Error(T("ionmaps_js_err_stations"));
+
+    const params = new URLSearchParams();
+    const yearValue = clean(yearEl ? yearEl.value : "");
+    const doyValue = clean(doyEl ? doyEl.value : "");
+    const dateValue = clean(dateEl ? dateEl.value : "");
+    const endDateValue = clean(endDateEl ? endDateEl.value : "");
+    const canonicalDate = (yearValue && doyValue) ? yDoyToIsoDate(yearValue, doyValue) : "";
+
+    if (yearValue && doyValue) {
+      params.set("year", yearValue);
+      params.set("doy", doyValue);
+    } else if (!dateValue) {
+      throw new Error(T("ionmaps_js_err_date"));
+    }
+
+    const effectiveDate = canonicalDate || dateValue;
+    if (effectiveDate) {
+      params.set("date", effectiveDate);
+      if (dateEl && clean(dateEl.value) !== effectiveDate) {
+        dateEl.value = effectiveDate;
+      }
+    }
+    if (endDateValue) params.set("end_date", endDateValue);
+
+    for (const station of stations) params.append("stations", station);
+
+    const dtec = isDtec();
+    if (dtec) {
+      if (dtecBandEl.disabled || !dtecBandEl.value) throw new Error(T("ionmaps_js_dtec_pick_band"));
+      params.set("band", dtecBandEl.value);
+      params.set("step_seconds", dtecStepEl.value);
+      if (dtecLimitEl.value !== "") params.set("color_limit", dtecLimitEl.value);
+      if (dtecTerminatorEl.checked) params.set("terminator", "true");
+    } else {
+      addVtecParams(params);
+    }
 
     if (mode === "range") {
       const startText = clean(startTimeEl ? startTimeEl.value : "");
@@ -591,7 +697,7 @@
         params.set("basemap_alpha", String(basemapAlphaValue));
       }
       const fieldAlphaValue = Number(fieldAlphaEl && fieldAlphaEl.value !== "" ? fieldAlphaEl.value : NaN);
-      if (Number.isFinite(fieldAlphaValue) && fieldAlphaValue >= 0 && fieldAlphaValue <= 1) {
+      if (!dtec && Number.isFinite(fieldAlphaValue) && fieldAlphaValue >= 0 && fieldAlphaValue <= 1) {
         params.set("field_alpha", String(fieldAlphaValue));
       }
 
@@ -600,16 +706,16 @@
       const qualityValue = clean(qualityEl ? qualityEl.value : "") || "standard";
       if (qualityValue !== "standard") params.set("quality", qualityValue);
       const upsampleValue = clean(upsampleEl ? upsampleEl.value : "") || "2";
-      if (upsampleValue !== "2") params.set("upsample", upsampleValue);
+      if (!dtec && upsampleValue !== "2") params.set("upsample", upsampleValue);
       const dpiValue = Number(dpiEl ? dpiEl.value : "");
       if (Number.isFinite(dpiValue) && dpiValue >= 50) params.set("frame_dpi", String(Math.floor(dpiValue)));
-      return "/tec-map/gif?" + params.toString();
+      return (dtec ? "/tec-map/dtec/gif/jobs?" : "/tec-map/gif?") + params.toString();
     }
 
     const tsText = clean(timestampEl ? timestampEl.value : "");
     if (!tsText) throw new Error(T("ionmaps_js_err_timestamp"));
     params.set("timestamp", tsText);
-    return "/tec-map/snapshot?" + params.toString();
+    return (dtec ? "/tec-map/dtec/snapshot?" : "/tec-map/snapshot?") + params.toString();
   }
 
   function buildFrameUrl() {
@@ -838,49 +944,52 @@
     });
   }
 
-  async function initAvailableDataUi() {
+  async function refreshAvailableData(force) {
     if (!availYearEl || !availDoyEl) return;
-
-    const ok = await loadTecIndexOptions(false);
-    const years = Array.isArray(tecIndexOptions?.years) ? tecIndexOptions.years : [];
-    const preferredYear = clean(yearEl?.value) || (years[0] ? String(years[0]) : "");
-    fillSelect(availYearEl, years, preferredYear);
+    const requestId = ++availabilityRequest;
+    const dtec = isDtec();
+    const preferredYear = (force ? clean(availYearEl.value) : "") || clean(yearEl?.value);
+    let vtecReady = false;
+    if (dtec) {
+      ++dtecDayRequest;
+      dtecBandEl.disabled = true;
+      dtecStations = [];
+      updateAvailStations();
+      await loadDtecIndexOptions(requestId);
+    } else {
+      vtecReady = await loadTecIndexOptions(force, requestId);
+    }
+    if (requestId !== availabilityRequest) return;
+    const years = (dtec ? dtecIndexOptions : tecIndexOptions)?.years || [];
+    fillSelect(availYearEl, years, preferredYear || years[0]);
+    if (dtec && !availYearEl.value && years.length) availYearEl.value = String(years[0]);
     updateAvailDoys();
     applyAvailSelectionToInputs();
-    setAvailDateLabel();
-    updateAvailStations();
-
-    availYearEl.addEventListener("change", function () {
-      applyAvailSelectionToInputs();
-      updateAvailDoys();
-      setAvailDateLabel();
-      updateAvailStations();
-    });
-    availDoyEl.addEventListener("change", function () {
-      applyAvailSelectionToInputs();
-      setAvailDateLabel();
-      updateAvailStations();
-    });
-    if (availRefreshEl) {
-      availRefreshEl.addEventListener("click", async function () {
-        await loadTecIndexOptions(true);
-        const yrs = Array.isArray(tecIndexOptions?.years) ? tecIndexOptions.years : [];
-        const pref = clean(availYearEl.value) || clean(yearEl?.value) || (yrs[0] ? String(yrs[0]) : "");
-        fillSelect(availYearEl, yrs, pref);
-        updateAvailDoys();
-        applyAvailSelectionToInputs();
-        setAvailDateLabel();
-        updateAvailStations();
-      });
-    }
-    if (stationsEl) stationsEl.addEventListener("input", updateAvailStations);
-
-    if (!ok) {
-      setStationHint(T("ionmaps_js_index_manual"));
-    }
+    updateAvailabilityDay();
+    if (!dtec && !vtecReady && !force) setStationHint(T("ionmaps_js_index_manual"));
   }
 
-  initAvailableDataUi();
+  availYearEl?.addEventListener("change", function () {
+    applyAvailSelectionToInputs();
+    updateAvailDoys();
+    if (isDtec()) applyAvailSelectionToInputs();
+    updateAvailabilityDay();
+  });
+  availDoyEl?.addEventListener("change", function () {
+    applyAvailSelectionToInputs();
+    updateAvailabilityDay();
+  });
+  availRefreshEl?.addEventListener("click", () => refreshAvailableData(true));
+  stationsEl?.addEventListener("input", updateAvailStations);
+  dataEl.addEventListener("change", function () {
+    ++dtecDayRequest;
+    renderRequests.abort();
+    renderRequests = new AbortController();
+    updateModeVisibility();
+    setLastUrl("");
+    refreshAvailableData(false);
+  });
+  refreshAvailableData(false);
 
   if (dateEl) {
     dateEl.addEventListener("change", function () {
@@ -928,21 +1037,22 @@
       return;
     }
 
-    setLastUrl(url);
+    setLastUrl(url.startsWith("/tec-map/dtec/gif/jobs?") ? "" : url);
     if (plotEl && window.Plotly) window.Plotly.purge(plotEl);
     if (plotEl) plotEl.style.display = "none";
     if (gifWrapEl) gifWrapEl.style.display = "none";
     if (gifDownloadEl) gifDownloadEl.style.display = "none";
     if (outputEl) outputEl.style.display = "none";
 
+    const signal = renderRequests.signal;
     try {
-      if (url.startsWith("/tec-map/gif")) {
-        await runGif(url);
+      if (modeEl.value === "range") {
+        await runGif(url, signal);
       } else {
-        await runSnapshot(url);
+        await runSnapshot(url, signal);
       }
     } catch (err) {
-      setStatus("error", err instanceof Error ? err.message : String(err));
+      if (!signal.aborted) setStatus("error", err instanceof Error ? err.message : String(err));
     }
   });
 })();

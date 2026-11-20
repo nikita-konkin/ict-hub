@@ -90,6 +90,7 @@ services:
       ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER: ${ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-native-out}
       TEC_VARIATIONS_IMAGE: ${TEC_VARIATIONS_IMAGE:-tec-variations:latest}
       TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST: ${TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST:-}
+      TEC_VARIATIONS_OUTPUT_DATA_PATH_CONTAINER: ${TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST:+${TEC_VARIATIONS_OUTPUT_DATA_PATH_CONTAINER:-/mnt/tec-variations-out}}
       # ── AbsTEC dockur XP runner (optional) ───────────────────────────────
       # Host path of abstec-suite/dockur/jobs — the job queue shared with the
       # Windows XP VM (abstec-xp mounts it as /shared/jobs). Leave empty to
@@ -144,6 +145,7 @@ services:
       - ${ABSTEC_OUTPUT_DATA_PATH_HOST}:${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}
       # Mount native AbsolTEC output into converter-hub for browsing.
       - ${ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST}:${ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-native-out}
+      - ${TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST:-tec-variations-unconfigured}:${TEC_VARIATIONS_OUTPUT_DATA_PATH_CONTAINER:-/mnt/tec-variations-out}:ro
       # Mount DAT <-> Parquet output directories for future browsing support.
       - ${PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST}:${PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER:-/mnt/tecsuite-parquet-out}:ro
       - ${PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST}:${PARQUET_OUTPUT_ABSTEC_DATA_PATH_CONTAINER:-/mnt/abstec-parquet-out}
@@ -287,6 +289,7 @@ services:
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
+  tec-variations-unconfigured:
   db:
     driver: local
     # Uncomment and set a host path if you want the DB at a specific location:

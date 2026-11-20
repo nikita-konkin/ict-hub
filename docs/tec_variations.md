@@ -100,6 +100,34 @@ field metadata `units=TECU`. File metadata contains `package_version`,
 `elevation_cutoff_deg`, `projection`, `tec_parameter` and `max_absent_points`.
 The legacy filter also records `minimum_tec` and `skip_edge_samples`.
 
+## Viewing in IonMaps
+
+Set `TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST` to the converter output root on the
+Docker host. Compose mounts it read-only in the hub at
+`TEC_VARIATIONS_OUTPUT_DATA_PATH_CONTAINER` (default `/mnt/tec-variations-out`).
+For a hub running directly on the host, set the container-path variable to the
+local output root.
+
+On **IonMaps**, select **TEC variations (dTEC)** under **Data**. The available
+dates, stations and period bands come from the converter tables. Select a band
+and a UTC time for an interactive snapshot. Select a range for a background
+GIF, MP4 or WebM render. To cross midnight, enter an end date or two full UTC
+timestamps. Clock-only ranges with an earlier end time roll into the next day
+when the end date is blank.
+
+Each frame draws the nearest observed sample for each station–satellite pair
+within half the frame step. A null band value leaves that pierce point blank.
+Frames advance uniformly from the start up to the end time, including empty
+frames. The default step is one minute. The symmetric
+Auto scale uses the 98th percentile of absolute dTEC in the sample window with
+a 0.01 TECU floor. Enter a positive limit to use a fixed ± range across every
+frame. The shell height in the table metadata sets the optional terminator
+altitude. A request can cover up to 40 stations and 1,440 frames, and selected
+tables must use the same shell height.
+
+Future work includes the 0.15° pixel mode with 10-minute and spatial smoothing
+described by Otsuka et al. (2013).
+
 ## Measured filter response
 
 A 0.4 TECU plane wave with 350 km wavelength was sampled at three stations at

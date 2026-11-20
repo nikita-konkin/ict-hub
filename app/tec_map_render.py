@@ -13,7 +13,7 @@ import logging
 import math
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass
@@ -1170,7 +1170,8 @@ def _grid_for_bounds(
     return lon_axis, lat_axis, grid_lon, grid_lat, lon_axis, lat_axis
 
 
-def _bounds_for_frame_summary(frame_summary: pd.DataFrame) -> tuple[float, float, float, float]:
+def bounds_for_ipp(frame_summary: pd.DataFrame) -> tuple[float, float, float, float]:
+    """Return a padded map extent around the pierce points."""
     lat_min = math.floor(float(frame_summary["ipp_lat"].min()) - 2)
     lat_max = math.ceil(float(frame_summary["ipp_lat"].max()) + 2)
     lon_min = math.floor(float(frame_summary["ipp_lon"].min()) - 2)
@@ -1285,7 +1286,7 @@ def build_animation_gif_bytes(
     if frame_summary.empty:
         raise RuntimeError("frame_summary is empty.")
 
-    bounds = _bounds_for_frame_summary(frame_summary)
+    bounds = bounds_for_ipp(frame_summary)
     lon_min, lon_max, lat_min, lat_max = bounds
 
     lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
@@ -1378,15 +1379,20 @@ def build_animation_gif_bytes(
         if progress:
             progress("encoding", total_frames, total_frames)
 
+    return encode_animation(rendered_png_frames(), render, animation_format)
+
+
+def encode_animation(png_frames: Iterable[bytes], render: TecMapRenderConfig, animation_format: str) -> bytes:
+    """Encode rendered map frames in the requested animation container."""
     duration_seconds = max(float(render.gif_frame_duration_seconds), 0.02)
     if animation_format == "gif":
         return _encode_gif(
-            rendered_png_frames(),
+            png_frames,
             duration_ms=round(duration_seconds * 1000.0),
             high_quality=render.gif_high_quality,
         )
     return _encode_video(
-        rendered_png_frames(),
+        png_frames,
         video_format=animation_format,
         frame_duration_seconds=duration_seconds,
     )
@@ -1397,6 +1403,15 @@ ANIMATION_MEDIA_TYPES = {
     "mp4": "video/mp4",
     "webm": "video/webm",
 }
+
+
+def choose_animation_dpi(animation_format: str, high_quality: bool, frame_count: int) -> int:
+    """Reduce the default resolution for long standard-quality GIFs."""
+    if animation_format == "gif" and not high_quality:
+        for threshold, dpi in ((80, 80), (48, 90), (24, 100)):
+            if frame_count >= threshold:
+                return dpi
+    return 120
 
 
 def _encode_gif(png_frames, *, duration_ms: int, high_quality: bool) -> bytes:
@@ -1531,7 +1546,7 @@ def build_frame_image_bytes(
     if frame.empty:
         raise RuntimeError(f"No samples available for requested frame_time={frame_time}.")
 
-    bounds = _bounds_for_frame_summary(frame)
+    bounds = bounds_for_ipp(frame)
     lon_min, lon_max, lat_min, lat_max = bounds
     lon_axis = np.arange(lon_min, lon_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
     lat_axis = np.arange(lat_min, lat_max + pipeline.grid_resolution_deg, pipeline.grid_resolution_deg)
@@ -1630,7 +1645,7 @@ def build_snapshot_plotly_json(
     if frame.empty:
         raise RuntimeError(f"No samples available for requested frame_time={frame_time}.")
 
-    bounds = _bounds_for_frame_summary(frame)
+    bounds = bounds_for_ipp(frame)
     lon_min, lon_max, lat_min, lat_max = bounds
 
     station_positions = frame_summary.groupby("station", as_index=False).agg(
