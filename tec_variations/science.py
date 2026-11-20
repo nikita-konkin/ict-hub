@@ -1,12 +1,17 @@
-"""Thin-shell projection, centered TEC filtering and solar shadow geometry."""
+"""Project TEC variations and filter evenly sampled slant arcs."""
 
 import calendar
+import math
 from datetime import date
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.signal import butter, sos2zpk, sosfiltfilt
+
+from .settings import PeriodBand
 
 EARTH_RADIUS_KM = 6371.0
+BUTTERWORTH_ORDER = 4
 
 
 def shell_coordinates(
@@ -54,6 +59,29 @@ def filter_arc(
     long = max(0, (int(detrending * 60 / cadence) - 1) // 2)
     smooth = _running_mean(values, short)
     return smooth, smooth - _running_mean(smooth, long)
+
+
+def bandpass_arc(values: NDArray[np.float64], cadence: float, band: PeriodBand) -> NDArray[np.float64]:
+    """Remove a quadratic background and return a zero-phase band with unsupported edges masked."""
+    result = np.full(len(values), np.nan)
+    shortest, longest = band.shortest_minutes * 60, band.longest_minutes * 60
+    if shortest <= 2 * cadence or (len(values) - 1) * cadence < 3 * longest:
+        return result
+    sos = butter(BUTTERWORTH_ORDER, [1 / longest, 1 / shortest], btype="bandpass", fs=1 / cadence, output="sos")
+    _, poles, _ = sos2zpk(sos)
+    radius = float(np.max(np.abs(poles)))
+    if radius >= 1:
+        return result
+    period_samples = math.ceil(longest / cadence)
+    edge = max(period_samples, math.ceil(-1 / math.log(radius)), 3 * (2 * len(sos) + 1))
+    if len(values) - 2 * edge <= period_samples:
+        return result
+    time = np.linspace(-1, 1, len(values))
+    centered = values - values[0]
+    trend = np.polynomial.polynomial.polyval(time, np.polynomial.polynomial.polyfit(time, centered, 2))
+    filtered = sosfiltfilt(sos, centered - trend, padlen=edge)
+    result[edge:-edge] = filtered[edge:-edge]
+    return result
 
 
 def terminator(day: date, seconds: float, height: float) -> tuple[NDArray[np.float64], NDArray[np.float64]]:

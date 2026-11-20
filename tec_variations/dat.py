@@ -97,7 +97,7 @@ def read_track(path: Path, parameter: str) -> Track:
                 last_time = time
                 flags = int(validity)
                 pending_slip |= bool(flags & slip_mask)
-                if flags & missing_mask or elevation < 0:
+                if flags & missing_mask:
                     rejected += 1
                     continue
                 samples.append((time, elevation, azimuth, tec, pending_slip))

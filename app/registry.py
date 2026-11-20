@@ -30,9 +30,9 @@ import re
 from typing import Any
 
 from app import config as cfg
-from maptec_native.settings import DEFAULTS as MAPTEC_DEFAULTS
-from maptec_native.settings import LABELS as MAPTEC_LABELS
-from maptec_native.settings import OPTION_HELP as MAPTEC_OPTION_HELP
+from tec_variations.settings import DEFAULTS as TEC_VARIATIONS_DEFAULTS
+from tec_variations.settings import LABELS as TEC_VARIATIONS_LABELS
+from tec_variations.settings import OPTION_HELP as TEC_VARIATIONS_OPTION_HELP
 
 logger = logging.getLogger(__name__)
 
@@ -618,10 +618,10 @@ CONVERTERS: dict[str, dict] = {
             },
         ],
     },
-    "maptec-native": {
-        "image": cfg.MAPTEC_NATIVE_IMAGE,
-        "label": "MapTEC Native",
-        "description": "Map filtered TEC variations at ionospheric pierce points from tec-suite DAT files",
+    "tec-variations": {
+        "image": cfg.TEC_VARIATIONS_IMAGE,
+        "label": "TEC Variations",
+        "description": "Write band-limited dTEC and ionospheric pierce points from tec-suite DAT files",
         "log_emit_interval_sec": 1.0,
         "progress_patterns": [r"Writing maps\s+(\d+)\s*/\s*(\d+)", r"Completed\s+(\d+)\s*/\s*(\d+)"],
         "container_volumes": {"dat_path": "/data/in", "output_dir": "/data/out"},
@@ -638,7 +638,12 @@ CONVERTERS: dict[str, dict] = {
             }
             for key, label, mode, help_text in (
                 ("dat_path", "Input DAT root", "ro", "Reads the configured tec-suite output root"),
-                ("output_dir", "Output root", "rw", "Writes maps to the configured MapTEC output root"),
+                (
+                    "output_dir",
+                    "Output root",
+                    "rw",
+                    "Writes station tables and optional maps to the configured output root",
+                ),
             )
         ]
         + [
@@ -647,15 +652,15 @@ CONVERTERS: dict[str, dict] = {
                 "long": "--" + key.replace("_", "-"),
                 "label": label,
                 "type": "text",
-                "default": str(getattr(MAPTEC_DEFAULTS, key, "")),
-                "help": MAPTEC_OPTION_HELP.get(key, f"Choose {label.lower()} from the indexed DAT folders"),
+                "default": str(getattr(TEC_VARIATIONS_DEFAULTS, key, "")),
+                "help": TEC_VARIATIONS_OPTION_HELP.get(key, f"Choose {label.lower()} from the indexed DAT folders"),
             }
             for key, label in {
                 "year": "Year",
                 "day_of_year": "Day of year",
                 "days": "Batch days",
                 "site": "Sites",
-                **MAPTEC_LABELS,
+                **TEC_VARIATIONS_LABELS,
             }.items()
         ]
         + [
@@ -667,8 +672,14 @@ CONVERTERS: dict[str, dict] = {
                     "Filter the start using the selected day alone",
                 ),
                 ("--no-next-day", "Skip next-day observations", "Filter the end using the selected day alone"),
+                ("--legacy-maps", "Write MapTEC DAT maps", "Write MapTEC-format points for the first selected band"),
+                ("--png", "Draw PNG maps", "Draw the first selected band at the requested map epochs"),
                 ("--solar-terminator", "Draw the solar terminator", "Plot the edge of Earth's shadow at shell height"),
-                ("--overwrite", "Overwrite existing maps", "Replace the entire map directory for each selected day"),
+                (
+                    "--overwrite",
+                    "Overwrite existing output",
+                    "Replace the entire output directory for each selected day",
+                ),
             )
         ],
     },

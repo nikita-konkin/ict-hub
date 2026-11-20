@@ -35,7 +35,7 @@ from app.data_indexer_client import (
 )
 from app.models import JobRun
 from app.runner import ensure_container_running
-from maptec_native.settings import parse_selection, parse_settings
+from tec_variations.settings import parse_selection, parse_settings
 
 logger = logging.getLogger(__name__)
 
@@ -225,21 +225,21 @@ async def _prepare_abstec_native(form: FormData, db: Session) -> PreparedRun:
     return PreparedRun(input_note=_env_note("TECSUITE_OUT_DAT_DATA_PATH_HOST"), output_path=output_host)
 
 
-async def _maptec_native_page() -> dict[str, object]:
+async def _tec_variations_page() -> dict[str, object]:
     context = await _abstec_page()
-    context["abstec_output_host_path"] = cfg.MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST
+    context["abstec_output_host_path"] = cfg.TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST
     return context
 
 
-async def _prepare_maptec_native(form: FormData, db: Session) -> PreparedRun:
+async def _prepare_tec_variations(form: FormData, db: Session) -> PreparedRun:
     dat_root = cfg.TECSUITE_OUT_DAT_DATA_PATH_HOST.strip()
-    output = cfg.MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST.strip()
+    output = cfg.TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST.strip()
     if not dat_root:
         raise FormError("TECSUITE_OUT_DAT_DATA_PATH_HOST is not configured")
     if not output:
-        raise FormError("MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST is not configured")
+        raise FormError("TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST is not configured")
     if output.rstrip("/\\") == dat_root.rstrip("/\\"):
-        raise FormError("MapTEC input and output roots must be distinct")
+        raise FormError("TEC Variations input and output roots must be distinct")
     selectors = {key: str(form.get(key, "")).strip() for key in ("year", "day_of_year", "days", "site")}
     try:
         parse_selection(selectors["year"], selectors["day_of_year"], selectors["days"], selectors["site"])
@@ -486,7 +486,7 @@ _PAGE_CONTEXT: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {
     "tec-suite": _tec_suite_page,
     "abstec-suite": _abstec_page,
     "abstec-native": _abstec_native_page,
-    "maptec-native": _maptec_native_page,
+    "tec-variations": _tec_variations_page,
     "dat-parquet-handler": _dat_parquet_page,
 }
 
@@ -494,7 +494,7 @@ _PREPARE_FORM: dict[str, Callable[[FormData, Session], Awaitable[PreparedRun]]] 
     "tec-suite": _prepare_tec_suite,
     "abstec-suite": _prepare_abstec,
     "abstec-native": _prepare_abstec_native,
-    "maptec-native": _prepare_maptec_native,
+    "tec-variations": _prepare_tec_variations,
     "dat-parquet-handler": _prepare_dat_parquet,
 }
 

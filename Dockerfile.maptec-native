@@ -1,7 +1,0 @@
-FROM python:3.12-slim
-WORKDIR /app
-ENV OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg
-COPY requirements-maptec-native.txt ./
-RUN pip install --no-cache-dir -r requirements-maptec-native.txt
-COPY maptec_native ./maptec_native
-ENTRYPOINT ["python", "-m", "maptec_native"]

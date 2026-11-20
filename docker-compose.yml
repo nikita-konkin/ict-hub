@@ -88,8 +88,8 @@ services:
       ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST: ${ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST:-}
       ABSTEC_NATIVE_OUTPUT_DATA_PATH: ${ABSTEC_NATIVE_OUTPUT_DATA_PATH:-/data/out}
       ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER: ${ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-native-out}
-      MAPTEC_NATIVE_IMAGE: ${MAPTEC_NATIVE_IMAGE:-maptec-native:latest}
-      MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST: ${MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST:-}
+      TEC_VARIATIONS_IMAGE: ${TEC_VARIATIONS_IMAGE:-tec-variations:latest}
+      TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST: ${TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST:-}
       # ── AbsTEC dockur XP runner (optional) ───────────────────────────────
       # Host path of abstec-suite/dockur/jobs — the job queue shared with the
       # Windows XP VM (abstec-xp mounts it as /shared/jobs). Leave empty to

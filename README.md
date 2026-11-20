@@ -116,38 +116,42 @@ TEC-Suite now reads folder options from `RINEX_DATA_PATH_HOST` and passes:
 
 The `--out` option is temporarily disabled and handled inside the TEC-Suite container.
 
-### 4. Running MapTEC Native
+### 4. Running TEC Variations (dTEC)
 
 Build the converter image on the Docker host used by the hub.
 
 ```bash
-docker build -f Dockerfile.maptec-native -t maptec-native:latest .
+docker build -f Dockerfile.tec-variations -t tec-variations:latest .
 ```
 
 Set `TECSUITE_OUT_DAT_DATA_PATH_HOST` to the tec-suite DAT root and
-`MAPTEC_NATIVE_OUTPUT_DATA_PATH_HOST` to a separate writable directory on that
-host. Set `MAPTEC_NATIVE_IMAGE` if the image has a different tag. Open
-**MapTEC Native**, choose one year, a single day or batch days, and optionally
+`TEC_VARIATIONS_OUTPUT_DATA_PATH_HOST` to a separate writable directory on that
+host. Set `TEC_VARIATIONS_IMAGE` if the image has a different tag. Open
+**TEC Variations**, choose one year, a single day or batch days, and optionally
 limit the sites. The job container mounts the DAT root read-only and writes to
 the configured output root.
 
 Install the dependencies and run the standalone CLI with Python 3.12.
 
 ```bash
-python -m pip install -r requirements-maptec-native.txt
-python -m maptec_native --dat-path /data/in --output-dir /data/out \
-  --year 2015 --day-of-year 120 --site tver,tymn --tec-parameter tec.l \
-  --ut-start 1 --ut-end 1.025 --solar-terminator
+python -m pip install -r requirements-tec-variations.txt
+python -m tec_variations --dat-path /data/in --output-dir /data/out \
+  --year 2015 --day-of-year 120 --site tver,tymn --tec-parameter tec.l
 ```
 
 Select the TEC column found in your DAT headers. The default is `tec.l1l2`.
-Output is grouped by `YYYY/DDD`, with `Map_YYYY_DDD_UT_hh.hhhhh.dat` and PNG
-pairs for populated epochs and a `diagnostics.json` for each processed day.
-Review missing-neighbour warnings when interpreting maps near midnight.
-Use `--help` for filter, map, and neighbour options and `--world-contour` to
-load a local two-column contour such as `NiceWorld-180.DAT`.
-The [reconstruction findings](docs/maptec_reconstruction.md) describe the
-processing choices and quantify the differences from the legacy executable.
+By default, the converter filters the 2–10, 10–20 and 20–60 minute bands in
+slant TEC, projects the variations to vertical and uses a 30° elevation cutoff.
+It writes `YYYY/DDD/SITE/SITE_dtec_DDD_YY.parquet` and a daily
+`diagnostics.json`. Use `--bands` for custom periods and `--vertical 0` for
+slant output.
+
+Use `--legacy-maps` for MapTEC-format DAT files and `--png` for PNGs. Both
+outputs use the first selected band and default to an absolute threshold of
+0.02 TECU. For the historical filter, use `--filter legacy`; set
+`--elevation-cutoff 0 --di-threshold 0.01` to restore the old selection defaults.
+See the [method, Parquet schema and validation](docs/tec_variations.md) and the
+[MapTEC reconstruction history](docs/maptec_reconstruction.md).
 
 ---
 

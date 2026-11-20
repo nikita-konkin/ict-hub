@@ -27,7 +27,7 @@ def _fixture(root, day=120, satellite="G01", start=0, stop=80, invalid=None, use
 
 
 def test_header_order_datetime_hour_and_missing_phase(tmp_path):
-    from maptec_native.dat import read_track
+    from tec_variations.dat import read_track
 
     path = _fixture(tmp_path, invalid=3, stop=6, use_hour=True)
     track = read_track(path, "tec.l1l2")
@@ -35,7 +35,7 @@ def test_header_order_datetime_hour_and_missing_phase(tmp_path):
 
 
 def test_filter_matches_independent_symmetric_running_mean():
-    from maptec_native.science import filter_arc
+    from tec_variations.science import filter_arc
 
     signal = [2 + 0.1 * i + sin(2 * pi * i / 16) for i in range(90)]
 
@@ -52,7 +52,7 @@ def test_filter_matches_independent_symmetric_running_mean():
 
 
 def test_leveling_anchors_vertical_tec_at_the_slant_minimum():
-    from maptec_native.science import level_arc
+    from tec_variations.science import level_arc
 
     slant = np.array([9.0, 5.0, 7.0])
     factors = np.array([0.8, 0.5, 0.6])
@@ -61,24 +61,25 @@ def test_leveling_anchors_vertical_tec_at_the_slant_minimum():
 
 
 def test_skipped_arc_edges_do_not_enter_the_filter(tmp_path):
-    from maptec_native.dat import read_track
-    from maptec_native.pipeline import _filter_points
-    from maptec_native.settings import MapSettings
+    from tec_variations.dat import read_track
+    from tec_variations.pipeline import DayReport, _filter_observations
+    from tec_variations.settings import VariationSettings
 
     track = read_track(_fixture(tmp_path), "tec.l1l2")
     spiked = track.samples.copy()
     spiked[:5, 3] += 1000
     spiked[-5:, 3] -= 1000
-    settings = MapSettings(di_threshold=0)
-    epochs = set(range(0, 80 * 30, 30))
-    original = dict(_filter_points(track.samples, track, settings, epochs, "test", "source"))
-    modified = dict(_filter_points(spiked, track, settings, epochs, "test", "source"))
-    assert original
-    assert original == modified
+    settings = VariationSettings(filter="legacy")
+    bands = settings.period_bands
+    report = DayReport("2015-04-30")
+    original = _filter_observations(track.samples, track, settings, bands, report)
+    modified = _filter_observations(spiked, track, settings, bands, report)
+    assert np.isfinite(original.variations["dtec_2_20m"]).any()
+    np.testing.assert_equal(original.variations["dtec_2_20m"], modified.variations["dtec_2_20m"])
 
 
 def test_geometry_uses_shell_mapping_and_solar_horizon():
-    from maptec_native.science import shell_coordinates, terminator
+    from tec_variations.science import shell_coordinates, terminator
 
     lat, lon, factor = shell_coordinates(np.array([30.0]), np.array([90.0]), 0, 0, 300)
     ratio = 6371 / 6671
@@ -92,7 +93,7 @@ def test_geometry_uses_shell_mapping_and_solar_horizon():
 
 
 def test_cli_map_columns_diagnostics_and_overwrite(tmp_path, capsys):
-    from maptec_native.__main__ import main
+    from tec_variations.__main__ import main
 
     root, output = tmp_path / "in", tmp_path / "out"
     _fixture(root, invalid=29)
@@ -116,6 +117,10 @@ def test_cli_map_columns_diagnostics_and_overwrite(tmp_path, capsys):
         "0.25",
         "--di-threshold",
         "0",
+        "--filter",
+        "legacy",
+        "--legacy-maps",
+        "--png",
         "--solar-terminator",
     ]
     assert main(args) == 0
@@ -132,8 +137,10 @@ def test_cli_map_columns_diagnostics_and_overwrite(tmp_path, capsys):
     assert main([*args, "--overwrite"]) == 0
 
 
-def test_neighbor_extends_arc_across_midnight_and_can_be_disabled(tmp_path, capsys):
-    from maptec_native.__main__ import main
+def test_neighbor_extends_arc_across_midnight_and_can_be_disabled(tmp_path):
+    import pyarrow.parquet as pq
+
+    from tec_variations.__main__ import main
 
     root, output = tmp_path / "in", tmp_path / "out"
     _fixture(root, day=119, start=2800, stop=2880)
@@ -151,18 +158,20 @@ def test_neighbor_extends_arc_across_midnight_and_can_be_disabled(tmp_path, caps
         "0",
         "--di-threshold",
         "0",
+        "--filter",
+        "legacy",
+        "--legacy-maps",
     ]
-    assert main([*args, "--no-previous-day"]) == 1
-    assert "Nothing to map" in capsys.readouterr().err
-    assert not (output / "2015" / "120").exists()
-    failure = next((output / "2015").glob("120.failed-*.json"))
-    assert "Nothing to map" in json.loads(failure.read_text())["error"]
-    assert main(args) == 0
+    assert main([*args, "--no-previous-day"]) == 0
+    day = output / "2015" / "120"
+    assert not list(day.glob("Map_*"))
+    assert pq.read_table(day / "test/test_dtec_120_15.parquet")["dtec_2_20m"][0].as_py() is None
+    assert main([*args, "--overwrite"]) == 0
     assert (output / "2015" / "120" / "Map_2015_120_UT_ 0.00000.dat").stat().st_size > 0
 
 
 def test_ut_bounds_clip_the_midnight_grid(tmp_path):
-    from maptec_native.__main__ import main
+    from tec_variations.__main__ import main
 
     root, output = tmp_path / "in", tmp_path / "out"
     _fixture(root)
@@ -183,16 +192,20 @@ def test_ut_bounds_clip_the_midnight_grid(tmp_path):
                 "0.25",
                 "--di-threshold",
                 "0",
+                "--filter",
+                "legacy",
+                "--legacy-maps",
             ]
         )
         == 0
     )
     assert [p.name for p in (output / "2015" / "120").glob("*.dat")] == ["Map_2015_120_UT_ 0.25000.dat"]
+    assert not list((output / "2015" / "120").glob("*.png"))
 
 
 def test_renderer_makes_color_limits_effective():
-    from maptec_native.output import MapPoint, MapRenderer
-    from maptec_native.settings import DEFAULTS
+    from tec_variations.output import MapPoint, MapRenderer
+    from tec_variations.settings import DEFAULTS
 
     renderer = MapRenderer(DEFAULTS, None, False)
     assert renderer.dots.get_clim() == (-0.5, 0.5)

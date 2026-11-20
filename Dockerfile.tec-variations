@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+WORKDIR /app
+ENV OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg
+COPY requirements-tec-variations.txt ./
+RUN pip install --no-cache-dir -r requirements-tec-variations.txt
+COPY tec_variations ./tec_variations
+ENTRYPOINT ["python", "-m", "tec_variations"]

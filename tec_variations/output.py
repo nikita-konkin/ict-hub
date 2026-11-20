@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
 from .science import terminator
-from .settings import MapSettings
+from .settings import VariationSettings
 
 
 @dataclass(frozen=True)
@@ -57,10 +57,15 @@ def read_contour(path: Path) -> NDArray[np.float64]:
     return np.asarray(rows, dtype=float).reshape(-1, 2)
 
 
-class MapRenderer:
-    """Reuse the axes and static map elements across a day's frames."""
+def write_legacy_map(output: Path, stem: str, ut: float, points: list[MapPoint]) -> None:
+    """Write the historical whitespace-delimited columns for one epoch."""
+    (output / f"{stem}.dat").write_text("".join(point.format_row(ut) for point in points), encoding="ascii")
 
-    def __init__(self, settings: MapSettings, contour: NDArray[np.float64] | None, solar: bool):
+
+class MapRenderer:
+    """Reuse the axes and static map elements across a day's PNG frames."""
+
+    def __init__(self, settings: VariationSettings, contour: NDArray[np.float64] | None, solar: bool):
         self.settings = settings
         self.solar = solar
         self.figure = Figure(figsize=(8, 6), dpi=100, layout="constrained")
@@ -89,10 +94,8 @@ class MapRenderer:
         )
         self.figure.colorbar(self.dots, ax=self.axes, label="dI (TECU)")
 
-    def write(self, output: Path, day: date, seconds: int, points: list[MapPoint]) -> None:
+    def write(self, output: Path, stem: str, day: date, seconds: int, points: list[MapPoint]) -> None:
         ut = seconds / 3600
-        stem = f"Map_{day.year:04d}_{day.timetuple().tm_yday:03d}_UT_{ut:8.5f}"
-        (output / f"{stem}.dat").write_text("".join(point.format_row(ut) for point in points), encoding="ascii")
         self.dots.set_offsets(np.asarray([(point.longitude, point.latitude) for point in points]))
         self.dots.set_array(np.asarray([point.di for point in points]))
         self.axes.set_title(f"{day.isoformat()} · UT {ut:.5f}")

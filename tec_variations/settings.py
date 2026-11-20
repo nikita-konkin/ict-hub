@@ -1,4 +1,4 @@
-"""Shared CLI defaults and server-side validation for MapTEC."""
+"""Share converter defaults and input validation with the hub."""
 
 import calendar
 import math
@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 
 TEC_MASKS = {
     "tec.l": (24, 3),
@@ -18,12 +19,33 @@ TEC_MASKS = {
     "tec.p2c1": (68, 0),
 }
 
+DEFAULT_BANDS = "2-10,10-20,20-60"
+
 
 @dataclass(frozen=True)
-class MapSettings:
+class PeriodBand:
+    """A period interval in minutes and its stable Parquet column name."""
+
+    shortest_minutes: float
+    longest_minutes: float
+
+    @property
+    def column(self) -> str:
+        ends = [
+            format(Decimal(str(value)), "f").removesuffix(".0").replace(".", "p")
+            for value in (self.shortest_minutes, self.longest_minutes)
+        ]
+        return f"dtec_{ends[0]}_{ends[1]}m"
+
+
+@dataclass(frozen=True)
+class VariationSettings:
     """Filtering, projection and rendering settings for a run."""
 
     max_absent_points: int = 2
+    filter: str = "butterworth"
+    bands: str = ""
+    elevation_cutoff: float = 30.0
     smoothing_minutes: float = 2.0
     detrend_minutes: float = 20.0
     skip_edge_samples: int = 5
@@ -43,20 +65,40 @@ class MapSettings:
     point_size: float = 1.0
     color_min: float = -0.5
     color_max: float = 0.5
-    di_threshold: float = 0.01
+    di_threshold: float = 0.02
+
+    @property
+    def period_bands(self) -> tuple[PeriodBand, ...]:
+        if not self.bands and self.filter == "legacy":
+            return (PeriodBand(self.smoothing_minutes, self.detrend_minutes),)
+        bands = []
+        for part in (self.bands or DEFAULT_BANDS).split(","):
+            match = re.fullmatch(r"\s*([0-9]{1,4}(?:\.[0-9]{1,6})?)\s*-\s*([0-9]{1,4}(?:\.[0-9]{1,6})?)\s*", part)
+            if not match:
+                raise ValueError("Bands must be comma-separated period ranges in minutes such as 2-10,10-20")
+            shortest, longest = map(float, match.groups())
+            if not 0 < shortest < longest <= 1440:
+                raise ValueError("Band endpoints must be positive and increasing within 1440 minutes")
+            bands.append(PeriodBand(shortest, longest))
+        if len(set(bands)) != len(bands):
+            raise ValueError("Bands must be unique")
+        return tuple(bands)
 
 
-DEFAULTS = MapSettings()
+DEFAULTS = VariationSettings()
 LABELS = {
     "max_absent_points": "Maximum absent points",
-    "smoothing_minutes": "Smoothing window (minutes)",
-    "detrend_minutes": "Detrending window (minutes)",
-    "skip_edge_samples": "Skipped samples at each arc edge",
-    "ut_start": "UT start (hours)",
-    "ut_end": "UT end (hours)",
+    "filter": "Filter",
+    "bands": "Period bands (minutes)",
+    "elevation_cutoff": "Elevation cutoff (degrees)",
+    "smoothing_minutes": "Legacy smoothing window (minutes)",
+    "detrend_minutes": "Legacy detrending window (minutes)",
+    "skip_edge_samples": "Legacy skipped samples at each arc edge",
+    "ut_start": "Map UT start (hours)",
+    "ut_end": "Map UT end (hours)",
     "map_step_seconds": "Map step (seconds)",
     "vertical": "Vertical TEC",
-    "minimum_tec": "Minimum vertical TEC baseline (TECU)",
+    "minimum_tec": "Legacy minimum vertical TEC baseline (TECU)",
     "tec_parameter": "TEC column",
     "shell_height_km": "Shell height (km)",
     "satellite": "Satellite (0 for all, PRN or ID)",
@@ -72,14 +114,17 @@ LABELS = {
 }
 OPTION_HELP = {
     "max_absent_points": "Break an arc when more consecutive samples are missing",
-    "smoothing_minutes": "Use 0 to disable the short running average",
-    "detrend_minutes": "Use a positive window at least as long as the smoothing window",
-    "skip_edge_samples": "Discard this many observations from both ends before filtering",
+    "filter": "Use butterworth for zero-phase band-pass or legacy for MapTEC running means",
+    "bands": "Comma-separated period ranges, defaulting to 2-10,10-20,20-60 or the legacy window pair",
+    "elevation_cutoff": "Reject observations below this angle and split their arcs",
+    "smoothing_minutes": "Legacy short running average when bands are omitted, with 0 to disable smoothing",
+    "detrend_minutes": "Legacy long running average when bands are omitted",
+    "skip_edge_samples": "For the legacy filter, discard this many observations from both ends before filtering",
     "ut_start": "Use decimal hours from 0 to 24, e.g. 1.5 for 01:30",
     "ut_end": "Include the final epoch when it falls on the map grid",
     "map_step_seconds": "Use a whole number of seconds on a grid starting at midnight",
-    "vertical": "Use 1 to project slant TEC vertically or 0 to retain slant TEC",
-    "minimum_tec": "Sets the vertical baseline at the minimum slant-TEC observation",
+    "vertical": "Use 1 for vertical variations or 0 for slant variations",
+    "minimum_tec": "For the legacy filter, set the vertical baseline at the minimum slant-TEC observation",
     "tec_parameter": "Use a column present in the DAT header, e.g. tec.l1l2 or tec.l",
     "shell_height_km": "Used for both pierce points and the optional solar terminator",
     "satellite": "Use G01 for GPS 01 or 1 to include PRN 01 across constellations",
@@ -91,11 +136,11 @@ OPTION_HELP = {
     "point_size": "Scale the plotted point area relative to the default",
     "color_min": "Values below this dI use the lowest palette color",
     "color_max": "Values above this dI use the highest palette color",
-    "di_threshold": "Omit points whose absolute dI is smaller than this value",
+    "di_threshold": "Omit map points whose absolute dTEC is smaller than this value",
 }
 
 
-def parse_settings(values: Mapping[str, object]) -> MapSettings:
+def parse_settings(values: Mapping[str, object]) -> VariationSettings:
     """Validate text from either the command line or a form submission."""
     parsed = {}
     for key, label in LABELS.items():
@@ -104,14 +149,19 @@ def parse_settings(values: Mapping[str, object]) -> MapSettings:
         try:
             parsed[key] = type(default)(value)
         except ValueError as exc:
-            raise ValueError(
-                f"{label} must be {'an integer' if isinstance(default, int) else 'a finite number'}"
-            ) from exc
+            number_type = "an integer" if isinstance(default, int) else "a finite number"
+            raise ValueError(f"{label} must be {number_type}") from exc
         if isinstance(default, float) and not math.isfinite(parsed[key]):
             raise ValueError(f"{label} must be a finite number")
     parsed["tec_parameter"] = parsed["tec_parameter"].lower()
     parsed["satellite"] = parsed["satellite"].upper()
-    settings = MapSettings(**parsed)
+    parsed["filter"] = parsed["filter"].lower()
+    settings = VariationSettings(**parsed)
+    if settings.filter not in {"butterworth", "legacy"}:
+        raise ValueError("Filter must be butterworth or legacy")
+    if not 0 <= settings.elevation_cutoff <= 90:
+        raise ValueError("Elevation cutoff must be within 0 to 90 degrees")
+    _ = settings.period_bands
     if settings.tec_parameter not in TEC_MASKS:
         raise ValueError("TEC column must be a supported tec-suite parameter")
     if not re.fullmatch(r"(?:ALL|[A-Z]?[0-9]{1,3})", settings.satellite):
