@@ -1,9 +1,15 @@
-"""Per-converter form preparation for the native AbsolTEC reconstruction."""
+"""Per-converter form preparation and run page context."""
 
 import pytest
 
 from app import config as cfg
-from app.converters import FormError, _abstec_native_page, _prepare_abstec_native
+from app.converters import (
+    FormError,
+    _abstec_native_page,
+    _dat_parquet_page,
+    _prepare_abstec_native,
+    _prepare_dat_parquet,
+)
 
 
 def _form(**overrides):
@@ -94,3 +100,47 @@ async def test_native_page_context_reports_native_output_path(monkeypatch):
     context = await _abstec_native_page()
     assert context["abstec_output_host_path"] == r"N:\OUT"
     assert context["abstec_dat_tree"][0]["year"] == "2025"
+
+
+@pytest.fixture
+def native_parquet(monkeypatch):
+    monkeypatch.setattr(cfg, "ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST", "/srv/native-q7")
+    monkeypatch.setattr(cfg, "PARQUET_OUTPUT_ABSTEC_DATA_PATH_HOST", "/srv/abs-parquet-k2")
+
+
+async def test_dat_parquet_reads_the_abstec_native_output(native_parquet):
+    form = {"direction": "dat-to-parquet", "dataset_profile": "abstec-native", "root_subpath": "/2024/245"}
+    await _prepare_dat_parquet(form, None)
+    assert form["src"] == "/srv/native-q7/2024/245", "AbsTEC Native output is not the conversion source"
+
+
+async def test_dat_parquet_writes_abstec_native_results_into_the_abstec_parquet_tree(native_parquet):
+    form = {"direction": "dat-to-parquet", "dataset_profile": "abstec-native", "root_subpath": "/2024/245"}
+    await _prepare_dat_parquet(form, None)
+    assert form["dst_effective"] == "/srv/abs-parquet-k2/2024/245", "AbsTEC Native results miss the Parquet tree"
+
+
+async def test_dat_parquet_rejects_abstec_native_without_its_output_path(native_parquet, monkeypatch):
+    monkeypatch.setattr(cfg, "ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST", "")
+    with pytest.raises(FormError, match="ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST is not configured"):
+        await _prepare_dat_parquet({"direction": "dat-to-parquet", "dataset_profile": "abstec-native"}, None)
+
+
+async def test_parquet_to_dat_offers_no_abstec_native_destination(native_parquet):
+    with pytest.raises(FormError, match="valid DAT <-> Parquet source profile"):
+        await _prepare_dat_parquet({"direction": "parquet-to-dat", "dataset_profile": "abstec-native"}, None)
+
+
+async def test_dat_parquet_page_lists_the_abstec_native_days(monkeypatch):
+    monkeypatch.setattr(cfg, "ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER", "/mnt/native-z3")
+    tree = [{"year": "2024", "days": [{"day": "245"}, {"day": "253"}]}]
+
+    async def listing(scan_path):
+        return tree if scan_path == "/mnt/native-z3" else []
+
+    monkeypatch.setattr("app.converters.list_parquet_output_structure_async", listing)
+    monkeypatch.setattr("app.converters.list_tecsuite_output_structure_async", listing)
+    context = await _dat_parquet_page()
+    assert context["dat_parquet_source_tree_matrix"]["dat-to-parquet"]["abstec-native"] == tree, (
+        "The run page does not list AbsTEC Native days"
+    )

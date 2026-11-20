@@ -521,6 +521,8 @@ docker run --rm -v "$PWD:/work" -v ict-hub-node-modules:/work/node_modules -w /w
 | `ABSTEC_OUTPUT_DATA_PATH_HOST` | ``                               | Host folder where AbsTEC output is persisted   |
 | `ABSTEC_OUTPUT_DATA_PATH` | `/app/abstec_out`                    | Container path for AbsTEC output               |
 | `ABSTEC_OUTPUT_DATA_PATH_CONTAINER` | `/mnt/abstec-out`           | Path inside converter-hub used to browse AbsTEC output folders |
+| `ABSTEC_NATIVE_OUTPUT_DATA_PATH_HOST` | ``                        | Host folder where AbsTEC Native output is persisted; DAT -> Parquet converts it into the AbsTEC Parquet tree |
+| `ABSTEC_NATIVE_OUTPUT_DATA_PATH_CONTAINER` | `/mnt/abstec-native-out` | Path inside converter-hub and data-indexer used to list AbsTEC Native output folders |
 | `PARQUET_OUTPUT_TECSUITE_DATA_PATH_HOST` | ``                    | Host folder for TEC-Suite Parquet output       |
 | `PARQUET_OUTPUT_TECSUITE_DATA_PATH` | `/app/tecsuite_parquet_out` | Container path for TEC-Suite Parquet output    |
 | `PARQUET_OUTPUT_TECSUITE_DATA_PATH_CONTAINER` | `/mnt/tecsuite-parquet-out` | Path inside converter-hub for browsing TEC-Suite Parquet output |

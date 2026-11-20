@@ -171,6 +171,14 @@ def test_indexer_rejects_roots_outside_configured_paths(indexer_app, monkeypatch
         assert client.get("/parquet", params={"root": good_root}).status_code == 200, good_root
 
 
+def test_indexer_lists_the_abstec_native_output_root(indexer_app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(indexer_app, "list_parquet_output_structure", lambda root, refresh=False: [])
+    response = TestClient(indexer_app.app).get("/parquet", params={"root": "/mnt/abstec-native-out/2024"})
+    assert response.status_code == 200, "The indexer refuses to list the AbsTEC Native output"
+
+
 @pytest.mark.parametrize("mode", ["true", "async"])
 def test_startup_indexing_runs_off_the_event_loop(indexer_app, monkeypatch, mode):
     """The warm-up walks whole data trees; /health must keep answering meanwhile."""
