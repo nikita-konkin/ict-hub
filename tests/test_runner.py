@@ -7,6 +7,7 @@ and volume mapping — the logic most likely to break if the registry changes.
 """
 
 import asyncio
+from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -330,6 +331,43 @@ class TestStartContainer:
 
         with pytest.raises(docker.errors.ImageNotFound):
             start_container("tec-suite", [], {})
+
+    def test_start_container_caps_cpu_at_requested_share(self, monkeypatch):
+        from app import runner
+
+        containers = _FakeContainers()
+        monkeypatch.setattr(runner.docker, "from_env", lambda: SimpleNamespace(containers=containers))
+        monkeypatch.setattr(runner.os, "cpu_count", lambda: 48)
+        runner.start_container("absoltec-native:latest", ["--year", "2024"], {}, cpus=5.75)
+        assert containers.calls[0].get("nano_cpus") == 5_750_000_000, "container was not capped at the requested share"
+
+    def test_start_container_clamps_cpu_cap_to_host_cores(self, monkeypatch):
+        from app import runner
+
+        containers = _FakeContainers()
+        monkeypatch.setattr(runner.docker, "from_env", lambda: SimpleNamespace(containers=containers))
+        monkeypatch.setattr(runner.os, "cpu_count", lambda: 7)
+        runner.start_container("tec-suite:latest", ["-j", "3"], {}, cpus=12)
+        assert containers.calls[0].get("nano_cpus") == 7_000_000_000, "cap exceeded the cores the host has"
+
+    def test_start_container_leaves_container_uncapped_when_cpus_is_zero(self, monkeypatch):
+        from app import runner
+
+        containers = _FakeContainers()
+        monkeypatch.setattr(runner.docker, "from_env", lambda: SimpleNamespace(containers=containers))
+        runner.start_container("dat-parquet-handler:latest", ["--direction", "dat2parquet"], {}, cpus=0)
+        assert "nano_cpus" not in containers.calls[0], "container was capped although the cap was disabled"
+
+
+class _FakeContainers:
+    """Docker containers API stand-in that records the keyword arguments of each run."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def run(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(id="5e1f0c2a9b", short_id="5e1f0c2a9b")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
