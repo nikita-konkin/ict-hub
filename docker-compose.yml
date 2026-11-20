@@ -80,6 +80,10 @@ services:
       TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: ${TECSUITE_OUT_DAT_DATA_PATH_CONTAINER:-/mnt/tecsuite-out}
       DAT_PARQUET_IMAGE: ${DAT_PARQUET_IMAGE:-nikitaikonkin/dat-parquet-handler:latest}
       ABSTEC_SUITE_IMAGE: ${ABSTEC_SUITE_IMAGE:-nikitaikonkin/abstec-suite:latest}
+      # CPU cap for each converter job container (docker run --cpus). Jobs run
+      # beside this container, so the cpus limit below does not cover them.
+      # 0 leaves them uncapped.
+      CONVERTER_CPUS: ${CONVERTER_CPUS:-12}
       ABSTEC_OUTPUT_DATA_PATH_HOST: ${ABSTEC_OUTPUT_DATA_PATH_HOST:-}
       ABSTEC_OUTPUT_DATA_PATH: ${ABSTEC_OUTPUT_DATA_PATH:-/app/abstec_out}
       ABSTEC_OUTPUT_DATA_PATH_CONTAINER: ${ABSTEC_OUTPUT_DATA_PATH_CONTAINER:-/mnt/abstec-out}

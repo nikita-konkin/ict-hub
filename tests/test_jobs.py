@@ -397,6 +397,17 @@ class TestStartJob:
         _, kwargs = mock_start.call_args
         assert kwargs.get("auto_remove") is True
 
+    @patch("app.jobs.start_container", return_value="container_cpus")
+    def test_start_job_caps_container_at_configured_cpus(self, mock_start, operator_client, monkeypatch):
+        monkeypatch.setattr("app.jobs.cfg.CONVERTER_CPUS", 6.5)
+        operator_client.post(
+            "/jobs/start",
+            data=self._start_job_data(),
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+        assert mock_start.call_args.kwargs.get("cpus") == 6.5, "job container did not get the configured CPU cap"
+
     @patch("app.jobs.start_container", return_value="container999")
     def test_successful_non_htmx_start_redirects_back_to_run_page(self, mock_start, operator_client):
         """A plain form POST should redirect back to the converter run page."""

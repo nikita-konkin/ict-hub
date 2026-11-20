@@ -145,6 +145,13 @@ TECSUITE_OUT_DAT_DATA_PATH_CONTAINER: str = os.getenv("TECSUITE_OUT_DAT_DATA_PAT
 # Container output path used by TEC-suite image.
 TECSUITE_OUT_DAT_DATA_PATH: str = os.getenv("TECSUITE_OUT_DAT_DATA_PATH", "/app/out")
 
+# CPU cap for every converter container the hub starts, like `docker run --cpus`.
+# Jobs run beside the hub, so its own compose cpus limit does not cover them.
+# 0 leaves them uncapped.
+CONVERTER_CPUS: float = float(os.getenv("CONVERTER_CPUS", "12"))
+if not 0 <= CONVERTER_CPUS < float("inf"):
+    raise RuntimeError(f"CONVERTER_CPUS must be a non-negative finite number, got {CONVERTER_CPUS}")
+
 # Docker image name for the dat-parquet handler container
 DAT_PARQUET_IMAGE: str = os.getenv("DAT_PARQUET_IMAGE", "nikitaikonkin/dat-parquet-handler:latest")
 
