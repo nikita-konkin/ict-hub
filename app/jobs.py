@@ -565,6 +565,7 @@ async def start_job(
             command,
             volumes,
             auto_remove=auto_remove,
+            cpus=cfg.CONVERTER_CPUS,
             labels={
                 "ict-hub.converter": str(converter_name),
                 "ict-hub.job_id": str(job.id),

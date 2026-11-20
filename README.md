@@ -465,6 +465,7 @@ docker run --rm -v "$PWD:/work" -v ict-hub-node-modules:/work/node_modules -w /w
 | `TECSUITE_IMAGE`   | `nikitaikonkin/tec-suite:latest`         | Docker image name for TEC-Suite               |
 | `DAT_PARQUET_IMAGE`| `nikitaikonkin/dat-parquet-handler:latest` | Docker image name for DAT <-> Parquet       |
 | `ABSTEC_SUITE_IMAGE`| `nikitaikonkin/abstec-suite:latest`     | Docker image name for AbsTEC Suite            |
+| `CONVERTER_CPUS`   | `12`                                     | CPU cap for each converter job container; `0` leaves jobs uncapped |
 
 ### Data Paths
 | Variable           | Default                                  | Description                                   |

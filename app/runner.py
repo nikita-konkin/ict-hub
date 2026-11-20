@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import queue
 import re
 import threading
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime
+from typing import Any
 
 import docker
 import docker.errors
@@ -110,6 +112,7 @@ def start_container(
     volumes: dict,
     auto_remove: bool = False,
     labels: dict[str, str] | None = None,
+    cpus: float = 0.0,
 ) -> str:
     """
     Start a Docker container in detached mode (non-blocking) and return its ID.
@@ -117,16 +120,22 @@ def start_container(
     Set auto_remove=True to run the container with Docker's --rm behavior.
     When disabled (default), containers are preserved after completion.
 
+    A positive cpus caps the container like `docker run --cpus`, clamped to
+    the host's core count because Docker rejects a larger cap; zero leaves it
+    uncapped.
+
     Raises docker.errors.DockerException on any failure (image not found,
     daemon not reachable, etc.).
     """
     client = docker.from_env()
+    limit: dict[str, Any] = {"nano_cpus": int(min(cpus, os.cpu_count() or 1) * 1_000_000_000)} if cpus > 0 else {}
     logger.info(
-        "Starting container: image=%s command=%s volumes=%s auto_remove=%s",
+        "Starting container: image=%s command=%s volumes=%s auto_remove=%s limit=%s",
         image,
         command,
         list(volumes.keys()),
         auto_remove,
+        limit,
     )
     container = client.containers.run(
         image=image,
@@ -138,6 +147,7 @@ def start_container(
         # Prevent privilege escalation via setuid binaries inside the job
         # container (defense-in-depth; converters do not need it).
         security_opt=["no-new-privileges:true"],
+        **limit,
     )
     logger.info("Container started: id=%s", container.short_id)
     if container.id is None:
