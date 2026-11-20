@@ -1,4 +1,4 @@
-"""MapTEC converter form, mounts and live progress checks."""
+"""TEC Variations converter form, mounts and live progress checks."""
 
 import pytest
 
